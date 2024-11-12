@@ -39,15 +39,6 @@ except ImportError:
         extra_include_paths=[f"{current_dir}/kernel"],
         build_directory=current_dir,
     )
-    fastfold_layer_norm_cuda = compile(
-        name="fastfold_layer_norm_cuda",
-        sources=[
-            os.path.join(f"{current_dir}/kernel", file)
-            for file in ["layer_norm_cuda.cpp", "layer_norm_cuda_kernel.cu"]
-        ],
-        extra_include_paths=[f"{current_dir}/kernel"],
-        build_directory=current_dir,
-    )
 
 
 class FusedLayerNormAffineFunction(torch.autograd.Function):
@@ -98,33 +89,9 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
                         ctx.eps,
                     )
                 )
-                grad_input, grad_weight, grad_bias = (
-                    fastfold_layer_norm_cuda.backward_affine(
-                        grad_output.contiguous(),
-                        mean,
-                        invvar,
-                        input_,
-                        ctx.normalized_shape,
-                        weight_.to(dtype=d),
-                        bias_.to(dtype=d),
-                        ctx.eps,
-                    )
-                )
         else:
             input_, weight_, bias_, mean, invvar = ctx.saved_tensors
             grad_input = grad_weight = grad_bias = None
-            grad_input, grad_weight, grad_bias = (
-                fastfold_layer_norm_cuda.backward_affine(
-                    grad_output.contiguous(),
-                    mean,
-                    invvar,
-                    input_,
-                    ctx.normalized_shape,
-                    weight_,
-                    bias_,
-                    ctx.eps,
-                )
-            )
             grad_input, grad_weight, grad_bias = (
                 fastfold_layer_norm_cuda.backward_affine(
                     grad_output.contiguous(),
@@ -168,22 +135,13 @@ class FusedLayerNorm(torch.nn.Module):
                     out[i : i + chunk_size] = self.kernel_forward(
                         input[i : i + chunk_size]
                     )
-                    out[i : i + chunk_size] = self.kernel_forward(
-                        input[i : i + chunk_size]
-                    )
             elif len(input.shape) == 4:
                 for j in range(input.shape[-4]):
                     for i in range(0, input.shape[-3], chunk_size):
                         out[j, i : i + chunk_size] = self.kernel_forward(
                             input[j, i : i + chunk_size]
                         )
-                        out[j, i : i + chunk_size] = self.kernel_forward(
-                            input[j, i : i + chunk_size]
-                        )
             else:
-                raise RuntimeError(
-                    "Shape" + input.shape + "not implemented for layernorm yet!"
-                )
                 raise RuntimeError(
                     "Shape" + input.shape + "not implemented for layernorm yet!"
                 )
@@ -192,9 +150,6 @@ class FusedLayerNorm(torch.nn.Module):
             return self.kernel_forward(input)
 
     def kernel_forward(self, input):
-        return FusedLayerNormAffineFunction.apply(
-            input, self.weight, self.bias, self.normalized_shape, self.eps
-        )
         return FusedLayerNormAffineFunction.apply(
             input, self.weight, self.bias, self.normalized_shape, self.eps
         )
