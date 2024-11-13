@@ -127,6 +127,11 @@ Arguments in this scripts are explained as follows:
 
 **Detailed information on the format of the input JSON file and the output files can be found [here](runner/infer_json_format.md)**.
 
+Predicted structures for the posebusters set are available at:  
+```bash
+https://af3-dev.tos-cn-beijing.volces.com/pb_samples_release.tar.gz
+```
+
 ## Training and Finetuning
 ### Training demo
 After the installation and data preparations, you can run the following command to train the model from scratch:
