@@ -2,7 +2,7 @@
 
 Thank you for investing your time in contributing to protenix project! 
 
-Read our [Code of Coduct](./CODE_OF_CONDUCT.md) to keep our community approachable and respectable.
+Read our [Code of Conduct](./CODE_OF_CONDUCT.md) to keep our community approachable and respectable.
 
 This guide details how to use issues and pull requests to improve protenix project.
 
