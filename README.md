@@ -2,7 +2,7 @@
 
 A trainable PyTorch reproduction of [AlphaFold 3](https://www.nature.com/articles/s41586-024-07487-w).
 
-For more information on the model's performance and capabilities, see our [technical report](Protenix_Technical_Report.pdf). You can follow our X account `@ai4s_protenix to join the discussion about this project.
+For more information on the model's performance and capabilities, see our [technical report](Protenix_Technical_Report.pdf). You can follow our X account `@ai4s_protenix` to join the discussion about this project.
 
 ![Protenix predictions](assets/protenix_predictions.gif)
 
