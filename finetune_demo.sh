@@ -35,7 +35,7 @@ python3 ./runner/train.py \
 --lr 0.001 \
 --sample_diffusion.N_step 20 \
 --load_checkpoint_path ${checkpoint_path} \
---load_checkpoint_ema_path ${checkpoint_path} \
+--load_ema_checkpoint_path ${checkpoint_path} \
 --data.train_sets weightedPDB_before2109_wopb_nometalc_0925 \
 --data.weightedPDB_before2109_wopb_nometalc_0925.base_info.pdb_list examples/finetune_subset.txt \
 --data.test_sets recentPDB_1536_sample384_0925,posebusters_0925
