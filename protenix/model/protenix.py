@@ -426,7 +426,7 @@ class Protenix(nn.Module):
 
         step_diffusion = time.time()
         time_tracker.update({"diffusion": step_diffusion - step_trunk})
-        if mode == "simple_inference" and N_token > 2000:
+        if mode == "inference" and N_token > 2000:
             torch.cuda.empty_cache()
 
         # Distogram logits: log contact_probs only, to reduce the dimension
@@ -495,13 +495,9 @@ class Protenix(nn.Module):
                 N_recycle=N_cycle,
                 interested_atom_mask=interested_atom_mask,
                 return_full_data=True,
-                mol_id=(
-                    input_feature_dict["mol_id"] if mode != "simple_inference" else None
-                ),
+                mol_id=(input_feature_dict["mol_id"] if mode != "inference" else None),
                 elements_one_hot=(
-                    input_feature_dict["ref_element"]
-                    if mode != "simple_inference"
-                    else None
+                    input_feature_dict["ref_element"] if mode != "inference" else None
                 ),
             )
         )
