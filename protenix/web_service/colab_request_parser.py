@@ -126,7 +126,7 @@ class RequestParser(object):
                 return [
                     {
                         "ptmType": mod["modificationType"],
-                        "ptmPosition": mod["Position"],
+                        "ptmPosition": mod["position"],
                     }
                     for mod in modifications
                 ]
@@ -134,7 +134,7 @@ class RequestParser(object):
                 return [
                     {
                         "modificationType": mod["modificationType"],
-                        "basePosition": mod["Position"],
+                        "basePosition": mod["position"],
                     }
                     for mod in modifications
                 ]
