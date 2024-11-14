@@ -189,6 +189,12 @@ class SampleDictToFeatures:
                 copy_id = bond_info_dict.get(f"{i}_copy")
                 position = int(bond_info_dict[f"{i}_position"])
                 atom_name = bond_info_dict[f"{i}_atom"]
+
+                if isinstance(atom_name, str):
+                    if atom_name.isdigit():
+                        # Convert SMILES atom index to int
+                        atom_name = int(atom_name)
+
                 if isinstance(atom_name, int):
                     # Convert AtomMap in SMILES to atom name in AtomArray
                     entity_dict = self.input_dict["sequences"][
