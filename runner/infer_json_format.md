@@ -66,7 +66,7 @@ There are 5 kinds of supported sequences:
 * `count`: The number of copies of this protein chain (integer).
 * `modifications`: An optional list of dictionaries that describe post-translational modifications.
   * `ptmType`: A string containing CCD code of the modification. 
-  * `position`: The position of the modified amino acid (integer).
+  * `ptmPosition`: The position of the modified amino acid (integer).
 * `msa`: A dictionary containing options for Multiple Sequence Alignment (MSA):
   * `precomputed_msa_dir`: The path to a directory containing precomputed MSAs. This directory should contain two specific files: "pairing.a3m" for MSAs used for pairing, and "non_pairing.a3m" for non-pairing MSAs. If you do not have precomputed MSAs, set this key to `None`.
   * `pairing_db`: The name of the genomic database used for pairing MSAs. Only "uniref100" and "uniprot" are supported. If you wish to precompute MSAs yourself, choose either the "uniref100" or "uniprot" database. However, if you lack precomputed MSAs and intend to search MSAs using our inference pipeline, only "uniprot" is available currently.
