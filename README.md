@@ -2,7 +2,7 @@
 
 A trainable PyTorch reproduction of [AlphaFold 3](https://www.nature.com/articles/s41586-024-07487-w).
 
-For more information on the model's performance and capabilities, see our [technical report](Protenix_Technical_Report.pdf).
+For more information on the model's performance and capabilities, see our [technical report](Protenix_Technical_Report.pdf). You can follow our X account `@ai4s_protenix to join the discussion about this project.
 
 ![Protenix predictions](assets/protenix_predictions.gif)
 
@@ -214,7 +214,7 @@ Implementation of the layernorm operators referred to [OneFlow](https://github.c
 
 ## Contribution
 
-Please check [Contributing](CONTRIBUTING.md) for more details.
+Please check [Contributing](CONTRIBUTING.md) for more details. If you encounter problems using Protenix, feel free to create an issue! We also welcome pull requests from the community.
 
 ## Code of Conduct
 
