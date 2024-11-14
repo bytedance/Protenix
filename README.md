@@ -21,7 +21,7 @@ Ensure that Docker is installed and configured with GPU support. Follow these st
     *  Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) to enable GPU support.
     *  Verify the setup with:
         ```bash
-        docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi
+        docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
         ```
         
 1. Pull the Docker image, which was built based on this [Dockerfile](Dockerfile)
