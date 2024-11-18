@@ -412,6 +412,8 @@ class SymmetricPermutation(object):
                         == pred_dict[key].size(-3)
                         == len(perm_token_indices)
                     )
+                    pred_dict[key] = pred_dict[key].to(perm_token_indices.device)
+                    assert pred_dict[key].device == perm_token_indices.device
                     pred_dict[key][..., i, :, :, :] = pred_dict[key][
                         ..., i, perm_token_indices, :, :
                     ]

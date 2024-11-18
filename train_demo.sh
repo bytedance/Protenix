@@ -35,4 +35,5 @@ python3 ./runner/train.py \
 --lr 0.001 \
 --sample_diffusion.N_step 20 \
 --data.train_sets weightedPDB_before2109_wopb_nometalc_0925 \
---data.test_sets recentPDB_1536_sample384_0925,posebusters_0925
+--data.test_sets recentPDB_1536_sample384_0925,posebusters_0925 \
+--data.posebusters_0925.base_info.max_n_token 768
