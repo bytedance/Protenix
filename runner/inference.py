@@ -33,6 +33,8 @@ from protenix.model.protenix import Protenix
 from protenix.utils.distributed import DIST_WRAPPER
 from protenix.utils.seed import seed_everything
 from protenix.utils.torch_utils import to_device
+from protenix.web_service.colab_request_parser import download_tos_url
+from protenix.web_service.dependency_url import URL
 from runner.dumper import DataDumper
 
 logger = logging.getLogger(__name__)
@@ -150,6 +152,29 @@ class InferenceRunner(object):
         if DIST_WRAPPER.rank == 0:
             logger.info(msg)
 
+def download_infercence_cache(configs: Any, model_version="v1") -> None:
+
+    ccd_data_cif = configs.data.ccd_components_file
+
+    data_cache_dir = os.path.dirname(ccd_data_cif)
+    os.makedirs(data_cache_dir, exist_ok=True)
+    for cache_name, fname in [
+        ("ccd_components_file", "components.v20240608.cif"),
+        ("ccd_components_rdkit_mol_file", "components.v20240608.cif.rdkit_mol.pkl"),
+    ]:
+        if not opexists(
+            cache_path := os.path.abspath(opjoin(data_cache_dir, fname))
+        ):
+            tos_url = URL[cache_name]
+            print(f"Downloading data cache from\n {tos_url}...")
+            download_tos_url(tos_url, cache_path)
+
+    checkpoint_path = configs.load_checkpoint_path
+    if not opexists(checkpoint_path):
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+        tos_url = URL[f"model_{model_version}"]
+        print(f"Downloading model checkpoint from\n {tos_url}...")
+        download_tos_url(tos_url, checkpoint_path)
 
 def main(configs: Any) -> None:
     # Runner
@@ -212,8 +237,7 @@ def main(configs: Any) -> None:
                 if hasattr(torch.cuda, "empty_cache"):
                     torch.cuda.empty_cache()
 
-
-if __name__ == "__main__":
+def run():
     LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
     logging.basicConfig(
         format=LOG_FORMAT,
@@ -227,4 +251,8 @@ if __name__ == "__main__":
         arg_str=parse_sys_args(),
         fill_required_with_null=True,
     )
+    download_infercence_cache(configs)
     main(configs)
+
+if __name__ == "__main__":
+    run()

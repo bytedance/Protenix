@@ -15,10 +15,16 @@
 
 from setuptools import find_packages, setup
 
+with open('requirements.txt') as f:
+    install_requires = f.read().splitlines()
+
 setup(
     name="protenix",
-    version="1.0.0",
-    description="",
+    python_requires='>=3.10',
+    version="0.0.1",
+    description="A trainable PyTorch reproduction of AlphaFold 3.",
+    author="Bytedance AML AI4S Team",
+    author_email="ai4s-bio@bytedance.com",
     packages=find_packages(
         exclude=(
             "assets",
@@ -30,4 +36,11 @@ setup(
     package_data={
         "protenix": ["model/layer_norm/kernel/*"],
     },
+    install_requires=install_requires,
+    license="Attribution-NonCommercial 4.0 International License",
+    # entry_points={
+    #     "console_scripts": [
+    #         "protenix_infer = runner.inference:run",
+    #     ],
+    # }
 )
