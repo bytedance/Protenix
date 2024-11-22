@@ -154,7 +154,7 @@ def save_atoms_to_cif(
     cifwriter.save_to_cif(
         output_path=output_cif_file,
         entry_id=pdb_id,
-        include_bonds=True,
+        include_bonds=False,
     )
 
 
