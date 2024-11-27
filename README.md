@@ -16,7 +16,9 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 ### Installing Protenix
 
 Follow these steps to set up and run Protenix:
-  
+
+#### Run with Docker
+
 1. Install Docker (with GPU Support)
 Ensure that Docker is installed and configured with GPU support. Follow these steps:
     -  Install [Docker](https://www.docker.com/) if not already installed.
@@ -44,6 +46,16 @@ Ensure that Docker is installed and configured with GPU support. Follow these st
     ```
   
   After running above commands, you’ll be inside the container’s environment and can execute commands as you would on a normal Linux terminal.
+
+#### Run directly
+
+```bash
+    # maybe you need to update libxrender1 and libxext6 firstly, run as following for Debian:
+    # apt-get update
+    # apt-get install libxrender1
+    # apt-get install libxext6
+    pip3 install protenix
+```
 
 ### Setting up kernels
 
