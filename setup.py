@@ -38,9 +38,9 @@ setup(
     },
     install_requires=install_requires,
     license="Attribution-NonCommercial 4.0 International License",
-    # entry_points={
-    #     "console_scripts": [
-    #         "protenix_infer = runner.inference:run",
-    #     ],
-    # }
+    entry_points={
+        "console_scripts": [
+            "protenix_infer = runner.inference:run_default",
+        ],
+    }
 )
