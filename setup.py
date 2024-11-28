@@ -21,9 +21,10 @@ with open('requirements.txt') as f:
 setup(
     name="protenix",
     python_requires='>=3.10',
-    version="0.0.1",
+    version="0.1.0",
     description="A trainable PyTorch reproduction of AlphaFold 3.",
-    author="Bytedance AML AI4S Team",
+    author="Bytedance Inc.",
+    url="https://github.com/bytedance/Protenix",
     author_email="ai4s-bio@bytedance.com",
     packages=find_packages(
         exclude=(
@@ -37,7 +38,8 @@ setup(
         "protenix": ["model/layer_norm/kernel/*"],
     },
     install_requires=install_requires,
-    license="Attribution-NonCommercial 4.0 International License",
+    license="Attribution-NonCommercial 4.0 International",
+    platforms = "manylinux1",
     entry_points={
         "console_scripts": [
             "protenix_infer = runner.inference:run_default",
