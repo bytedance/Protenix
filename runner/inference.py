@@ -254,5 +254,14 @@ def run():
     download_infercence_cache(configs)
     main(configs)
 
+def run_default():
+    os.environ["LAYERNORM_TYPE"] = "fast_layernorm"
+    inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
+    configs_base["use_deepspeed_evo_attention"] = True
+    configs_base["model"]["N_cycle"] = 10
+    configs_base["sample_diffusion"]["N_sample"] = 5
+    configs_base["sample_diffusion"]["N_step"] = 200
+    run()
+
 if __name__ == "__main__":
     run()

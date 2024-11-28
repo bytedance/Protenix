@@ -139,6 +139,13 @@ Arguments in this scripts are explained as follows:
 * `use_deepspeed_evo_attention`: whether use the EvoformerAttention provided by DeepSpeed.
 * `use_msa`: whether to use the MSA feature, the default is true. If you want to disable the MSA feature, add `--use_msa false` to the [inference_demo.sh](inference_demo.sh) script.
 
+or you can run inference with:
+
+```bash
+# run with examples floder
+protenix_infer --input_json_path examples/example.json --dump_dir  ./output
+```
+
 **Detailed information on the format of the input JSON file and the output files can be found [here](runner/infer_json_format.md)**.
 
 Predicted structures for the posebusters set are available at:  
