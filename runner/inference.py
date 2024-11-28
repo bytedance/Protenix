@@ -176,10 +176,8 @@ def download_infercence_cache(configs: Any, model_version="v1") -> None:
         print(f"Downloading model checkpoint from\n {tos_url}...")
         download_tos_url(tos_url, checkpoint_path)
 
-def main(configs: Any) -> None:
-    # Runner
-    runner = InferenceRunner(configs)
 
+def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     # Data
     logger.info(f"Loading data from\n{configs.input_json_path}")
     dataloader = get_inference_dataloader(configs=configs)
@@ -237,7 +235,12 @@ def main(configs: Any) -> None:
                 if hasattr(torch.cuda, "empty_cache"):
                     torch.cuda.empty_cache()
 
-def run():
+def main(configs: Any) -> None:
+    # Runner
+    runner = InferenceRunner(configs)
+    infer_predict(runner, configs)
+
+def run() -> None:
     LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
     logging.basicConfig(
         format=LOG_FORMAT,
@@ -254,7 +257,7 @@ def run():
     download_infercence_cache(configs)
     main(configs)
 
-def run_default():
+def run_default() -> None:
     os.environ["LAYERNORM_TYPE"] = "fast_layernorm"
     inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
     configs_base["use_deepspeed_evo_attention"] = True
