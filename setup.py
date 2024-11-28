@@ -34,6 +34,7 @@ setup(
         )
     ),
     include_package_data=True,
+    data_files=["requirements.txt"],
     package_data={
         "protenix": ["model/layer_norm/kernel/*"],
     },
