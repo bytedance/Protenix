@@ -191,7 +191,6 @@ class ConfidenceHead(nn.Module):
         z_trunk = z_init + self.linear_no_bias_z_trunk(self.layernorm_z_trunk(z_trunk))
         if not self.training:
             del z_init
-            torch.cuda.empty_cache()
 
         plddt_preds, pae_preds, pde_preds, resolved_preds = [], [], [], []
         for i in range(N_sample):
@@ -213,7 +212,6 @@ class ConfidenceHead(nn.Module):
                 # cpu offload pae_preds/pde_preds
                 pae_pred = pae_pred.cpu()
                 pde_pred = pde_pred.cpu()
-                torch.cuda.empty_cache()
             plddt_preds.append(plddt_pred)
             pae_preds.append(pae_pred)
             pde_preds.append(pde_pred)
@@ -290,6 +288,4 @@ class ConfidenceHead(nn.Module):
         resolved_pred = torch.einsum(
             "...nc,ncb->...nb", a, self.resolved_weight[atom_to_tokatom_idx]
         )
-        if not self.training and z_pair.shape[-2] > 2000:
-            torch.cuda.empty_cache()
         return plddt_pred, pae_pred, pde_pred, resolved_pred

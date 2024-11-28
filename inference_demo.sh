@@ -25,6 +25,10 @@ input_json_path="./examples/example.json"
 load_checkpoint_path="/af3-dev/release_model/model_v1.pt"
 dump_dir="./output"
 
+# if the inference token is larger than 3000, 
+# please add the following command to run the inference
+# --infer_setting.chunk_size = 64 \
+
 python3 runner/inference.py \
 --seeds ${seed} \
 --load_checkpoint_path ${load_checkpoint_path} \
