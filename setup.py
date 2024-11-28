@@ -15,13 +15,13 @@
 
 from setuptools import find_packages, setup
 
-with open('requirements.txt') as f:
+with open("requirements.txt") as f:
     install_requires = f.read().splitlines()
 
 setup(
     name="protenix",
-    python_requires='>=3.10',
-    version="0.1.0",
+    python_requires=">=3.10",
+    version="0.1.1",
     description="A trainable PyTorch reproduction of AlphaFold 3.",
     author="Bytedance Inc.",
     url="https://github.com/bytedance/Protenix",
@@ -40,10 +40,10 @@ setup(
     },
     install_requires=install_requires,
     license="Attribution-NonCommercial 4.0 International",
-    platforms = "manylinux1",
+    platforms="manylinux1",
     entry_points={
         "console_scripts": [
             "protenix_infer = runner.inference:run_default",
         ],
-    }
+    },
 )
