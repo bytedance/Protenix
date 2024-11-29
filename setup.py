@@ -44,6 +44,7 @@ setup(
     entry_points={
         "console_scripts": [
             "protenix_infer = runner.inference:run_default",
+            "protenix_infer_jsons = runner.batch_inference:main",
         ],
     },
 )

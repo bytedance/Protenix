@@ -1,4 +1,4 @@
-import os, json, logging, uuid, time, tqdm
+import os, json, logging, uuid, time, tqdm, argparse
 from pathlib import Path
 from rdkit import Chem
 from typing import Any, List
@@ -90,14 +90,10 @@ def generate_infer_jsons(protein_msa_res: dict, ligand_file: str, seeds: List[in
         one_infer_seq = protein_chains[:]
         ligand_name = os.path.basename(smi_ligand_file).split(".")[0]
         for smile in smile_list:
-            smile = smile.replace("\n", "")
-            if not smile.startswith("CCD_"):
-                normalize_smile = f"CCD_{smile}"
-            else:
-                normalize_smile = smile
+            normalize_smile = smile.replace("\n", "")
             ligand_chain = {}
             ligand_chain["ligand"] = {}
-            ligand_chain["ligand"]["ligand"] = f"CCD_{normalize_smile}"
+            ligand_chain["ligand"]["ligand"] = normalize_smile
             ligand_chain["ligand"]["count"] = 1
             one_infer_seq.append(ligand_chain)
         one_infer_json = [{"sequences" : one_infer_seq, "modelSeeds": seeds, "name": ligand_name}]
@@ -208,6 +204,21 @@ def test_batch_inference():
                         }
     out_dir = "./infer_output"
     batch_inference(protein_msa_res, ligands_dir, out_dir=out_dir)
+
+def main():
+    LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
+    logging.basicConfig(
+        format=LOG_FORMAT,
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filemode="w",
+    )
+    parser = argparse.ArgumentParser(description="infer with jsons of argparse")
+    parser.add_argument("--json_file", required=True, type=str)
+    parser.add_argument("--out_dir", default="./output", type=str)
+    args = parser.parse_args()
+    logger.info(f"run infer with json_file={args.json_file}, out_dir={args.out_dir}")
+    inference_jsons(args.json_file, args.out_dir)
 
 if __name__ == "__main__":
     LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
