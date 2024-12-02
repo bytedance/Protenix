@@ -15,39 +15,7 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 
 ### Installing Protenix
 
-Follow these steps to set up and run Protenix:
-
-#### Run with Docker
-
-1. Install Docker (with GPU Support)
-Ensure that Docker is installed and configured with GPU support. Follow these steps:
-    -  Install [Docker](https://www.docker.com/) if not already installed.
-    *  Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) to enable GPU support.
-    *  Verify the setup with:
-        ```bash
-        docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
-        ```
-        
-1. Pull the Docker image, which was built based on this [Dockerfile](Dockerfile)
-    ```bash
-    docker pull ai4s-cn-beijing.cr.volces.com/infra/protenix:v0.0.1
-    ```
-
-1. Clone this repository and `cd` into it
-    ```bash
-    git clone https://github.com/bytedance/protenix.git 
-    cd ./protenix
-    pip install -e .
-    ```
-
-1. Run Docker with an interactive shell
-    ```bash
-    docker run --gpus all -it -v $(pwd):/workspace -v /dev/shm:/dev/shm ai4s-cn-beijing.cr.volces.com/infra/protenix:v0.0.1 /bin/bash
-    ```
-  
-  After running above commands, you’ll be inside the container’s environment and can execute commands as you would on a normal Linux terminal.
-
-#### Run directly
+#### Run with PyPI (recommended):
 
 ```bash
     # maybe you need to update libxrender1 and libxext6 firstly, run as following for Debian:
@@ -56,6 +24,9 @@ Ensure that Docker is installed and configured with GPU support. Follow these st
     # apt-get install libxext6
     pip3 install protenix
 ```
+#### Run with Docker:
+
+See [<u> run with docker documentation </u>](docs/docker_installation.md).
 
 ### Setting up kernels
 
@@ -146,7 +117,7 @@ or you can run inference with:
 protenix_infer --input_json_path examples/example.json --dump_dir  ./output
 ```
 
-**Detailed information on the format of the input JSON file and the output files can be found [here](runner/infer_json_format.md)**.
+**Detailed information on the format of the input JSON file and the output files can be found in [<u> input and output documentation </u>](docs/infer_json_format.md)**.
 
 Predicted structures for the posebusters set are available at:  
 ```bash
@@ -174,24 +145,7 @@ Key arguments in this scripts are explained as follows:
 * `ema_decay`: the decay rate of the EMA, default is 0.999.
 * `sample_diffusion.N_step`: during evalutaion, the number of steps for the diffusion process is reduced to 20 to improve efficiency.
 * `data.train_sets/data.test_sets`: the datasets used for training and evaluation. If there are multiple datasets, separate them with commas.
-
-* Some settings follow those in the [AlphaFold 3](https://www.nature.com/articles/s41586-024-07487-w) paper, The table below shows the training settings for different fine-tuning stages:
-
-  | Arguments  | Initial training | Fine tuning 1   |  Fine tuning 2  | Fine tuning 3 |
-  |-----------------------------------------|--------|---------|-------|-----|
-  | `train_crop_size`                       | 384    | 640    | 768    | 768 |
-  | `diffusion_batch_size`                  | 48     | 32     | 32     | 32  |
-  | `loss.weight.alpha_pae`                 | 0      | 0      | 0      | 1.0 |
-  | `loss.weight.alpha_bond`                | 0      | 1.0    | 1.0    | 0   | 
-  | `loss.weight.smooth_lddt`               | 1.0    | 0      | 0      | 0   | 
-  | `loss.weight.alpha_confidence`          | 1e-4   | 1e-4   | 1e-4   | 1e-4|
-  | `loss.weight.alpha_diffusion`           | 4.0    | 4.0    | 4.0    | 0   |
-  | `loss.weight.alpha_distogram`           | 0.03   | 0.03   | 0.03   | 0   |
-  | `train_confidence_only`                 | False  | False  | False  | True|
-  | full BF16-mixed speed(A100, s/step)     | ~12    | ~30    | ~44    | ~13 |
-  | full BF16-mixed peak memory (G)         | ~34    | ~35    | ~48    | ~24 |
-  
-  We recommend carrying out the training on A100-80G or H20/H100 GPUs. If utilizing full BF16-Mixed precision training, the initial training stage can also be performed on A800-40G GPUs. GPUs with smaller memory, such as A30, you'll need to reduce the model size, such as decreasing `model.pairformer.nblocks` and `diffusion_batch_size`.
+* Some settings follow those in the [AlphaFold 3](https://www.nature.com/articles/s41586-024-07487-w) paper, The table in [model_performance.md](docs/model_performance.md) shows the training settings and memory usages for different training stages.
 * In this version, we do not use the template and RNA MSA feature for training. As the default settings in [configs/configs_base.py](configs/configs_base.py) and [configs/configs_data.py](configs/configs_data.py):
   ```bash
   --model.template_embedder.n_blocks 0 \
@@ -227,6 +181,9 @@ checkpoint_path="/af3-dev/release_model/model_v1.pt"
 3ew0
 5akv
 ```
+
+## Performance
+See the [<u>performance documentation</u>](docs/model_performance.md).
 
 ## Acknowledgements
 
