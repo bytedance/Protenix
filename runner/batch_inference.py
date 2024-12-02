@@ -116,7 +116,6 @@ def get_default_runner() -> InferenceRunner:
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
     configs = parse_configs(
         configs=configs,
-        arg_str=parse_sys_args(),
         fill_required_with_null=True,
     )
     download_infercence_cache(configs)
@@ -214,11 +213,11 @@ def main():
         filemode="w",
     )
     parser = argparse.ArgumentParser(description="infer with jsons of argparse")
-    parser.add_argument("--json_file", required=True, type=str)
-    parser.add_argument("--out_dir", default="./output", type=str)
+    parser.add_argument("--input_json_path", required=True, type=str)
+    parser.add_argument("--dump_dir", default="./output", type=str)
     args = parser.parse_args()
-    logger.info(f"run infer with json_file={args.json_file}, out_dir={args.out_dir}")
-    inference_jsons(args.json_file, args.out_dir)
+    logger.info(f"run infer with input_json_path={args.input_json_path}, dump_dir={args.dump_dir}")
+    inference_jsons(args.input_json_path, args.dump_dir)
 
 if __name__ == "__main__":
     LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"

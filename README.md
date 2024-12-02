@@ -113,8 +113,11 @@ Arguments in this scripts are explained as follows:
 or you can run inference with:
 
 ```bash
-# run with examples floder
+# run with one json file
 protenix_infer --input_json_path examples/example.json --dump_dir  ./output
+
+# or run with multiple json files
+protenix_infer --input_json_path ./jsons_dir/ --dump_dir  ./output
 ```
 
 **Detailed information on the format of the input JSON file and the output files can be found in [<u> input and output documentation </u>](docs/infer_json_format.md)**.

@@ -168,7 +168,7 @@ class ConfigManager(object):
                 continue
             full_key = f"{prefix}.{key}" if prefix else key
             dtype, default_value, allow_none, required = self.config_infos[full_key]
-            if not isinstance(new_configs[full_key], ArgumentNotSet):
+            if full_key in new_configs and not isinstance(new_configs[full_key], ArgumentNotSet):
                 if allow_none and new_configs[full_key] in [
                     "None",
                     "none",
@@ -232,9 +232,8 @@ def parse_configs(
         parser.add_argument(
             "--" + key, type=str, default=ArgumentNotSet(), required=required
         )
-    new_configs = parser.parse_args(arg_str.split() if arg_str else None)
     # Merge user commandline pargs with default ones
-    merged_configs = manager.merge_configs(vars(new_configs))
+    merged_configs = manager.merge_configs(vars(parser.parse_args(arg_str.split())) if arg_str else {})
     return merged_configs
 
 
