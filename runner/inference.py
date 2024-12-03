@@ -152,6 +152,7 @@ class InferenceRunner(object):
         if DIST_WRAPPER.rank == 0:
             logger.info(msg)
 
+
 def download_infercence_cache(configs: Any, model_version="v1") -> None:
 
     ccd_data_cif = configs.data.ccd_components_file
@@ -162,9 +163,7 @@ def download_infercence_cache(configs: Any, model_version="v1") -> None:
         ("ccd_components_file", "components.v20240608.cif"),
         ("ccd_components_rdkit_mol_file", "components.v20240608.cif.rdkit_mol.pkl"),
     ]:
-        if not opexists(
-            cache_path := os.path.abspath(opjoin(data_cache_dir, fname))
-        ):
+        if not opexists(cache_path := os.path.abspath(opjoin(data_cache_dir, fname))):
             tos_url = URL[cache_name]
             print(f"Downloading data cache from\n {tos_url}...")
             download_tos_url(tos_url, cache_path)
@@ -235,10 +234,12 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 if hasattr(torch.cuda, "empty_cache"):
                     torch.cuda.empty_cache()
 
+
 def main(configs: Any) -> None:
     # Runner
     runner = InferenceRunner(configs)
     infer_predict(runner, configs)
+
 
 def run() -> None:
     LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
@@ -257,13 +258,17 @@ def run() -> None:
     download_infercence_cache(configs)
     main(configs)
 
+
 def run_default() -> None:
     inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
-    configs_base["use_deepspeed_evo_attention"] = os.environ.get("use_deepspeed_evo_attention", False)
+    configs_base["use_deepspeed_evo_attention"] = (
+        os.environ.get("use_deepspeed_evo_attention", False) == "true"
+    )
     configs_base["model"]["N_cycle"] = 10
     configs_base["sample_diffusion"]["N_sample"] = 5
     configs_base["sample_diffusion"]["N_step"] = 200
     run()
+
 
 if __name__ == "__main__":
     run()
