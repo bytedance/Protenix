@@ -58,12 +58,6 @@ wget -P /af3-dev/release_data/ https://af3-dev.tos-cn-beijing.volces.com/release
 
 
 ### Command line inference
-Note: by default, we use layernorm and EvoformerAttention kernels to speed up inference, see [<u> setting up kernels documentation </u>](docs/kernels.md). you can set environment variable CUTLASS_PATH as follows:
-
-```bash
-git clone -b v3.5.1 https://github.com/NVIDIA/cutlass.git  /path/to/cutlass
-export CUTLASS_PATH=/path/to/cutlass
-```
 
 If you set up `Protenix` by `pip`, you can run the following command to do model inference:
 
@@ -93,6 +87,8 @@ Arguments in this scripts are explained as follows:
 * `use_msa`: whether to use the MSA feature, the default is true. If you want to disable the MSA feature, add `--use_msa false` to the [inference_demo.sh](inference_demo.sh) script.
 
 
+Note: by default, we do not use layernorm and EvoformerAttention kernels for simple configuration, if you want to speed up inference, see [<u> setting up kernels documentation </u>](docs/kernels.md).
+
 ### Notebook demo
 You can use [notebooks/protenix_inference.ipynb](notebooks/protenix_inference.ipynb)  to run the model inference.
 
@@ -100,7 +96,7 @@ You can use [notebooks/protenix_inference.ipynb](notebooks/protenix_inference.ip
 If you're interested in model training, see [<u> training documentation </u>](docs/training.md).
 
 ## Performance
-See the [<u>performance documentation</u>](docs/model_performance.md).
+See the [<u>performance documentation</u>](docs/model_performance.md) for memory and time consumption in training and inference.
 
 ## Acknowledgements
 
