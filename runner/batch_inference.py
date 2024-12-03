@@ -107,9 +107,8 @@ def generate_infer_jsons(protein_msa_res: dict, ligand_file: str, seeds: List[in
 
 
 def get_default_runner() -> InferenceRunner:
-    os.environ["LAYERNORM_TYPE"] = "fast_layernorm"
     inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
-    configs_base["use_deepspeed_evo_attention"] = True
+    configs_base["use_deepspeed_evo_attention"] = os.environ.get("use_deepspeed_evo_attention", False)
     configs_base["model"]["N_cycle"] = 10
     configs_base["sample_diffusion"]["N_sample"] = 5
     configs_base["sample_diffusion"]["N_step"] = 200
