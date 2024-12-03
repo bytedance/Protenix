@@ -9,7 +9,12 @@
   ```bash
   --use_deepspeed_evo_attention true
   ```
-  into the command line. DS4Sci_EvoformerAttention is implemented based on [CUTLASS](https://github.com/NVIDIA/cutlass). You need to clone the CUTLASS repository and specify the path to it in the environment variable CUTLASS_PATH. The [Dockerfile](Dockerfile) has already include this setting:
+  into the command line when the entrypoint is [train_demo.sh](../train_demo.sh), [inference_demo.sh](../inference_demo.sh) and [finetune_demo.sh](../finetune_demo.sh). If you run inference by `protenix_infer`, run the following command:
+    ```bash
+  export use_deepspeed_evo_attention=true
+  ```
+  
+  DS4Sci_EvoformerAttention is implemented based on [CUTLASS](https://github.com/NVIDIA/cutlass). You need to clone the CUTLASS repository and specify the path to it in the environment variable CUTLASS_PATH. The [Dockerfile](Dockerfile) has already include this setting:
   ```bash
   RUN git clone -b v3.5.1 https://github.com/NVIDIA/cutlass.git  /opt/cutlass
   ENV CUTLASS_PATH=/opt/cutlass
