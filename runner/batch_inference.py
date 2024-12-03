@@ -131,8 +131,8 @@ def generate_infer_jsons(
 
 def get_default_runner() -> InferenceRunner:
     inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
-    configs_base["use_deepspeed_evo_attention"] = os.environ.get(
-        "use_deepspeed_evo_attention", False
+    configs_base["use_deepspeed_evo_attention"] = (
+        os.environ.get("use_deepspeed_evo_attention", False) == "true"
     )
     configs_base["model"]["N_cycle"] = 10
     configs_base["sample_diffusion"]["N_sample"] = 5
