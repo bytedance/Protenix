@@ -15,6 +15,7 @@
 
 import logging
 import os
+import urllib.request
 import traceback
 from contextlib import nullcontext
 from os.path import exists as opexists
@@ -165,15 +166,15 @@ def download_infercence_cache(configs: Any, model_version="v1") -> None:
     ]:
         if not opexists(cache_path := os.path.abspath(opjoin(data_cache_dir, fname))):
             tos_url = URL[cache_name]
-            print(f"Downloading data cache from\n {tos_url}...")
-            download_tos_url(tos_url, cache_path)
+            logger.info(f"Downloading data cache from\n {tos_url}...")
+            urllib.request.urlretrieve(tos_url, cache_path)
 
     checkpoint_path = configs.load_checkpoint_path
     if not opexists(checkpoint_path):
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         tos_url = URL[f"model_{model_version}"]
-        print(f"Downloading model checkpoint from\n {tos_url}...")
-        download_tos_url(tos_url, checkpoint_path)
+        logger.info(f"Downloading model checkpoint from\n {tos_url}...")
+        urllib.request.urlretrieve(tos_url, checkpoint_path)
 
 
 def infer_predict(runner: InferenceRunner, configs: Any) -> None:
