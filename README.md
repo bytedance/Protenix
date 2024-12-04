@@ -28,45 +28,16 @@ If you're interested in model training, we recommand to [<u> run with docker</u>
 
 ## Inference
 
-<details>
-<summary> Download model weights </summary>
-<p markdown="1">
-
-Use the following command to download pretrained model weight [1.4G]:
-
-```bash
-wget -P /af3-dev/release_model/ https://af3-dev.tos-cn-beijing.volces.com/release_model/model_v1.pt 
-
-```
-the checkpoint should be placed in the `/af3-dev/release_model/` directory.
-
-</p>
-</details>
-
-<details>
-<summary> Download dependent files </summary>
-<p markdown="1">
-
-`components.v20240608.cif` and `components.v20240608.cif.rdkit_mol.pkl` is used in inference pipeline for generating [ccd](https://www.wwpdb.org/data/ccd) reference feature. You can download them by the following command.
-```bash
-wget -P /af3-dev/release_data/ https://af3-dev.tos-cn-beijing.volces.com/release_data/components.v20240608.cif
-wget -P /af3-dev/release_data/ https://af3-dev.tos-cn-beijing.volces.com/release_data/components.v20240608.cif.rdkit_mol.pkl
-```
-
-</p>
-</details>
-
-
 ### Command line inference
 
 If you set up `Protenix` by `pip`, you can run the following command to do model inference:
 
 ```bash
 # run with one json file
-protenix_infer --input_json_path examples/example.json --dump_dir  ./output
+protenix predict --input_json_path examples/example.json --dump_dir  ./output
 
 # or run with multiple json files
-protenix_infer --input_json_path ./jsons_dir/ --dump_dir  ./output
+protenix predict --input_json_path ./jsons_dir/ --dump_dir  ./output
 
 ```
 

@@ -1,4 +1,4 @@
-import os, json, logging, uuid, time, tqdm, argparse
+import os, json, logging, uuid, time, tqdm, argparse, click
 from pathlib import Path
 from rdkit import Chem
 from typing import Any, List
@@ -12,6 +12,14 @@ from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+def init_logging():
+    LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
+    logging.basicConfig(
+        format=LOG_FORMAT,
+        level=logging.INFO,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        filemode="w",
+    )
 
 def generate_infer_jsons(
     protein_msa_res: dict, ligand_file: str, seeds: List[int] = [101]
@@ -257,12 +265,25 @@ def main():
     inference_jsons(args.input_json_path, args.dump_dir)
 
 
+@click.group()
+def protenix_cli():
+    return
+
+@click.command()
+@click.option("--input_json_path",  type=str, help="json files or dir for inference")
+@click.option("--dump_dir", default="./output", type=str, help="infer result dir")
+def predict(input_json_path, dump_dir):
+    """
+    predict
+    :param input_json_path, dump_dir
+    :return:
+    """
+    init_logging()
+    logger.info(f"run infer with input_json_path={input_json_path}, dump_dir={dump_dir}")
+    inference_jsons(input_json_path, dump_dir)
+
+protenix_cli.add_command(predict)
+
 if __name__ == "__main__":
-    LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
-    logging.basicConfig(
-        format=LOG_FORMAT,
-        level=logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
-        filemode="w",
-    )
+    init_logging()
     test_batch_inference()
