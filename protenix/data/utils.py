@@ -24,6 +24,9 @@ import numpy as np
 import torch
 from biotite.structure import AtomArray
 from biotite.structure.io import pdbx
+from biotite.structure.io.pdb import PDBFile
+
+from protenix.data.constants import DNA_STD_RESIDUES, PRO_STD_RESIDUES, RNA_STD_RESIDUES
 
 
 def remove_numbers(s: str) -> str:
@@ -479,3 +482,129 @@ def get_data_shape_dict(num_token, num_atom, num_msa, num_templ, num_pocket):
     # Merged
     all_feat = {**feat, **extra_feat}
     return all_feat, label
+
+
+def get_lig_lig_bonds(
+    atom_array: AtomArray, lig_include_ions: bool = False
+) -> np.ndarray:
+    """
+    Get all inter-ligand bonds in order to create "token_bonds".
+
+    Args:
+        atom_array (AtomArray): biotite AtomArray object with "mol_type" attribute.
+        lig_include_ions (bool, optional): . Defaults to False.
+
+    Returns:
+        np.ndarray: inter-ligand bonds, e.g. np.array([[atom1, atom2, bond_order]...])
+    """
+    if not lig_include_ions:
+        # bonded ligand exclude ions
+        unique_chain_id, counts = np.unique(
+            atom_array.label_asym_id, return_counts=True
+        )
+        chain_id_to_count_map = dict(zip(unique_chain_id, counts))
+        ions_mask = np.array(
+            [
+                chain_id_to_count_map[label_asym_id] == 1
+                for label_asym_id in atom_array.label_asym_id
+            ]
+        )
+
+        lig_mask = (atom_array.mol_type == "ligand") & ~ions_mask
+    else:
+        lig_mask = atom_array.mol_type == "ligand"
+
+    chain_res_id = np.vstack((atom_array.label_asym_id, atom_array.res_id)).T
+    idx_i = atom_array.bonds._bonds[:, 0]
+    idx_j = atom_array.bonds._bonds[:, 1]
+
+    ligand_ligand_bond_indices = np.where(
+        (lig_mask[idx_i] & lig_mask[idx_j])
+        & np.any(chain_res_id[idx_i] != chain_res_id[idx_j], axis=1)
+    )[0]
+
+    if ligand_ligand_bond_indices.size == 0:
+        # no ligand-polymer bonds
+        lig_polymer_bonds = np.empty((0, 3)).astype(int)
+    else:
+        lig_polymer_bonds = atom_array.bonds._bonds[ligand_ligand_bond_indices]
+    return lig_polymer_bonds
+
+
+def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
+    """
+    Convert PDB to CIF.
+
+    Args:
+        input_fname (str): input PDB file name
+        output_fname (str): output CIF file name
+        entry_id (str, optional): entry id. Defaults to None.
+    """
+    pdbfile = PDBFile.read(input_fname)
+    atom_array = pdbfile.get_structure(model=1, include_bonds=True, altloc="first")
+
+    seq_to_entity_id = {}
+    cnt = 0
+    chain_starts = struc.get_chain_starts(atom_array, add_exclusive_stop=True)
+    label_entity_id = np.zeros(len(atom_array), dtype=np.int32)
+    atom_index = np.arange(len(atom_array), dtype=np.int32)
+    for c_start, c_stop in zip(chain_starts[:-1], chain_starts[1:]):
+        chain_array = atom_array[c_start:c_stop]
+        residue_starts = struc.get_residue_starts(chain_array, add_exclusive_stop=False)
+        resname_seq = [name for name in chain_array[residue_starts].res_name]
+        resname_str = "_".join(resname_seq)
+        if (
+            all([name in DNA_STD_RESIDUES for name in resname_seq])
+            and resname_str in seq_to_entity_id
+        ):
+            resname_seq = resname_seq[::-1]
+            resname_str = "_".join(resname_seq)
+            atom_index[c_start:c_stop] = atom_index[c_start:c_stop][::-1]
+
+        if resname_str not in seq_to_entity_id:
+            cnt += 1
+            seq_to_entity_id[resname_str] = cnt
+        label_entity_id[c_start:c_stop] = seq_to_entity_id[resname_str]
+
+    atom_array = atom_array[atom_index]
+
+    # add label entity id
+    atom_array.set_annotation("label_entity_id", label_entity_id)
+    entity_poly_type = {}
+    for seq, entity_id in seq_to_entity_id.items():
+        resname_seq = seq.split("_")
+
+        count = defaultdict(int)
+        for name in resname_seq:
+            if name in PRO_STD_RESIDUES:
+                count["prot"] += 1
+            elif name in DNA_STD_RESIDUES:
+                count["dna"] += 1
+            elif name in RNA_STD_RESIDUES:
+                count["rna"] += 1
+            else:
+                count["other"] += 1
+
+        if count["prot"] >= 2 and count["dna"] == 0 and count["rna"] == 0:
+            entity_poly_type[entity_id] = "polypeptide(L)"
+        elif count["dna"] >= 2 and count["rna"] == 0 and count["prot"] == 0:
+            entity_poly_type[entity_id] = "polydeoxyribonucleotide"
+        elif count["rna"] >= 2 and count["dna"] == 0 and count["prot"] == 0:
+            entity_poly_type[entity_id] = "polyribonucleotide"
+        else:
+            # other entity type: ignoring
+            continue
+
+    # add label atom id
+    atom_array.set_annotation("label_atom_id", atom_array.atom_name)
+    # add label asym id
+    atom_array.set_annotation("label_asym_id", atom_array.chain_id)
+    # add label seq id
+    atom_array.set_annotation("label_seq_id", atom_array.res_id)
+
+    w = CIFWriter(atom_array=atom_array, entity_poly_type=entity_poly_type)
+    w.save_to_cif(
+        output_fname,
+        entry_id=entry_id or os.path.basename(output_fname),
+        include_bonds=True,
+    )
