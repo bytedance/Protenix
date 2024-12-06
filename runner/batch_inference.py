@@ -12,6 +12,7 @@ from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+
 def init_logging():
     LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
     logging.basicConfig(
@@ -20,6 +21,7 @@ def init_logging():
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
     )
+
 
 def generate_infer_jsons(
     protein_msa_res: dict, ligand_file: str, seeds: List[int] = [101]
@@ -140,7 +142,7 @@ def generate_infer_jsons(
 def get_default_runner() -> InferenceRunner:
     inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
     configs_base["use_deepspeed_evo_attention"] = (
-        os.environ.get("use_deepspeed_evo_attention", False) == "true"
+        os.environ.get("USE_DEEPSPEED_EVO_ATTTENTION", False) == "true"
     )
     configs_base["model"]["N_cycle"] = 10
     configs_base["sample_diffusion"]["N_sample"] = 5
@@ -269,8 +271,9 @@ def main():
 def protenix_cli():
     return
 
+
 @click.command()
-@click.option("--input_json_path",  type=str, help="json files or dir for inference")
+@click.option("--input_json_path", type=str, help="json files or dir for inference")
 @click.option("--dump_dir", default="./output", type=str, help="infer result dir")
 def predict(input_json_path, dump_dir):
     """
@@ -279,8 +282,11 @@ def predict(input_json_path, dump_dir):
     :return:
     """
     init_logging()
-    logger.info(f"run infer with input_json_path={input_json_path}, dump_dir={dump_dir}")
+    logger.info(
+        f"run infer with input_json_path={input_json_path}, dump_dir={dump_dir}"
+    )
     inference_jsons(input_json_path, dump_dir)
+
 
 protenix_cli.add_command(predict)
 

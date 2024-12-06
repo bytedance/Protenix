@@ -14,6 +14,7 @@
 # limitations under the License.
 
 export LAYERNORM_TYPE=fast_layernorm
+export USE_DEEPSPEED_EVO_ATTTENTION=true
 checkpoint_path="/af3-dev/release_model/model_v1.pt"
 
 python3 ./runner/train.py \
@@ -22,7 +23,6 @@ python3 ./runner/train.py \
 --base_dir ./output \
 --dtype bf16 \
 --project protenix \
---use_deepspeed_evo_attention true \
 --use_wandb false \
 --diffusion_batch_size 48 \
 --eval_interval 400 \

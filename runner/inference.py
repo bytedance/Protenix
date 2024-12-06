@@ -153,6 +153,9 @@ class InferenceRunner(object):
         if DIST_WRAPPER.rank == 0:
             logger.info(msg)
 
+    def update_model_configs(self, new_configs: Any) -> None:
+        self.model.configs = new_configs
+
 
 def download_infercence_cache(configs: Any, model_version="v1") -> None:
 
@@ -175,6 +178,22 @@ def download_infercence_cache(configs: Any, model_version="v1") -> None:
         tos_url = URL[f"model_{model_version}"]
         logger.info(f"Downloading model checkpoint from\n {tos_url}...")
         urllib.request.urlretrieve(tos_url, checkpoint_path)
+
+
+def update_inference_configs(configs: Any, N_token: int):
+    # Setting the default inference configs for different N_token and N_atom
+    # when N_token is larger than 3000, the default config might OOM even on a
+    # A100 80G GPUS,
+    if N_token > 3840:
+        configs.skip_amp.confidence_head = False
+        configs.skip_amp.sample_diffusion = False
+    elif N_token > 2560:
+        configs.skip_amp.confidence_head = False
+        configs.skip_amp.sample_diffusion = True
+    else:
+        configs.skip_amp.confidence_head = True
+        configs.skip_amp.sample_diffusion = True
+    return configs
 
 
 def infer_predict(runner: InferenceRunner, configs: Any) -> None:
@@ -206,7 +225,8 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                         f"N_atom {data['N_atom'].item()}, N_msa {data['N_msa'].item()}"
                     )
                 )
-
+                new_configs = update_inference_configs(configs, data["N_token"].item())
+                runner.update_model_configs(new_configs)
                 prediction = runner.predict(data)
                 runner.dumper.dump(
                     dataset_name="",
@@ -221,7 +241,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                     f"[Rank {DIST_WRAPPER.rank}] {data['sample_name']} succeeded.\n"
                     f"Results saved to {configs.dump_dir}"
                 )
-
+                torch.cuda.empty_cache()
             except Exception as e:
                 error_message = f"[Rank {DIST_WRAPPER.rank}]{data['sample_name']} {e}:\n{traceback.format_exc()}"
                 logger.info(error_message)
@@ -250,6 +270,9 @@ def run() -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
     )
+    configs_base["use_deepspeed_evo_attention"] = (
+        os.environ.get("USE_DEEPSPEED_EVO_ATTTENTION", False) == "true"
+    )
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
     configs = parse_configs(
         configs=configs,
@@ -262,9 +285,6 @@ def run() -> None:
 
 def run_default() -> None:
     inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
-    configs_base["use_deepspeed_evo_attention"] = (
-        os.environ.get("use_deepspeed_evo_attention", False) == "true"
-    )
     configs_base["model"]["N_cycle"] = 10
     configs_base["sample_diffusion"]["N_sample"] = 5
     configs_base["sample_diffusion"]["N_step"] = 200

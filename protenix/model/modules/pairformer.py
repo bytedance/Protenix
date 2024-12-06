@@ -634,7 +634,7 @@ class MSAModule(nn.Module):
         ]
 
         def clear_cache(b, *args, **kwargs):
-            # torch.cuda.empty_cache()
+            torch.cuda.empty_cache()
             return b(*args, **kwargs)
 
         if clear_cache_between_blocks:
@@ -735,6 +735,8 @@ class MSAModule(nn.Module):
             args=(msa_sample, z),
             blocks_per_ckpt=blocks_per_ckpt,
         )
+        if z.shape[-2] > 2000:
+            torch.cuda.empty_cache()
         return z
 
 

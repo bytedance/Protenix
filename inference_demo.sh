@@ -14,6 +14,7 @@
 # limitations under the License.
 
 export LAYERNORM_TYPE=fast_layernorm
+export USE_DEEPSPEED_EVO_ATTTENTION=true
 
 N_sample=5
 N_step=200
@@ -25,16 +26,11 @@ input_json_path="./examples/example.json"
 load_checkpoint_path="/af3-dev/release_model/model_v1.pt"
 dump_dir="./output"
 
-# if the inference token is larger than 3000, 
-# please add the following command to run the inference
-# --infer_setting.chunk_size = 64 \
-
 python3 runner/inference.py \
 --seeds ${seed} \
 --load_checkpoint_path ${load_checkpoint_path} \
 --dump_dir ${dump_dir} \
 --input_json_path ${input_json_path} \
---use_deepspeed_evo_attention ${use_deepspeed_evo_attention} \
 --model.N_cycle ${N_cycle} \
 --sample_diffusion.N_sample ${N_sample} \
 --sample_diffusion.N_step ${N_step}
