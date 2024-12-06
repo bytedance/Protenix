@@ -25,7 +25,7 @@ import biotite.structure as struc
 import biotite.structure.io.pdbx as pdbx
 import numpy as np
 import pandas as pd
-from biotite.structure import AtomArray, get_residue_starts
+from biotite.structure import AtomArray, get_chain_starts, get_residue_starts
 from biotite.structure.io.pdbx import convert as pdbx_convert
 from biotite.structure.molecules import get_molecule_indices
 
@@ -247,8 +247,23 @@ class MMCIFParser:
     def replace_auth_with_label(atom_array: AtomArray) -> AtomArray:
         # fix issue https://github.com/biotite-dev/biotite/issues/553
         atom_array.chain_id = atom_array.label_asym_id
-        has_seq_id = atom_array.label_seq_id != "."
-        atom_array.res_id[has_seq_id] = atom_array.label_seq_id[has_seq_id].astype(int)
+
+        # reset ligand res_id
+        res_id = copy.deepcopy(atom_array.label_seq_id)
+        chain_starts = get_chain_starts(atom_array, add_exclusive_stop=True)
+        for chain_start, chain_stop in zip(chain_starts[:-1], chain_starts[1:]):
+            if atom_array.label_seq_id[chain_start] != ".":
+                continue
+            else:
+                res_starts = get_residue_starts(
+                    atom_array[chain_start:chain_stop], add_exclusive_stop=True
+                )
+                num = 1
+                for res_start, res_stop in zip(res_starts[:-1], res_starts[1:]):
+                    res_id[chain_start:chain_stop][res_start:res_stop] = num
+                    num += 1
+
+        atom_array.res_id = res_id
         return atom_array
 
     def get_structure(
@@ -749,7 +764,9 @@ class AddAtomArrayAnnot(object):
 
     @staticmethod
     def find_equiv_mol_and_assign_ids(
-        atom_array: AtomArray, entity_poly_type: Optional[dict[str, str]] = None
+        atom_array: AtomArray,
+        entity_poly_type: Optional[dict[str, str]] = None,
+        check_final_equiv: bool = True,
     ) -> AtomArray:
         """
         Assign a unique integer to each molecule in the structure.
@@ -759,6 +776,9 @@ class AddAtomArrayAnnot(object):
 
         Args:
             atom_array (AtomArray): Biotite AtomArray object
+            entity_poly_type (Optional[dict[str, str]]): label_entity_id to entity.poly_type.
+                              Defaults to None.
+            check_final_equiv (bool, optional): check if the final mol_ids of same entity_mol_id are all equivalent.
 
         Returns:
             AtomArray: Biotite AtomArray object with new annotations
@@ -863,22 +883,23 @@ class AddAtomArrayAnnot(object):
         atom_array.set_annotation("mol_atom_index", mol_atom_index)
 
         # check mol equivalence again
-        num_mols = len(mol_starts) - 1
-        for i in range(num_mols):
-            for j in range(i + 1, num_mols):
-                start_i, stop_i = mol_starts[i], mol_starts[i + 1]
-                start_j, stop_j = mol_starts[j], mol_starts[j + 1]
-                if (
-                    atom_array.entity_mol_id[start_i]
-                    != atom_array.entity_mol_id[start_j]
-                ):
-                    continue
-                for key in ["res_name", "atom_name", "mol_atom_index"]:
-                    # not check res_id for ligand may have different res_id
-                    annot = getattr(atom_array, key)
-                    assert np.all(
-                        annot[start_i:stop_i] == annot[start_j:stop_j]
-                    ), f"not equal {key} when find_equiv_mol_and_assign_ids()"
+        if check_final_equiv:
+            num_mols = len(mol_starts) - 1
+            for i in range(num_mols):
+                for j in range(i + 1, num_mols):
+                    start_i, stop_i = mol_starts[i], mol_starts[i + 1]
+                    start_j, stop_j = mol_starts[j], mol_starts[j + 1]
+                    if (
+                        atom_array.entity_mol_id[start_i]
+                        != atom_array.entity_mol_id[start_j]
+                    ):
+                        continue
+                    for key in ["res_name", "atom_name", "mol_atom_index"]:
+                        # not check res_id for ligand may have different res_id
+                        annot = getattr(atom_array, key)
+                        assert np.all(
+                            annot[start_i:stop_i] == annot[start_j:stop_j]
+                        ), f"not equal {key} when find_equiv_mol_and_assign_ids()"
 
         return atom_array
 

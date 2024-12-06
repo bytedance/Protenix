@@ -548,10 +548,11 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
     chain_starts = struc.get_chain_starts(atom_array, add_exclusive_stop=True)
     label_entity_id = np.zeros(len(atom_array), dtype=np.int32)
     atom_index = np.arange(len(atom_array), dtype=np.int32)
+    res_id = copy.deepcopy(atom_array.res_id)
     for c_start, c_stop in zip(chain_starts[:-1], chain_starts[1:]):
         chain_array = atom_array[c_start:c_stop]
-        residue_starts = struc.get_residue_starts(chain_array, add_exclusive_stop=False)
-        resname_seq = [name for name in chain_array[residue_starts].res_name]
+        residue_starts = struc.get_residue_starts(chain_array, add_exclusive_stop=True)
+        resname_seq = [name for name in chain_array[residue_starts[:-1]].res_name]
         resname_str = "_".join(resname_seq)
         if (
             all([name in DNA_STD_RESIDUES for name in resname_seq])
@@ -565,6 +566,11 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
             cnt += 1
             seq_to_entity_id[resname_str] = cnt
         label_entity_id[c_start:c_stop] = seq_to_entity_id[resname_str]
+
+        res_cnt = 1
+        for res_start, res_stop in zip(residue_starts[:-1], residue_starts[1:]):
+            res_id[c_start:c_stop][res_start:res_stop] = res_cnt
+            res_cnt += 1
 
     atom_array = atom_array[atom_index]
 
@@ -600,6 +606,7 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
     # add label asym id
     atom_array.set_annotation("label_asym_id", atom_array.chain_id)
     # add label seq id
+    atom_array.res_id = res_id  # reset res_id
     atom_array.set_annotation("label_seq_id", atom_array.res_id)
 
     w = CIFWriter(atom_array=atom_array, entity_poly_type=entity_poly_type)
