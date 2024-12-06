@@ -101,9 +101,6 @@ def atom_array_to_input_json(
 
     # get lig entity sequences and position
     label_entity_id_to_sequences = {}
-    position_in_entity_seq = (
-        np.zeros(len(atom_array), dtype=int) - 1
-    )  # -1 for non-ligand
     lig_chain_ids = []  # record chain_id of the first asym chain
     for label_entity_id in np.unique(atom_array.label_entity_id):
         if label_entity_id not in parser.entity_poly_type:
@@ -113,14 +110,9 @@ def atom_array_to_input_json(
             lig_chain_ids += current_lig_chain_ids
             for chain_id in current_lig_chain_ids:
                 lig_atom_array = atom_array[atom_array.chain_id == chain_id]
-                lig_atom_indices = np.where(atom_array.chain_id == chain_id)[0]
                 starts = get_residue_starts(lig_atom_array, add_exclusive_stop=True)
                 seq = lig_atom_array.res_name[starts[:-1]].tolist()
                 label_entity_id_to_sequences[label_entity_id] = seq
-                position_index = 0
-                for start, end in zip(starts[:-1], starts[1:]):
-                    position_index += 1
-                    position_in_entity_seq[lig_atom_indices[start:end]] = position_index
 
     # find polymer modifications
     entity_id_to_mod_list = {}
@@ -227,10 +219,7 @@ def atom_array_to_input_json(
             bond_dict = {}
             for idx, i in enumerate(["left", "right"]):
                 atom = atom_array[atoms[idx]]
-                if atom.label_seq_id != ".":
-                    positon = atom.label_seq_id
-                else:
-                    positon = position_in_entity_seq[atoms[idx]]
+                positon = atom.res_id
                 bond_dict[f"{i}_entity"] = label_entity_id_to_entity_id_in_json[
                     atom.label_entity_id
                 ]
