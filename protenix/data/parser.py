@@ -13,12 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
+import functools
+import gzip
 import logging
 from collections import Counter
-from typing import Optional
+from pathlib import Path
+from typing import Optional, Union
 
 import biotite.structure as struc
+import biotite.structure.io.pdbx as pdbx
 import numpy as np
+import pandas as pd
 from biotite.structure import AtomArray, get_residue_starts
 from biotite.structure.io.pdbx import convert as pdbx_convert
 from biotite.structure.molecules import get_molecule_indices
@@ -39,6 +45,390 @@ logger = logging.getLogger(__name__)
 # Ignore inter residue metal coordinate bonds in mmcif _struct_conn
 if "metalc" in pdbx_convert.PDBX_COVALENT_TYPES:  # for reload
     pdbx_convert.PDBX_COVALENT_TYPES.remove("metalc")
+
+
+class MMCIFParser:
+    def __init__(self, mmcif_file: Union[str, Path]) -> None:
+        self.cif = self._parse(mmcif_file=mmcif_file)
+
+    def _parse(self, mmcif_file: Union[str, Path]) -> pdbx.CIFFile:
+        mmcif_file = Path(mmcif_file)
+        if mmcif_file.suffix == ".gz":
+            with gzip.open(mmcif_file, "rt") as f:
+                cif_file = pdbx.CIFFile.read(f)
+        else:
+            with open(mmcif_file, "rt") as f:
+                cif_file = pdbx.CIFFile.read(f)
+        return cif_file
+
+    def get_category_table(self, name: str) -> Union[pd.DataFrame, None]:
+        if name not in self.cif.block:
+            return None
+        category = self.cif.block[name]
+        category_dict = {k: column.as_array() for k, column in category.items()}
+        return pd.DataFrame(category_dict, dtype=str)
+
+    @staticmethod
+    def mse_to_met(atom_array: AtomArray) -> AtomArray:
+        """
+        Ref: AlphaFold3 SI chapter 2.1
+        MSE residues are converted to MET residues.
+
+        Args:
+            atom_array (AtomArray): Biotite AtomArray object.
+
+        Returns:
+            AtomArray: Biotite AtomArray object after converted MSE to MET.
+        """
+        mse = atom_array.res_name == "MSE"
+        se = mse & (atom_array.atom_name == "SE")
+        atom_array.atom_name[se] = "SD"
+        atom_array.element[se] = "S"
+        atom_array.res_name[mse] = "MET"
+        atom_array.hetero[mse] = False
+        return atom_array
+
+    @functools.cached_property
+    def methods(self) -> list[str]:
+        """the methods to get the structure
+
+        most of the time, methods only has one method, such as 'X-RAY DIFFRACTION',
+        but about 233 entries have multi methods, such as ['X-RAY DIFFRACTION', 'NEUTRON DIFFRACTION'].
+
+        Allowed Values:
+        https://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v50.dic/Items/_exptl.method.html
+
+        Returns:
+            list[str]: such as ['X-RAY DIFFRACTION'], ['ELECTRON MICROSCOPY'], ['SOLUTION NMR', 'THEORETICAL MODEL'],
+                ['X-RAY DIFFRACTION', 'NEUTRON DIFFRACTION'], ['ELECTRON MICROSCOPY', 'SOLUTION NMR'], etc.
+        """
+        if "exptl" not in self.cif.block:
+            return []
+        else:
+            methods = self.cif.block["exptl"]["method"]
+            return methods.as_array()
+
+    def get_poly_res_names(
+        self, atom_array: Optional[AtomArray] = None
+    ) -> dict[str, list[str]]:
+        """get 3-letter residue names by combining mmcif._entity_poly_seq and atom_array
+
+        if ref_atom_array is None: keep first altloc residue of the same res_id based in mmcif._entity_poly_seq
+        if ref_atom_array is provided: keep same residue of ref_atom_array.
+
+        Returns
+            dict[str, list[str]]: label_entity_id --> [res_ids, res_names]
+        """
+        entity_res_names = {}
+        if atom_array is not None:
+            # build entity_id -> res_id -> res_name for input atom array
+            res_starts = struc.get_residue_starts(atom_array, add_exclusive_stop=False)
+            for start in res_starts:
+                entity_id = atom_array.label_entity_id[start]
+                res_id = atom_array.res_id[start]
+                res_name = atom_array.res_name[start]
+                if entity_id in entity_res_names:
+                    entity_res_names[entity_id][res_id] = res_name
+                else:
+                    entity_res_names[entity_id] = {res_id: res_name}
+
+        # build reference entity atom array, including missing residues
+        entity_poly_seq = self.get_category_table("entity_poly_seq")
+        if entity_poly_seq is None:
+            return {}
+
+        poly_res_names = {}
+        for entity_id, poly_type in self.entity_poly_type.items():
+            chain_mask = entity_poly_seq.entity_id == entity_id
+            seq_mon_ids = entity_poly_seq.mon_id[chain_mask].to_numpy(dtype=str)
+
+            # replace all MSE to MET in _entity_poly_seq.mon_id
+            seq_mon_ids[seq_mon_ids == "MSE"] = "MET"
+
+            seq_nums = entity_poly_seq.num[chain_mask].to_numpy(dtype=int)
+
+            if np.unique(seq_nums).size == seq_nums.size:
+                # no altloc residues
+                poly_res_names[entity_id] = seq_mon_ids
+                continue
+
+            # filter altloc residues, eg: 181 ALA (altloc A); 181 GLY (altloc B)
+            select_mask = np.zeros(len(seq_nums), dtype=bool)
+            matching_res_id = seq_nums[0]
+            for i, res_id in enumerate(seq_nums):
+                if res_id != matching_res_id:
+                    continue
+
+                res_name_in_atom_array = entity_res_names.get(entity_id, {}).get(res_id)
+                if res_name_in_atom_array is None:
+                    # res_name is mssing in atom_array,
+                    # keep first altloc residue of the same res_id
+                    select_mask[i] = True
+                else:
+                    # keep match residue to atom_array
+                    if res_name_in_atom_array == seq_mon_ids[i]:
+                        select_mask[i] = True
+
+                if select_mask[i]:
+                    matching_res_id += 1
+
+            seq_mon_ids = seq_mon_ids[select_mask]
+            seq_nums = seq_nums[select_mask]
+            assert len(seq_nums) == max(seq_nums)
+            poly_res_names[entity_id] = seq_mon_ids
+        return poly_res_names
+
+    def get_sequences(self, atom_array=None) -> dict:
+        """get sequence by combining mmcif._entity_poly_seq and atom_array
+
+        if ref_atom_array is None: keep first altloc residue of the same res_id based in mmcif._entity_poly_seq
+        if ref_atom_array is provided: keep same residue of atom_array.
+
+        Return
+            Dict{str:str}: label_entity_id --> canonical_sequence
+        """
+        sequences = {}
+        for entity_id, res_names in self.get_poly_res_names(atom_array).items():
+            seq = ccd.res_names_to_sequence(res_names)
+            sequences[entity_id] = seq
+        return sequences
+
+    @functools.cached_property
+    def entity_poly_type(self) -> dict[str, str]:
+        """
+        Ref: https://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v50.dic/Items/_entity_poly.type.html
+        Map entity_id to entity_poly_type.
+
+        Allowed Value:
+        · cyclic-pseudo-peptide
+        · other
+        · peptide nucleic acid
+        · polydeoxyribonucleotide
+        · polydeoxyribonucleotide/polyribonucleotide hybrid
+        · polypeptide(D)
+        · polypeptide(L)
+        · polyribonucleotide
+
+        Returns:
+            Dict: a dict of label_entity_id --> entity_poly_type.
+        """
+        entity_poly = self.get_category_table("entity_poly")
+        if entity_poly is None:
+            return {}
+
+        return {i: t for i, t in zip(entity_poly.entity_id, entity_poly.type)}
+
+    def filter_altloc(self, atom_array: AtomArray, altloc: str = "first"):
+        """
+        altloc: "first", "A", "B", "global_largest", etc
+
+        Filter first alternate coformation (altloc) of a given AtomArray.
+        - normally first altloc_id is 'A'
+        - but in one case, first altloc_id is '1' in 6uwi.cif
+
+        biotite v0.41 can not handle diff res_name at same res_id.
+        For example, in 2pxs.cif, there are two res_name (XYG|DYG) at res_id 63,
+        need to keep the first XYG.
+        """
+        if altloc == "all":
+            return atom_array
+
+        altloc_id = altloc
+        if altloc == "first":
+            letter_altloc_ids = np.unique(atom_array.label_alt_id)
+            if len(letter_altloc_ids) == 1 and letter_altloc_ids[0] == ".":
+                return atom_array
+            letter_altloc_ids = letter_altloc_ids[letter_altloc_ids != "."]
+            altloc_id = np.sort(letter_altloc_ids)[0]
+
+        return atom_array[np.isin(atom_array.label_alt_id, [altloc_id, "."])]
+
+    @staticmethod
+    def replace_auth_with_label(atom_array: AtomArray) -> AtomArray:
+        # fix issue https://github.com/biotite-dev/biotite/issues/553
+        atom_array.chain_id = atom_array.label_asym_id
+        has_seq_id = atom_array.label_seq_id != "."
+        atom_array.res_id[has_seq_id] = atom_array.label_seq_id[has_seq_id].astype(int)
+        return atom_array
+
+    def get_structure(
+        self,
+        altloc: str = "first",
+        model: int = 1,
+        bond_lenth_threshold: Union[float, None] = 2.4,
+    ) -> AtomArray:
+        """
+        Get an AtomArray created by bioassembly of MMCIF.
+
+        altloc: "first", "all", "A", "B", etc
+        model: the model number of the structure.
+        bond_lenth_threshold: the threshold of bond length. If None, no filter will be applied.
+                              Default is 2.4 Angstroms.
+
+        Returns:
+            AtomArray: Biotite AtomArray object created by bioassembly of MMCIF.
+        """
+        use_author_fields = True
+        extra_fields = ["label_asym_id", "label_entity_id", "auth_asym_id"]  # chain
+        extra_fields += ["label_seq_id", "auth_seq_id"]  # residue
+        atom_site_fields = {
+            "occupancy": "occupancy",
+            "pdbx_formal_charge": "charge",
+            "B_iso_or_equiv": "b_factor",
+            "label_alt_id": "label_alt_id",
+        }  # atom
+        for atom_site_name, alt_name in atom_site_fields.items():
+            if atom_site_name in self.cif.block["atom_site"]:
+                extra_fields.append(alt_name)
+
+        block = self.cif.block
+
+        extra_fields = set(extra_fields)
+
+        atom_site = block.get("atom_site")
+
+        models = atom_site["pdbx_PDB_model_num"].as_array(np.int32)
+        model_starts = pdbx_convert._get_model_starts(models)
+        model_count = len(model_starts)
+
+        if model == 0:
+            raise ValueError("The model index must not be 0")
+        # Negative models mean model indexing starting from last model
+
+        model = model_count + model + 1 if model < 0 else model
+        if model > model_count:
+            raise ValueError(
+                f"The file has {model_count} models, "
+                f"the given model {model} does not exist"
+            )
+
+        model_atom_site = pdbx_convert._filter_model(atom_site, model_starts, model)
+        # Any field of the category would work here to get the length
+        model_length = model_atom_site.row_count
+        atoms = AtomArray(model_length)
+
+        atoms.coord[:, 0] = model_atom_site["Cartn_x"].as_array(np.float32)
+        atoms.coord[:, 1] = model_atom_site["Cartn_y"].as_array(np.float32)
+        atoms.coord[:, 2] = model_atom_site["Cartn_z"].as_array(np.float32)
+
+        atoms.box = pdbx_convert._get_box(block)
+
+        # The below part is the same for both, AtomArray and AtomArrayStack
+        pdbx_convert._fill_annotations(
+            atoms, model_atom_site, extra_fields, use_author_fields
+        )
+
+        bonds = struc.connect_via_residue_names(atoms, inter_residue=False)
+        if "struct_conn" in block:
+            conn_bonds = pdbx_convert._parse_inter_residue_bonds(
+                model_atom_site, block["struct_conn"]
+            )
+            coord1 = atoms.coord[conn_bonds._bonds[:, 0]]
+            coord2 = atoms.coord[conn_bonds._bonds[:, 1]]
+            dist = np.linalg.norm(coord1 - coord2, axis=1)
+            if bond_lenth_threshold is not None:
+                conn_bonds._bonds = conn_bonds._bonds[dist < bond_lenth_threshold]
+            bonds = bonds.merge(conn_bonds)
+        atoms.bonds = bonds
+
+        atom_array = self.filter_altloc(atoms, altloc=altloc)
+
+        # inference inter residue bonds based on res_id (auth_seq_id) and label_asym_id.
+        atom_array = ccd.add_inter_residue_bonds(
+            atom_array,
+            exclude_struct_conn_pairs=True,
+            remove_far_inter_chain_pairs=True,
+        )
+
+        # use label_seq_id to match seq and structure
+        atom_array = self.replace_auth_with_label(atom_array)
+
+        # inference inter residue bonds based on new res_id (label_seq_id).
+        # the auth_seq_id is not reliable, some are discontinuous (8bvh), some with insertion codes (6ydy).
+        atom_array = ccd.add_inter_residue_bonds(
+            atom_array, exclude_struct_conn_pairs=True
+        )
+        return atom_array
+
+    def expand_assembly(
+        self, structure: AtomArray, assembly_id: str = "1"
+    ) -> AtomArray:
+        """
+        Expand the given assembly to all chains
+        copy from biotite.structure.io.pdbx.get_assembly
+
+        Args:
+            structure (AtomArray): The AtomArray of the structure to expand.
+            assembly_id (str, optional): The assembly ID in mmCIF file. Defaults to "1".
+                                         If assembly_id is "all", all assemblies will be returned.
+
+        Returns:
+            AtomArray: The assembly AtomArray.
+        """
+        block = self.cif.block
+
+        try:
+            assembly_gen_category = block["pdbx_struct_assembly_gen"]
+        except KeyError:
+            logging.info(
+                "File has no 'pdbx_struct_assembly_gen' category, return original structure."
+            )
+            return structure
+
+        try:
+            struct_oper_category = block["pdbx_struct_oper_list"]
+        except KeyError:
+            logging.info(
+                "File has no 'pdbx_struct_oper_list' category, return original structure."
+            )
+            return structure
+
+        assembly_ids = assembly_gen_category["assembly_id"].as_array(str)
+
+        if assembly_id != "all":
+            if assembly_id is None:
+                assembly_id = assembly_ids[0]
+            elif assembly_id not in assembly_ids:
+                raise KeyError(f"File has no Assembly ID '{assembly_id}'")
+
+        ### Calculate all possible transformations
+        transformations = pdbx_convert._get_transformations(struct_oper_category)
+
+        ### Get transformations and apply them to the affected asym IDs
+        assembly = None
+        assembly_1_mask = []
+        for id, op_expr, asym_id_expr in zip(
+            assembly_gen_category["assembly_id"].as_array(str),
+            assembly_gen_category["oper_expression"].as_array(str),
+            assembly_gen_category["asym_id_list"].as_array(str),
+        ):
+            # Find the operation expressions for given assembly ID
+            # We already asserted that the ID is actually present
+            if assembly_id == "all" or id == assembly_id:
+                operations = pdbx_convert._parse_operation_expression(op_expr)
+                asym_ids = asym_id_expr.split(",")
+                # Filter affected asym IDs
+                sub_structure = copy.deepcopy(
+                    structure[..., np.isin(structure.label_asym_id, asym_ids)]
+                )
+                sub_assembly = pdbx_convert._apply_transformations(
+                    sub_structure, transformations, operations
+                )
+                # Merge the chains with asym IDs for this operation
+                # with chains from other operations
+                if assembly is None:
+                    assembly = sub_assembly
+                else:
+                    assembly += sub_assembly
+
+                if id == "1":
+                    assembly_1_mask.extend([True] * len(sub_assembly))
+                else:
+                    assembly_1_mask.extend([False] * len(sub_assembly))
+
+        if assembly_id == "1" or assembly_id == "all":
+            assembly.set_annotation("assembly_1", np.array(assembly_1_mask))
+        return assembly
 
 
 class AddAtomArrayAnnot(object):

@@ -478,3 +478,83 @@ def _connect_inter_residue(
         )
 
     return struc.BondList(atoms.array_length(), np.array(bonds, dtype=np.uint32))
+
+
+def add_inter_residue_bonds(
+    atom_array: AtomArray,
+    exclude_struct_conn_pairs: bool = False,
+    remove_far_inter_chain_pairs: bool = False,
+) -> AtomArray:
+    """
+    add polymer bonds (C-N or O3'-P) between adjacent residues based on auth_seq_id.
+
+    exclude_struct_conn_pairs: if True, do not add bond between adjacent residues already has non-standard polymer bonds
+                  on atom C or N or O3' or P.
+
+    remove_far_inter_chain_pairs: if True, remove inter chain (based on label_asym_id) bonds that are far away from each other.
+
+    returns:
+        AtomArray: Biotite AtomArray merged inter residue bonds into atom_array.bonds
+    """
+    res_starts = struc.get_residue_starts(atom_array, add_exclusive_stop=True)
+    inter_bonds = _connect_inter_residue(atom_array, res_starts)
+
+    if atom_array.bonds is None:
+        atom_array.bonds = inter_bonds
+        return atom_array
+
+    select_mask = np.ones(len(inter_bonds._bonds), dtype=bool)
+    if exclude_struct_conn_pairs:
+        for b_idx, (atom_i, atom_j, b_type) in enumerate(inter_bonds._bonds):
+            atom_k = atom_i if atom_array.atom_name[atom_i] in ("N", "O3'") else atom_j
+            bonds, types = atom_array.bonds.get_bonds(atom_k)
+            if len(bonds) == 0:
+                continue
+            for b in bonds:
+                if (
+                    # adjacent residues
+                    abs((res_starts <= b).sum() - (res_starts <= atom_k).sum()) == 1
+                    and atom_array.chain_id[b] == atom_array.chain_id[atom_k]
+                    and atom_array.atom_name[b] not in ("C", "P")
+                ):
+                    select_mask[b_idx] = False
+                    break
+
+    if remove_far_inter_chain_pairs:
+        if not hasattr(atom_array, "label_asym_id"):
+            logging.warning(
+                "label_asym_id not found, far inter chain bonds will not be removed"
+            )
+        for b_idx, (atom_i, atom_j, b_type) in enumerate(inter_bonds._bonds):
+            if atom_array.label_asym_id[atom_i] != atom_array.label_asym_id[atom_j]:
+                coord_i = atom_array.coord[atom_i]
+                coord_j = atom_array.coord[atom_j]
+                if np.linalg.norm(coord_i - coord_j) > 2.5:
+                    select_mask[b_idx] = False
+
+    # filter out removed_inter_bonds from atom_array.bonds
+    remove_bonds = inter_bonds._bonds[~select_mask]
+    remove_mask = np.isin(atom_array.bonds._bonds[:, 0], remove_bonds[:, 0]) & np.isin(
+        atom_array.bonds._bonds[:, 1], remove_bonds[:, 1]
+    )
+    atom_array.bonds._bonds = atom_array.bonds._bonds[~remove_mask]
+
+    # merged normal inter_bonds into atom_array.bonds
+    inter_bonds._bonds = inter_bonds._bonds[select_mask]
+    atom_array.bonds = atom_array.bonds.merge(inter_bonds)
+    return atom_array
+
+
+def res_names_to_sequence(res_names: list[str]) -> str:
+    """convert res_names to sequences {chain_id: canonical_sequence} based on CCD
+
+    Return
+        str: canonical_sequence
+    """
+    seq = ""
+    for res_name in res_names:
+        one = get_one_letter_code(res_name)
+        one = "X" if one is None else one
+        one = "X" if len(one) > 1 else one
+        seq += one
+    return seq
