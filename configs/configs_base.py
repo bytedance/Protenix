@@ -118,7 +118,7 @@ model_configs = {
     },
     "infer_setting": {
         "chunk_size": ValueMaybeNone(
-            256
+            64
         ),  # should set to null for normal training and small dataset eval [for efficiency]
         "sample_diffusion_chunk_size": ValueMaybeNone(
             1

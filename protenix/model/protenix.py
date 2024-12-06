@@ -401,7 +401,7 @@ class Protenix(nn.Module):
 
             for key in keys_to_delete:
                 del input_feature_dict[key]
-
+            torch.cuda.empty_cache()
         step_trunk = time.time()
         time_tracker.update({"pairformer": step_trunk - step_st})
         # Sample diffusion
@@ -425,7 +425,8 @@ class Protenix(nn.Module):
 
         step_diffusion = time.time()
         time_tracker.update({"diffusion": step_diffusion - step_trunk})
-
+        if mode == "inference" and N_token > 2000:
+            torch.cuda.empty_cache()
         # Distogram logits: log contact_probs only, to reduce the dimension
         pred_dict["contact_probs"] = sample_confidence.compute_contact_prob(
             distogram_logits=self.distogram_head(z),
