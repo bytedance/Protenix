@@ -119,28 +119,6 @@ class RequestParser(object):
             raise ValueError("Failed in finding model checkpoint.")
 
     def get_data_json(self) -> str:
-        def reformat_modification(
-            modifications: Sequence[Dict[str, Union[str, int]]], seq_type: str
-        ) -> Sequence[Dict[str, Union[str, int]]]:
-            if seq_type == "proteinChain":
-                return [
-                    {
-                        "ptmType": mod["modificationType"],
-                        "ptmPosition": mod["position"],
-                    }
-                    for mod in modifications
-                ]
-            elif seq_type in ["dnaSequence", "rnaSequence"]:
-                return [
-                    {
-                        "modificationType": mod["modificationType"],
-                        "basePosition": mod["position"],
-                    }
-                    for mod in modifications
-                ]
-            else:
-                raise NotImplementedError
-
         input_json_dict = {
             "name": (self.request["name"]),
             "covalent_bonds": self.request["covalent_bonds"],
@@ -156,26 +134,19 @@ class RequestParser(object):
 
             seq_type, seq_info = next(iter(entity_info_wrapper.items()))
 
-            new_seq_info = {}
             if seq_type == "proteinChain":
                 if self.request["use_msa"]:
                     entity_pending_msa[entity_id] = seq_info["sequence"]
-                new_seq_info["count"] = seq_info["count"]
-                new_seq_info["sequence"] = seq_info["sequence"]
-                new_seq_info["modifications"] = reformat_modification(
-                    seq_info["modifications"], seq_type=seq_type
-                )
-            elif seq_type in ["dnaSequence", "rnaSequence"]:
-                new_seq_info["count"] = seq_info["count"]
-                new_seq_info["sequence"] = seq_info["sequence"]
-                new_seq_info["modifications"] = reformat_modification(
-                    seq_info["modifications"], seq_type=seq_type
-                )
-            elif seq_type in ["ligand", "ion"]:
-                new_seq_info.update(seq_info)
-            else:
+
+            if seq_type not in [
+                "proteinChain",
+                "dnaSequence",
+                "rnaSequence",
+                "ligand",
+                "ion",
+            ]:
                 raise NotImplementedError
-            sequences.append({seq_type: new_seq_info})
+            sequences.append({seq_type: seq_info})
 
         tmp_json_dict = deepcopy(input_json_dict)
         tmp_json_dict["sequences"] = sequences
