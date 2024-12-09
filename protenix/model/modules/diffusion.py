@@ -140,6 +140,8 @@ class DiffusionConditioning(nn.Module):
         else:
             single_s = single_s + self.transition_s1(single_s)
             single_s = single_s + self.transition_s2(single_s)
+        if not self.training and pair_z.shape[-2] > 2000:
+            torch.cuda.empty_cache()
         return single_s, pair_z
 
 

@@ -846,6 +846,8 @@ class AtomAttentionEncoder(nn.Module):
             n_token=n_token,
             reduce="mean",
         )  # [..., (N_sample), N_token, c_token]
+        if (not self.training) and (a.shape[-2] > 2000 or q_l.shape[-2] > 20000):
+            torch.cuda.empty_cache()
         return a, q_l, c_l, p_lm
 
 

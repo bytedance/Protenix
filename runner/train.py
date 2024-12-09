@@ -552,7 +552,9 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
     )
-
+    configs_base["use_deepspeed_evo_attention"] = (
+        os.environ.get("USE_DEEPSPEED_EVO_ATTTENTION", False) == "true"
+    )
     configs = {**configs_base, **{"data": data_configs}}
     configs = parse_configs(
         configs,

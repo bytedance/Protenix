@@ -41,12 +41,12 @@ Key arguments in this scripts are explained as follows:
     --skip_amp.sample_diffusion false \
     --skip_amp.loss false \
     ```
-* `use_deepspeed_evo_attention`: whether use the EvoformerAttention provided by DeepSpeed as mentioned above.
 * `ema_decay`: the decay rate of the EMA, default is 0.999.
 * `sample_diffusion.N_step`: during evalutaion, the number of steps for the diffusion process is reduced to 20 to improve efficiency.
+
 * `data.train_sets/data.test_sets`: the datasets used for training and evaluation. If there are multiple datasets, separate them with commas.
 * Some settings follow those in the [AlphaFold 3](https://www.nature.com/articles/s41586-024-07487-w) paper, The table in [model_performance.md](../docs/model_performance.md) shows the training settings and memory usages for different training stages.
-* In this version, we do not use the template and RNA MSA feature for training. As the default settings in [configs/configs_base.py](configs/configs_base.py) and [configs/configs_data.py](configs/configs_data.py):
+* In this version, we do not use the template and RNA MSA feature for training. As the default settings in [configs/configs_base.py](../configs/configs_base.py) and [configs/configs_data.py](../configs/configs_data.py):
   ```bash
   --model.template_embedder.n_blocks 0 \
   --data.msa.enable_rna_msa false \
@@ -59,6 +59,8 @@ Key arguments in this scripts are explained as follows:
   ```
   You can also pass other arguments with `--<ARGS_KEY> <ARGS_VALUE>` as you want.
 
+
+If you want to speed up training, see [<u> setting up kernels documentation </u>](./kernels.md).
 
 ### Finetune demo
 
