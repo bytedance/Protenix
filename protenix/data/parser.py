@@ -263,7 +263,7 @@ class MMCIFParser:
                     res_id[chain_start:chain_stop][res_start:res_stop] = num
                     num += 1
 
-        atom_array.res_id = res_id
+        atom_array.res_id = res_id.astype(int)
         return atom_array
 
     def get_structure(
