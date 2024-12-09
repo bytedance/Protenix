@@ -1,4 +1,4 @@
-import os, json, logging, uuid, time, tqdm, argparse, click
+import os, json, logging, uuid, time, tqdm, argparse, click, tempfile
 from pathlib import Path
 from rdkit import Chem
 from typing import Any, List
@@ -9,6 +9,8 @@ from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
 from protenix.config import parse_configs, parse_sys_args
 from protenix.utils.logger import get_logger
+from protenix.data.json_maker import cif_to_input_json
+from protenix.data.utils import pdb_to_cif
 
 logger = get_logger(__name__)
 
@@ -288,7 +290,63 @@ def predict(input_json_path, dump_dir):
     inference_jsons(input_json_path, dump_dir)
 
 
+@click.command()
+@click.option("--input_file",  type=str, help="pdb or cif files or dir to generate jsons for inference")
+@click.option("--out_dir",  type=str, default="./output", help="dir to save json files")
+@click.option("--altloc", default="first", type=str, help=" Select the first altloc conformation of each residue in \
+                         the input file, or specify the altloc letter for selection. For example, 'first', 'A', 'B', etc.")
+@click.option("--assembly_id", default=None, type=str, help="Extends the structure based on the Assembly ID in \
+                        the input file. The default is no extension")
+def generate(input_file, out_dir="./output", altloc="first", assembly_id=None):
+    """
+    generate
+    :param input_file, out_dir, altloc, assembly_id
+    :return:
+    """
+    init_logging()
+    logger.info(f"run generate with input_file={input_file}, out_dir={out_dir}, altloc={altloc}, assembly_id={assembly_id}")
+    if os.path.isdir(input_file):
+        input_files = [
+            str(file) for file in Path(input_file).rglob("*") if file.is_file()
+        ]
+        if len(input_files) == 0:
+            raise RuntimeError(
+                f"can not read a valid `pdb` or `cif` ligand_file in {input_file}"
+            )
+    elif os.path.isfile(input_file):
+        input_files = [input_file]
+    else:
+        raise RuntimeError(f"can not read a special ligand_file: {input_file}")
+    input_files = [file for file in input_files if file.endswith(".pdb") or file.endswith(".cif")]
+    logger.info(f"will generate jsons for {len(input_files)} input files with `pdb` or `cif` format.")
+    output_jsons = []
+    os.makedirs(out_dir, exist_ok=True)
+    for input_file in input_files:
+        stem, _ = os.path.splitext(os.path.basename(input_file))
+        pdb_name = stem[:20]
+        output_json = os.path.join(out_dir, f"{pdb_name}-{uuid.uuid4().hex}.json")
+        if input_file.endswith(".pdb"):
+            with tempfile.NamedTemporaryFile(suffix=".cif") as tmp:
+                tmp_cif_file = tmp.name
+                pdb_to_cif(input_file, tmp_cif_file)
+                cif_to_input_json(
+                    tmp_cif_file,
+                    assembly_id=assembly_id,
+                    altloc=altloc,
+                    sample_name=pdb_name,
+                    output_json=output_json,
+                )
+        elif input_file.endswith(".cif"):
+            cif_to_input_json(input_file, assembly_id=assembly_id, altloc=altloc, output_json=output_json)
+        else:
+            raise RuntimeError(f"can not read a special ligand_file: {input_file}")
+        output_jsons.append(output_json)
+    logger.info(f"{len(output_jsons)} generated jsons have been save to {out_dir}.")
+    return output_jsons
+
+
 protenix_cli.add_command(predict)
+protenix_cli.add_command(generate)
 
 if __name__ == "__main__":
     init_logging()
