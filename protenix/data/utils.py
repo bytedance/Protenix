@@ -287,7 +287,7 @@ class CIFWriter:
             entry_id = os.path.basename(output_path).replace(".cif", "")
 
         block_dict = {"entry": pdbx.CIFCategory({"id": entry_id})}
-        if self.entity_poly_type is not None:
+        if self.entity_poly_type:
             block_dict.update(self._get_entity_poly_and_entity_poly_seq_block())
 
         block = pdbx.CIFBlock(block_dict)
