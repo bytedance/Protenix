@@ -15,6 +15,7 @@
 
 import logging
 import os
+import urllib.request
 import traceback
 from contextlib import nullcontext
 from os.path import exists as opexists
@@ -152,6 +153,10 @@ class InferenceRunner(object):
         if DIST_WRAPPER.rank == 0:
             logger.info(msg)
 
+    def update_model_configs(self, new_configs: Any) -> None:
+        self.model.configs = new_configs
+
+
 def download_infercence_cache(configs: Any, model_version="v1") -> None:
 
     ccd_data_cif = configs.data.ccd_components_file
@@ -162,24 +167,36 @@ def download_infercence_cache(configs: Any, model_version="v1") -> None:
         ("ccd_components_file", "components.v20240608.cif"),
         ("ccd_components_rdkit_mol_file", "components.v20240608.cif.rdkit_mol.pkl"),
     ]:
-        if not opexists(
-            cache_path := os.path.abspath(opjoin(data_cache_dir, fname))
-        ):
+        if not opexists(cache_path := os.path.abspath(opjoin(data_cache_dir, fname))):
             tos_url = URL[cache_name]
-            print(f"Downloading data cache from\n {tos_url}...")
-            download_tos_url(tos_url, cache_path)
+            logger.info(f"Downloading data cache from\n {tos_url}...")
+            urllib.request.urlretrieve(tos_url, cache_path)
 
     checkpoint_path = configs.load_checkpoint_path
     if not opexists(checkpoint_path):
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         tos_url = URL[f"model_{model_version}"]
-        print(f"Downloading model checkpoint from\n {tos_url}...")
-        download_tos_url(tos_url, checkpoint_path)
+        logger.info(f"Downloading model checkpoint from\n {tos_url}...")
+        urllib.request.urlretrieve(tos_url, checkpoint_path)
 
-def main(configs: Any) -> None:
-    # Runner
-    runner = InferenceRunner(configs)
 
+def update_inference_configs(configs: Any, N_token: int):
+    # Setting the default inference configs for different N_token and N_atom
+    # when N_token is larger than 3000, the default config might OOM even on a
+    # A100 80G GPUS,
+    if N_token > 3840:
+        configs.skip_amp.confidence_head = False
+        configs.skip_amp.sample_diffusion = False
+    elif N_token > 2560:
+        configs.skip_amp.confidence_head = False
+        configs.skip_amp.sample_diffusion = True
+    else:
+        configs.skip_amp.confidence_head = True
+        configs.skip_amp.sample_diffusion = True
+    return configs
+
+
+def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     # Data
     logger.info(f"Loading data from\n{configs.input_json_path}")
     dataloader = get_inference_dataloader(configs=configs)
@@ -208,7 +225,8 @@ def main(configs: Any) -> None:
                         f"N_atom {data['N_atom'].item()}, N_msa {data['N_msa'].item()}"
                     )
                 )
-
+                new_configs = update_inference_configs(configs, data["N_token"].item())
+                runner.update_model_configs(new_configs)
                 prediction = runner.predict(data)
                 runner.dumper.dump(
                     dataset_name="",
@@ -223,7 +241,7 @@ def main(configs: Any) -> None:
                     f"[Rank {DIST_WRAPPER.rank}] {data['sample_name']} succeeded.\n"
                     f"Results saved to {configs.dump_dir}"
                 )
-
+                torch.cuda.empty_cache()
             except Exception as e:
                 error_message = f"[Rank {DIST_WRAPPER.rank}]{data['sample_name']} {e}:\n{traceback.format_exc()}"
                 logger.info(error_message)
@@ -237,13 +255,23 @@ def main(configs: Any) -> None:
                 if hasattr(torch.cuda, "empty_cache"):
                     torch.cuda.empty_cache()
 
-def run():
+
+def main(configs: Any) -> None:
+    # Runner
+    runner = InferenceRunner(configs)
+    infer_predict(runner, configs)
+
+
+def run() -> None:
     LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
     logging.basicConfig(
         format=LOG_FORMAT,
         level=logging.INFO,
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
+    )
+    configs_base["use_deepspeed_evo_attention"] = (
+        os.environ.get("USE_DEEPSPEED_EVO_ATTTENTION", False) == "true"
     )
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
     configs = parse_configs(
@@ -254,14 +282,14 @@ def run():
     download_infercence_cache(configs)
     main(configs)
 
-def run_default():
-    os.environ["LAYERNORM_TYPE"] = "fast_layernorm"
+
+def run_default() -> None:
     inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
-    configs_base["use_deepspeed_evo_attention"] = True
     configs_base["model"]["N_cycle"] = 10
     configs_base["sample_diffusion"]["N_sample"] = 5
     configs_base["sample_diffusion"]["N_step"] = 200
     run()
+
 
 if __name__ == "__main__":
     run()

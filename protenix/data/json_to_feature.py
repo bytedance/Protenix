@@ -250,7 +250,9 @@ class SampleDictToFeatures:
         atom_array = AddAtomArrayAnnot.add_tokatom_idx(atom_array)
         atom_array = AddAtomArrayAnnot.add_modified_res_mask(atom_array)
         atom_array = AddAtomArrayAnnot.unique_chain_and_add_ids(atom_array)
-        atom_array = AddAtomArrayAnnot.find_equiv_mol_and_assign_ids(atom_array)
+        atom_array = AddAtomArrayAnnot.find_equiv_mol_and_assign_ids(
+            atom_array, check_final_equiv=False
+        )
         atom_array = AddAtomArrayAnnot.add_ref_space_uid(atom_array)
         return atom_array
 

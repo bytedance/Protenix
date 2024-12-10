@@ -43,7 +43,7 @@ setup(
     platforms="manylinux1",
     entry_points={
         "console_scripts": [
-            "protenix_infer = runner.inference:run_default",
+            "protenix = runner.batch_inference:protenix_cli",
         ],
     },
 )

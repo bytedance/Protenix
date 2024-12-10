@@ -19,28 +19,33 @@ Some settings follow those in the [AlphaFold 3](https://www.nature.com/articles/
 
 ### Inference
 
-The model will be infered in BF16 Mixed precision, by **default**, the `SampleDiffusion`,`ConfidenceHead` part will still be infered in FP32 precision. if you want to infer the model in **full BF16** Mixed precision, pass the following arguments to the [inference_demo.sh](../inference_demo.sh):
-
-  ```bash
-  --skip_amp.confidence_head false \
-  --skip_amp.sample_diffusion false \
-  ```
+The model will be infered in BF16 Mixed precision, by **default**, the `SampleDiffusion`,`ConfidenceHead` part will still be infered in FP32 precision.
 
 Below are reference examples of cuda memory usage (G).
 
 | Ntoken | Natom | Default | Full BF16 Mixed |
 |--------|-------|-------|------------------|
 | 500    | 10000 | 5.6   | 5.1  |
-| 900    | 18000 | 10.7  | 8.1  |
-| 1100   | 22000 | 14.4  | 12.1 |
-| 1300   | 26000 | 22.1  | 15.0 |
 | 1500   | 30000 | 24.8  | 19.2 |
-| 1700   | 34000 | 30.3  | 24.1 |
-| 1900   | 38000 | 37.1  | 29.3 |
-| 2000   | 20000 | 48.0  | 26.5 |
 | 2500   | 25000 | 52.2  | 34.8 |
-| 3000   | 30000 | 73.8  | 44.0 |
 | 3500   | 35000 | 67.6  | 38.2 |
-| 4000   | 40000 | 66.4  | 48.4 |
 | 4500   | 45000 | 77.0  | 59.2 |
 | 5000   | 50000 | OOM   | 72.8 |
+
+The script in [runner/inference.py](../runner/inference.py) will automatically change the default precision to compute `SampleDiffusion`,`ConfidenceHead` to avoid OOM as follows:
+```python
+def update_inference_configs(configs: Any, N_token: int):
+    # Setting the default inference configs for different N_token and N_atom
+    # when N_token is larger than 3000, the default config might OOM even on a
+    # A100 80G GPUS,
+    if N_token > 3840:
+        configs.skip_amp.confidence_head = False
+        configs.skip_amp.sample_diffusion = False
+    elif N_token > 2560:
+        configs.skip_amp.confidence_head = False
+        configs.skip_amp.sample_diffusion = True
+    else:
+        configs.skip_amp.confidence_head = True
+        configs.skip_amp.sample_diffusion = True
+    return configs
+```

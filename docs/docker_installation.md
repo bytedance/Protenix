@@ -9,7 +9,7 @@ Ensure that Docker is installed and configured with GPU support. Follow these st
         docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
         ```
         
-2. Pull the Docker image, which was built based on this [Dockerfile](Dockerfile)
+2. Pull the Docker image, which was built based on this [Dockerfile](../Dockerfile)
     ```bash
     docker pull ai4s-cn-beijing.cr.volces.com/infra/protenix:v0.0.1
     ```
