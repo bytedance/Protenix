@@ -34,10 +34,10 @@ If you set up `Protenix` by `pip`, you can run the following command to do model
 
 ```bash
 # run with one json file
-protenix predict --input_json_path examples/example.json --dump_dir  ./output
+protenix predict --input examples/example.json --out_dir  ./output
 
 # or run with multiple json files
-protenix predict --input_json_path ./jsons_dir/ --dump_dir  ./output
+protenix predict --input ./jsons_dir/ --out_dir  ./output
 
 ```
 
