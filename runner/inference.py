@@ -254,6 +254,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                     f.write(error_message)
                 if hasattr(torch.cuda, "empty_cache"):
                     torch.cuda.empty_cache()
+                raise RuntimeError(f"run infer failed: {str(e)}")
 
 
 def main(configs: Any) -> None:

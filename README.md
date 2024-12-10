@@ -17,9 +17,7 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 
 ```bash
     # maybe you need to update libxrender1 and libxext6 firstly, run as following for Debian:
-    # apt-get update
-    # apt-get install libxrender1
-    # apt-get install libxext6
+    # apt-get update && apt-get install -y libxrender1 libxext6
     pip3 install protenix
 ```
 ### Run with Docker:
