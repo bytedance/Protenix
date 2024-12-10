@@ -24,6 +24,24 @@ def init_logging():
         filemode="w",
     )
 
+def has_msa(json_file: str) -> bool:
+    '''
+    check the json_path data has msa result or not.
+    '''
+    if not os.path.exists(json_file):
+        raise RuntimeError(f"`{json_file}` not exists.")
+    with open(json_file, "r") as f:
+        json_data = json.load(f)
+    for seq in json_data:
+        for sequence in seq["sequences"]:
+            if "proteinChain" in sequence.keys():
+                proteinChain = sequence["proteinChain"]
+                if "msa" in proteinChain.keys() and len(proteinChain["msa"]) > 0:
+                    pass
+                else:
+                    return False
+    return True
+
 
 def generate_infer_jsons(
     protein_msa_res: dict, ligand_file: str, seeds: List[int] = [101]
@@ -189,10 +207,13 @@ def inference_jsons(json_file: str, out_dir: str = "./output") -> None:
     for infer_json in tqdm.tqdm(infer_jsons):
         try:
             configs["input_json_path"] = infer_json
+            if not has_msa(infer_json):
+                raise RuntimeError(f"`{infer_json}` has no msa result for `proteinChain`, please add first.")
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
-    logger.info(f"run inference failed jsons: {infer_errors}")
+    if len(infer_errors) > 0:
+        logger.warning(f"run inference failed: {infer_errors}")
 
 
 def batch_inference(
@@ -229,10 +250,13 @@ def batch_inference(
     for infer_json in tqdm.tqdm(infer_jsons):
         try:
             configs["input_json_path"] = infer_json
+            if not has_msa(infer_json):
+                raise RuntimeError(f"`{infer_json}` has no msa result for `proteinChain`, please add first.")
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
-    logger.info(f"run inference failed jsons: {infer_errors}")
+    if len(infer_errors) > 0:
+        logger.warning(f"run inference failed: {infer_errors}")
 
 
 def test_batch_inference():
@@ -275,50 +299,50 @@ def protenix_cli():
 
 
 @click.command()
-@click.option("--input_json_path", type=str, help="json files or dir for inference")
-@click.option("--dump_dir", default="./output", type=str, help="infer result dir")
-def predict(input_json_path, dump_dir):
+@click.option("--input", type=str, help="json files or dir for inference")
+@click.option("--out_dir", default="./output", type=str, help="infer result dir")
+def predict(input, out_dir):
     """
     predict
-    :param input_json_path, dump_dir
+    :param input, out_dir
     :return:
     """
     init_logging()
     logger.info(
-        f"run infer with input_json_path={input_json_path}, dump_dir={dump_dir}"
+        f"run infer with input={input}, out_dir={out_dir}"
     )
-    inference_jsons(input_json_path, dump_dir)
+    inference_jsons(input, out_dir)
 
 
 @click.command()
-@click.option("--input_file",  type=str, help="pdb or cif files or dir to generate jsons for inference")
+@click.option("--input",  type=str, help="pdb or cif files to generate jsons for inference")
 @click.option("--out_dir",  type=str, default="./output", help="dir to save json files")
 @click.option("--altloc", default="first", type=str, help=" Select the first altloc conformation of each residue in \
                          the input file, or specify the altloc letter for selection. For example, 'first', 'A', 'B', etc.")
 @click.option("--assembly_id", default=None, type=str, help="Extends the structure based on the Assembly ID in \
                         the input file. The default is no extension")
-def generate(input_file, out_dir="./output", altloc="first", assembly_id=None):
+def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     """
-    generate
-    :param input_file, out_dir, altloc, assembly_id
+    tojson
+    :param input, out_dir, altloc, assembly_id
     :return:
     """
     init_logging()
-    logger.info(f"run generate with input_file={input_file}, out_dir={out_dir}, altloc={altloc}, assembly_id={assembly_id}")
-    if os.path.isdir(input_file):
+    logger.info(f"run tojson with input={input}, out_dir={out_dir}, altloc={altloc}, assembly_id={assembly_id}")
+    if os.path.isdir(input):
         input_files = [
-            str(file) for file in Path(input_file).rglob("*") if file.is_file()
+            str(file) for file in Path(input).rglob("*") if file.is_file()
         ]
         if len(input_files) == 0:
             raise RuntimeError(
-                f"can not read a valid `pdb` or `cif` ligand_file in {input_file}"
+                f"can not read a valid `pdb` or `cif` ligand_file in {input}"
             )
-    elif os.path.isfile(input_file):
-        input_files = [input_file]
+    elif os.path.isfile(input):
+        input_files = [input]
     else:
-        raise RuntimeError(f"can not read a special ligand_file: {input_file}")
+        raise RuntimeError(f"can not read a special ligand_file: {input}")
     input_files = [file for file in input_files if file.endswith(".pdb") or file.endswith(".cif")]
-    logger.info(f"will generate jsons for {len(input_files)} input files with `pdb` or `cif` format.")
+    logger.info(f"will tojson jsons for {len(input_files)} input files with `pdb` or `cif` format.")
     output_jsons = []
     os.makedirs(out_dir, exist_ok=True)
     for input_file in input_files:
@@ -346,7 +370,7 @@ def generate(input_file, out_dir="./output", altloc="first", assembly_id=None):
 
 
 protenix_cli.add_command(predict)
-protenix_cli.add_command(generate)
+protenix_cli.add_command(tojson)
 
 if __name__ == "__main__":
     init_logging()
