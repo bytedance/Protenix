@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import argparse
 import json
 import logging
 import os
@@ -19,21 +18,23 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import List
+from typing import List, Sequence, Union
 
 import click
 import tqdm
-from rdkit import Chem
-
+from Bio import SeqIO
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
+from rdkit import Chem
+from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
+
 from protenix.config import parse_configs
 from protenix.data.json_maker import cif_to_input_json
 from protenix.data.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
-from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
+from protenix.web_service.colab_request_parser import RequestParser
 
 logger = get_logger(__name__)
 
@@ -60,11 +61,39 @@ def has_msa(json_file: str) -> bool:
         for sequence in seq["sequences"]:
             if "proteinChain" in sequence.keys():
                 proteinChain = sequence["proteinChain"]
-                if "msa" in proteinChain.keys() and len(proteinChain["msa"]) > 0:
-                    pass
-                else:
+                if "msa" not in proteinChain.keys() or len(proteinChain["msa"]) == 0:
                     return False
     return True
+
+
+def update_msa_res(seq: dict, protein_msa_res: dict) -> dict:
+    for sequence in seq["sequences"]:
+        if "proteinChain" in sequence.keys():
+            sequence["proteinChain"]["msa"] = {
+                "precomputed_msa_dir": protein_msa_res[
+                    sequence["proteinChain"]["sequence"]
+                ],
+                "pairing_db": "uniref100",
+            }
+    return seq
+
+
+def msa_search(seqs: Sequence[str], msa_res_dir: str) -> Sequence[str]:
+    """
+    do msa search with mmseqs and return result subdirs.
+    """
+    os.makedirs(msa_res_dir, exist_ok=True)
+    tmp_fasta_fpath = os.path.join(msa_res_dir, f"tmp_{uuid.uuid4().hex}.fasta")
+    RequestParser.msa_search(
+        seqs_pending_msa=seqs,
+        tmp_fasta_fpath=tmp_fasta_fpath,
+        msa_res_dir=msa_res_dir,
+    )
+    msa_res_subdirs = RequestParser.msa_postprocess(
+        seqs_pending_msa=seqs,
+        msa_res_dir=msa_res_dir,
+    )
+    return msa_res_subdirs
 
 
 def generate_infer_jsons(
@@ -200,7 +229,9 @@ def get_default_runner() -> InferenceRunner:
     return InferenceRunner(configs)
 
 
-def inference_jsons(json_file: str, out_dir: str = "./output") -> None:
+def inference_jsons(
+    json_file: str, out_dir: str = "./output", use_msa_server: bool = False
+) -> None:
     """
     infer_json: json file or directory, will run infer with these jsons
 
@@ -230,6 +261,18 @@ def inference_jsons(json_file: str, out_dir: str = "./output") -> None:
     configs = runner.configs
     for infer_json in tqdm.tqdm(infer_jsons):
         try:
+            if use_msa_server:
+                infer_json = msa.main(
+                    [
+                        "--input",
+                        infer_json,
+                        "--out_dir",
+                        os.path.join(out_dir, "msa_res"),
+                    ],
+                    standalone_mode=False,
+                )
+            elif not has_msa(infer_json):
+                raise RuntimeError(f"can not find msa for {infer_json}")
             configs["input_json_path"] = infer_json
             if not has_msa(infer_json):
                 raise RuntimeError(
@@ -287,40 +330,6 @@ def batch_inference(
         logger.warning(f"run inference failed: {infer_errors}")
 
 
-def test_batch_inference():
-    ligands_dir = "../examples/ligands"
-    protein_msa_res = {
-        "MASWSHPQFEKGGTHVAETSAPTRSEPDTRVLTLPGTASAPEFRLIDIDGLLNNRATTDVRDLGSGRLNAWGNSFPAAELPAPGSLITVAGIPFTWANAHARGDNIRCEGQVVDIPPGQYDWIYLLAASERRSEDTIWAHYDDGHADPLRVGISDFLDGTPAFGELSAFRTSRMHYPHHVQEGLPTTMWLTRVGMPRHGVARSLRLPRSVAMHVFALTLRTAAAVRLAEGATT": {
-            "precomputed_msa_dir": "../examples/7wux/msa/1",
-            "pairing_db": "uniref100",
-        },
-        "MGSSHHHHHHSQDPNSTTTAPPVELWTRDLGSCLHGTLATALIRDGHDPVTVLGAPWEFRRRPGAWSSEEYFFFAEPDSLAGRLALYHPFESTWHRSDGDGVDDLREALAAGVLPIAAVDNFHLPFRPAFHDVHAAHLLVVYRITETEVYVSDAQPPAFQGAIPLADFLASWGSLNPPDDADVFFSASPSGRRWLRTRMTGPVPEPDRHWVGRVIRENVARYRQEPPADTQTGLPGLRRYLDELCALTPGTNAASEALSELYVISWNIQAQSGLHAEFLRAHSVKWRIPELAEAAAGVDAVAHGWTGVRMTGAHSRVWQRHRPAELRGHATALVRRLEAALDLLELAADAVS": {
-            "precomputed_msa_dir": "../examples/7wux/msa/2",
-            "pairing_db": "uniref100",
-        },
-    }
-    out_dir = "./infer_output"
-    batch_inference(protein_msa_res, ligands_dir, out_dir=out_dir)
-
-
-def main():
-    LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
-    logging.basicConfig(
-        format=LOG_FORMAT,
-        level=logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
-        filemode="w",
-    )
-    parser = argparse.ArgumentParser(description="infer with jsons of argparse")
-    parser.add_argument("--input_json_path", required=True, type=str)
-    parser.add_argument("--dump_dir", default="./output", type=str)
-    args = parser.parse_args()
-    logger.info(
-        f"run infer with input_json_path={args.input_json_path}, dump_dir={args.dump_dir}"
-    )
-    inference_jsons(args.input_json_path, args.dump_dir)
-
-
 @click.group()
 def protenix_cli():
     return
@@ -329,15 +338,18 @@ def protenix_cli():
 @click.command()
 @click.option("--input", type=str, help="json files or dir for inference")
 @click.option("--out_dir", default="./output", type=str, help="infer result dir")
-def predict(input, out_dir):
+@click.option("--use_msa_server", is_flag=True, help="do msa search or not")
+def predict(input, out_dir, use_msa_server):
     """
-    predict
-    :param input, out_dir
+    predict: Run predictions with protenix.
+    :param input, out_dir, use_msa_server
     :return:
     """
     init_logging()
-    logger.info(f"run infer with input={input}, out_dir={out_dir}")
-    inference_jsons(input, out_dir)
+    logger.info(
+        f"run infer with input={input}, out_dir={out_dir}, use_msa_server={use_msa_server}"
+    )
+    inference_jsons(input, out_dir, use_msa_server)
 
 
 @click.command()
@@ -349,8 +361,8 @@ def predict(input, out_dir):
     "--altloc",
     default="first",
     type=str,
-    help=" Select the first altloc conformation of each residue in \
-                         the input file, or specify the altloc letter for selection. For example, 'first', 'A', 'B', etc.",
+    help=" Select the first altloc conformation of each residue in the input file, \
+        or specify the altloc letter for selection. For example, 'first', 'A', 'B', etc.",
 )
 @click.option(
     "--assembly_id",
@@ -361,7 +373,7 @@ def predict(input, out_dir):
 )
 def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     """
-    tojson
+    tojson: convert pdb/cif files or dir to json files for predict.
     :param input, out_dir, altloc, assembly_id
     :return:
     """
@@ -369,19 +381,23 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     logger.info(
         f"run tojson with input={input}, out_dir={out_dir}, altloc={altloc}, assembly_id={assembly_id}"
     )
+    input_files = []
+    if not os.path.exists(input):
+        raise RuntimeError(f"input file {input} not exists.")
     if os.path.isdir(input):
-        input_files = [str(file) for file in Path(input).rglob("*") if file.is_file()]
-        if len(input_files) == 0:
-            raise RuntimeError(
-                f"can not read a valid `pdb` or `cif` ligand_file in {input}"
-            )
+        input_files.extend(
+            [str(file) for file in Path(input).rglob("*") if file.is_file()]
+        )
     elif os.path.isfile(input):
-        input_files = [input]
+        input_files.append(input)
     else:
-        raise RuntimeError(f"can not read a special ligand_file: {input}")
+        raise RuntimeError(f"can not read a special file: {input}")
+
     input_files = [
         file for file in input_files if file.endswith(".pdb") or file.endswith(".cif")
     ]
+    if len(input_files) == 0:
+        raise RuntimeError(f"can not read a valid `pdb` or `cif` file from {input}")
     logger.info(
         f"will tojson jsons for {len(input_files)} input files with `pdb` or `cif` format."
     )
@@ -416,8 +432,85 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     return output_jsons
 
 
+@click.command()
+@click.option(
+    "--input", type=str, help="file to do msa search, support `json` or `fasta` format"
+)
+@click.option("--out_dir", type=str, default="./output", help="dir to save msa results")
+def msa(input, out_dir) -> Union[str, dict]:
+    """
+    msa: do msa search by mmseqs. If input is in `fasta`, it should all be proteinChain.
+    :param input, out_dir
+    :return:
+    """
+    init_logging()
+    out_dir = os.path.join(out_dir, uuid.uuid4().hex)
+    os.makedirs(out_dir, exist_ok=True)
+    logger.info(f"run msa with input={input}, out_dir={out_dir}")
+    if input.endswith(".json"):
+        assert os.path.exists(input), f"input file {input} not exists."
+        if has_msa(input):
+            logger.warning(f"{input} has already msa result, skip.")
+            return input
+        with open(input, "r") as f:
+            input_json_data = json.load(f)
+        for seq_idx, seq in enumerate(input_json_data):
+            protein_seqs = []
+            for sequence in seq["sequences"]:
+                if "proteinChain" in sequence.keys():
+                    protein_seqs.append(sequence["proteinChain"]["sequence"])
+            if len(protein_seqs) > 0:
+                protein_seqs = sorted(protein_seqs)
+                msa_res_subdirs = msa_search(
+                    protein_seqs, os.path.join(out_dir, f"msa_seq_{seq_idx}")
+                )
+                assert len(msa_res_subdirs) == len(msa_res_subdirs), "msa search failed"
+                update_msa_res(seq, dict(zip(protein_seqs, msa_res_subdirs)))
+        msa_input_json = os.path.join(
+            os.path.dirname(input),
+            f"{os.path.splitext(os.path.basename(input))[0]}-msa.json",
+        )
+        with open(msa_input_json, "w") as f:
+            json.dump(input_json_data, f, indent=4)
+        logger.info(f"msa results have been update to {msa_input_json}")
+        return msa_input_json
+    elif input.endswith(".fasta"):
+        records = list(SeqIO.parse(input, "fasta"))
+        protein_seqs = []
+        for seq in records:
+            protein_seqs.append(str(seq.seq))
+        protein_seqs = sorted(protein_seqs)
+        msa_res_subdirs = msa_search(protein_seqs, out_dir)
+        assert len(msa_res_subdirs) == len(msa_res_subdirs), "msa search failed"
+        fasta_msa_res = dict(zip(protein_seqs, msa_res_subdirs))
+        logger.info(
+            f"msa result is: {fasta_msa_res}, and it has been save to {out_dir}"
+        )
+        return fasta_msa_res
+    else:
+        raise RuntimeError(f"only support `json` or `fasta` format, but got : {input}")
+
+
 protenix_cli.add_command(predict)
 protenix_cli.add_command(tojson)
+protenix_cli.add_command(msa)
+
+
+def test_batch_inference():
+    ligands_dir = "../examples/ligands"
+    protein_msa_res = {
+        "MASWSHPQFEKGGTHVAETSAPTRSEPDTRVLTLPGTASAPEFRLIDIDGLLNNRATTDVRDLGSGRLNAWGNSFPAAELPAPGSLITVAGIPFTWANAHARGDNIRCEGQVVDIPPGQYDWIYLLAASERRSEDTIWAHYDDGHADPLRVGISDFLDGTPAFGELSAFRTSRMHYPHHVQEGLPTTMWLTRVGMPRHGVARSLRLPRSVAMHVFALTLRTAAAVRLAEGATT": {
+            "precomputed_msa_dir": "../examples/7wux/msa/1",
+            "pairing_db": "uniref100",
+        },
+        "MGSSHHHHHHSQDPNSTTTAPPVELWTRDLGSCLHGTLATALIRDGHDPVTVLGAPWEFRRRPGAWSSEEYFFFAEPDSLAGRLALYHPFESTWHRSDGDGVDDLREALAAGVLPIAAVDNFHLPFRPAFHDVHAAHLLVVYRITETEVYVSDAQPPAFQGAIPLADFLASWGSLNPPDDADVFFSASPSGRRWLRTRMTGPVPEPDRHWVGRVIRENVARYRQEPPADTQTGLPGLRRYLDELCALTPGTNAASEALSELYVISWNIQAQSGLHAEFLRAHSVKWRIPELAEAAAGVDAVAHGWTGVRMTGAHSRVWQRHRPAELRGHATALVRRLEAALDLLELAADAVS": {
+            "precomputed_msa_dir": "../examples/7wux/msa/2",
+            "pairing_db": "uniref100",
+        },
+    }
+    out_dir = "./infer_output"
+    batch_inference(protein_msa_res, ligands_dir, out_dir=out_dir)
+
 
 if __name__ == "__main__":
     init_logging()

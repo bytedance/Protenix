@@ -1,0 +1,31 @@
+[{
+    "sequences": [
+        {
+            "proteinChain": {
+                "sequence": "MAEVIRSSAFWRSFPIFEEFDSETLCELSGIASYRKWSAGTVIFQRGDQGDYMIVVVSGRIKLSLFTPQGRELMLRQHEAGALFGEMALLDGQPRSADATAVTAAEGYVIGKKDFLALITQRPKTAEAVIRFLCAQLRDTTDRLETIALYDLNARVARFFLATLRQIHGSEMPQSANLRLTLSQTDIASILGASRPKVNRAILSLEESGAIKRADGIICCNVGRLLSIADPEEDLEHHHHHHHH",
+                "count": 2
+            }
+        },
+        {
+            "dnaSequence": {
+                "sequence": "CTAGGTAACATTACTCGCG",
+                "count": 2
+            }
+        },
+        {
+            "dnaSequence": {
+                "sequence": "GCGAGTAATGTTAC",
+                "count": 2
+            }
+        },
+        {
+            "ligand": {
+                "ligand": "CCD_PCG",
+                "count": 2
+            }
+        }
+    ],
+    "modelSeeds": [],
+    "name": "7pzb_nomsa"
+}
+]
