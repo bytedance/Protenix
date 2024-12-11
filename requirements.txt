@@ -8,7 +8,7 @@ rdkit
 biopython==1.83
 modelcif==0.7
 biotite==1.0.1
-scikit-learn==1.2.2
+scikit-learn
 scikit-learn-extra
 deepspeed==0.14.4
 protobuf==3.20.2

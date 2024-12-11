@@ -44,7 +44,7 @@ RUN pip3 --no-cache-dir install \
 # Add datapipeline dependency
 RUN pip3 --no-cache-dir install \
     biotite==1.0.1 \
-    scikit-learn==1.2.2 \
+    scikit-learn \
     scikit-learn-extra \
     deepspeed==0.14.4 \
     protobuf==3.20.2 tos icecream ipdb wandb numpy==1.26.3 matplotlib==3.9.2 ipywidgets py3Dmol
