@@ -15,7 +15,6 @@
 
 import functools
 import logging
-import multiprocessing
 import pickle
 from collections import defaultdict
 from pathlib import Path
@@ -24,12 +23,8 @@ from typing import Any, Optional, Union
 import biotite
 import biotite.structure as struc
 import biotite.structure.io.pdbx as pdbx
-import gemmi
 import numpy as np
-import rdkit
-import tqdm
 from biotite.structure import AtomArray
-from pdbeccdutils.core import ccd_reader
 from rdkit import Chem
 
 from configs.configs_data import data_configs
@@ -49,16 +44,6 @@ def biotite_load_ccd_cif() -> pdbx.CIFFile:
         pdbx.CIFFile: ccd components file
     """
     return pdbx.CIFFile.read(COMPONENTS_FILE)
-
-
-@functools.lru_cache
-def gemmi_load_ccd_cif() -> gemmi.cif.Document:
-    """gemmi load CCD components file
-
-    Returns:
-        Document: gemmi ccd components file
-    """
-    return gemmi.cif.read(COMPONENTS_FILE)
 
 
 def _map_central_to_leaving_groups(component) -> Optional[dict[str, list[list[str]]]]:
@@ -224,105 +209,11 @@ def get_component_rdkit_mol(ccd_code: str) -> Union[Chem.Mol, None]:
         with open(rdkit_mol_pkl, "rb") as f:
             _ccd_rdkit_mols = pickle.load(f)
         return _ccd_rdkit_mols.get(ccd_code, None)
-
-    # Preprocess all ccd components in _components_file at first time run.
-    print("first time to run get_component_rdkit_mol().")
-    print("preprocessing all ccd components in file:" f"{COMPONENTS_FILE}")
-    print("pre-load cif file before multiprocessing avoid read file at each process.")
-    gemmi_load_ccd_cif()
-
-    mols = {}
-    ccd_codes = get_all_ccd_code()
-    cpu_count = multiprocessing.cpu_count() - 1
-    with multiprocessing.Pool(cpu_count) as pool:
-        for mol in tqdm.tqdm(
-            pool.imap_unordered(_get_component_rdkit_mol_processing, ccd_codes),
-            smoothing=0,
-            total=len(ccd_codes),
-        ):
-            if mol is None:
-                continue
-            mols[mol.name] = mol
-    # Success rate
-    n_ccd = len(ccd_codes)
-    print(f"success rate: {len(mols)/n_ccd:.2%} ({len(mols)}/{n_ccd})")
-
-    # Sanitized rate
-    sanitized_num = sum([mol.sanitized for mol in mols.values()])
-    print(f"sanitized rate: {sanitized_num/n_ccd:.2%} ({sanitized_num}/{n_ccd})")
-
-    # Rdkit conf rate
-    rdkit_conf_num = sum([mol.ref_conf_type == "rdkit" for mol in mols.values()])
-    print(f"rdkit conf rate: {rdkit_conf_num/n_ccd:.2%} ({rdkit_conf_num}/{n_ccd})")
-
-    with open(rdkit_mol_pkl, "wb") as f:
-        pickle.dump(mols, f)
-    print(f"save rdkit mol to {rdkit_mol_pkl}")
-
-    _ccd_rdkit_mols = mols
-    return _ccd_rdkit_mols.get(ccd_code, None)
-
-
-def _get_component_rdkit_mol_processing(ccd_code: str) -> Union[Chem.Mol, None]:
-    """get rdkit mol by PDBeCCDUtils
-    https://github.com/PDBeurope/ccdutils
-
-    Args:
-        ccd_code (str): ccd code
-
-    Returns
-        rdkit.Chem.Mol: rdkit mol with ref coord
-    """
-    ccd_cif = gemmi_load_ccd_cif()
-    try:
-        ccd_block = ccd_cif[ccd_code]
-    except KeyError:
-        return None
-    ccd_reader_result = ccd_reader._parse_pdb_mmcif(ccd_block, sanitize=True)
-    mol = ccd_reader_result.component.mol
-
-    # Atom name from ccd, reading by pdbeccdutils
-    # Copy atom name for pickle https://github.com/rdkit/rdkit/issues/2470
-    mol.atom_map = {atom.GetProp("name"): atom.GetIdx() for atom in mol.GetAtoms()}
-
-    mol.name = ccd_code
-    mol.sanitized = ccd_reader_result.sanitized
-    # First conf is ideal conf.
-    mol.ref_conf_id = 0
-    mol.ref_conf_type = "idea"
-
-    num_atom = mol.GetNumAtoms()
-    # Eg: UNL without atom
-    if num_atom == 0:
-        return mol
-
-    # Make ref_mask, ref_mask is True if ideal coord is valid
-    atoms = ccd_block.find(
-        "_chem_comp_atom.", ["atom_id", "model_Cartn_x", "pdbx_model_Cartn_x_ideal"]
-    )
-    assert num_atom == len(atoms)
-    ref_mask = np.zeros(num_atom, dtype=bool)
-    for row in atoms:
-        atom_id = gemmi.cif.as_string(row["_chem_comp_atom.atom_id"])
-        atom_idx = mol.atom_map[atom_id]
-        x_ideal = row["_chem_comp_atom.pdbx_model_Cartn_x_ideal"]
-        ref_mask[atom_idx] = x_ideal != "?"
-    mol.ref_mask = ref_mask
-
-    if mol.sanitized == False:
-        return mol
-    options = rdkit.Chem.AllChem.ETKDGv3()
-    options.clearConfs = False
-    try:
-        conf_id = rdkit.Chem.AllChem.EmbedMolecule(mol, options)
-        mol.ref_conf_id = conf_id
-        mol.ref_conf_type = "rdkit"
-        mol.ref_mask[:] = True
-    except ValueError:
-        # Sanitization issue here
-        logger.warning(f"Warning: fail to generate conf for {ccd_code}, use idea conf")
-        pass
-    return mol
+    else:
+        raise FileNotFoundError(
+            f"CCD components file {rdkit_mol_pkl} not found, please download it to your DATA_ROOT_DIR before running."
+            "See https://github.com/bytedance/Protenix"
+        )
 
 
 @functools.lru_cache

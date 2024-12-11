@@ -34,7 +34,7 @@ RUN pip3 --no-cache-dir install \
     tqdm \
     pandas \
     dm-tree==0.1.6 \
-    rdkit=="2023.03.01" 
+    rdkit
 
 # Add openfold dependency
 RUN pip3 --no-cache-dir install \
@@ -44,8 +44,6 @@ RUN pip3 --no-cache-dir install \
 # Add datapipeline dependency
 RUN pip3 --no-cache-dir install \
     biotite==1.0.1 \
-    gemmi==0.6.5 \
-    pdbeccdutils==0.8.5 \
     scikit-learn==1.2.2 \
     scikit-learn-extra \
     deepspeed==0.14.4 \
