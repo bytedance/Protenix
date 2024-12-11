@@ -1,8 +1,9 @@
 ### Run with Docker
 
 1. Install Docker (with GPU Support)
-Ensure that Docker is installed and configured with GPU support. Follow these steps:
-    -  Install [Docker](https://www.docker.com/) if not already installed.
+
+    Ensure that Docker is installed and configured with GPU support. Follow these steps:
+    *  Install [Docker](https://www.docker.com/) if not already installed.
     *  Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) to enable GPU support.
     *  Verify the setup with:
         ```bash

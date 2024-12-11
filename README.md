@@ -16,7 +16,7 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 ### Run with PyPI (recommended):
 
 ```bash
-    pip3 install protenix
+pip3 install protenix
 ```
 ### Run with Docker:
 

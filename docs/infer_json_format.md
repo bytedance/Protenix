@@ -221,16 +221,16 @@ The outputs will be saved in the directory provided via the `--dump_dir` flag in
 ```bash
 ├── <name>/  # specified in the input JSON file
 │   ├── <seed>/  # specified via the `--seeds` flag in the inference script
-│   │   ├── <name>_sample_0.cif
-│   │   ├── <name>_summary_confidence_sample_0.json
+│   │   ├── <name>_<seed>_sample_0.cif
+│   │   ├── <name>_<seed>_summary_confidence_sample_0.json
 │   │   └──... # the number of samples in each seed is specified via `--sample_diffusion.N_sample ` flag in the inference script
 │   └──...
 └── ...
 ```
 
 The contents of each output file are as follows:
-- `<name>_sample_*.cif` - A CIF format text file containing the predicted structure
-- `<name>_summary_confidence_sample_*.json` - A JSON format text file containing various confidence scores for assessing the reliability of predictions. Here’s a description of each score:
+- `<name>_<seed>_sample_*.cif` - A CIF format text file containing the predicted structure
+- `<name>_<seed>_summary_confidence_sample_*.json` - A JSON format text file containing various confidence scores for assessing the reliability of predictions. Here’s a description of each score:
 
     - `plddt` - Predicted Local Distance Difference Test (pLDDT) score. Higher values indicate greater confidence.
     - `gpde` - Globl Predicted Distance Error (PDE) score. Lower values indicate greater confidence.
