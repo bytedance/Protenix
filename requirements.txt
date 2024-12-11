@@ -3,7 +3,7 @@ scipy
 ml_collections
 tqdm
 pandas
-dm-tree~=0.1.6
+dm-tree
 rdkit
 biopython==1.83
 modelcif==0.7

@@ -16,8 +16,6 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 ### Run with PyPI (recommended):
 
 ```bash
-    # maybe you need to update libxrender1 and libxext6 firstly, run as following for Debian:
-    # apt-get update && apt-get install -y libxrender1 libxext6
     pip3 install protenix
 ```
 ### Run with Docker:

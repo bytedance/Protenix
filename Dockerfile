@@ -26,14 +26,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
     && cd - \
     && rm -rf /tmp/hh-suite
 
-RUN apt-get install -yq --no-install-recommends libxrender1 iproute2 curl libxext6
+RUN apt-get install -yq --no-install-recommends iproute2 curl
 # Add PIP Package
 RUN pip3 --no-cache-dir install \
     scipy \
     ml_collections \
     tqdm \
     pandas \
-    dm-tree==0.1.6 \
+    dm-tree \
     rdkit
 
 # Add openfold dependency
