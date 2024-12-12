@@ -1,4 +1,3 @@
-from pyexpat import model
 import os, json, logging, uuid, time, tqdm, argparse, click, tempfile
 from pathlib import Path
 from rdkit import Chem
