@@ -163,22 +163,23 @@ def flatten_final_dims(t: torch.Tensor, num_dims: int) -> torch.Tensor:
     return t.reshape(shape=t.shape[:-num_dims] + (-1,))
 
 
-def one_hot(x: torch.Tensor, v_bins: torch.Tensor) -> torch.Tensor:
-    """Get one hot embedding of x from v_bins
-
+def one_hot(
+    x: torch.Tensor, lower_bins: torch.Tensor, upper_bins: torch.Tensor
+) -> torch.Tensor:
+    """Get one hot embedding of x from lower_bins and upper_bins
     Args:
         x (torch.Tensor): the input x
             [...]
-        v_bins (torch.Tensor): the bin
+        lower_bins (torch.Tensor): the lower bounds of bins
+            [bins]
+        upper_bins (torch.Tensor): the upper bounds of bins
             [bins]
     Returns:
         torch.Tensor: the one hot embedding of x from v_bins
             [..., bins]
     """
-    reshaped_bins = v_bins.view(((1,) * len(x.shape)) + (len(v_bins),))
-    diffs = x[..., None] - reshaped_bins
-    am = torch.argmin(torch.abs(diffs), dim=-1)
-    return nn.functional.one_hot(am, num_classes=len(v_bins)).float()
+    dgram = (x[..., None] > lower_bins) * (x[..., None] < upper_bins).float()
+    return dgram
 
 
 # this is mostly from openfold.utils.torch_utils import batched_gather

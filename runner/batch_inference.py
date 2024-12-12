@@ -24,10 +24,11 @@ def init_logging():
         filemode="w",
     )
 
+
 def has_msa(json_file: str) -> bool:
-    '''
+    """
     check the json_path data has msa result or not.
-    '''
+    """
     if not os.path.exists(json_file):
         raise RuntimeError(f"`{json_file}` not exists.")
     with open(json_file, "r") as f:
@@ -160,7 +161,7 @@ def generate_infer_jsons(
 
 
 def get_default_runner() -> InferenceRunner:
-    inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
+    inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v0.2.0.pt"
     configs_base["use_deepspeed_evo_attention"] = (
         os.environ.get("USE_DEEPSPEED_EVO_ATTTENTION", False) == "true"
     )
@@ -172,7 +173,7 @@ def get_default_runner() -> InferenceRunner:
         configs=configs,
         fill_required_with_null=True,
     )
-    download_infercence_cache(configs)
+    download_infercence_cache(configs, model_version="v0.2.0")
     return InferenceRunner(configs)
 
 
@@ -208,7 +209,9 @@ def inference_jsons(json_file: str, out_dir: str = "./output") -> None:
         try:
             configs["input_json_path"] = infer_json
             if not has_msa(infer_json):
-                raise RuntimeError(f"`{infer_json}` has no msa result for `proteinChain`, please add first.")
+                raise RuntimeError(
+                    f"`{infer_json}` has no msa result for `proteinChain`, please add first."
+                )
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
@@ -251,7 +254,9 @@ def batch_inference(
         try:
             configs["input_json_path"] = infer_json
             if not has_msa(infer_json):
-                raise RuntimeError(f"`{infer_json}` has no msa result for `proteinChain`, please add first.")
+                raise RuntimeError(
+                    f"`{infer_json}` has no msa result for `proteinChain`, please add first."
+                )
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
@@ -308,19 +313,29 @@ def predict(input, out_dir):
     :return:
     """
     init_logging()
-    logger.info(
-        f"run infer with input={input}, out_dir={out_dir}"
-    )
+    logger.info(f"run infer with input={input}, out_dir={out_dir}")
     inference_jsons(input, out_dir)
 
 
 @click.command()
-@click.option("--input",  type=str, help="pdb or cif files to generate jsons for inference")
-@click.option("--out_dir",  type=str, default="./output", help="dir to save json files")
-@click.option("--altloc", default="first", type=str, help=" Select the first altloc conformation of each residue in \
-                         the input file, or specify the altloc letter for selection. For example, 'first', 'A', 'B', etc.")
-@click.option("--assembly_id", default=None, type=str, help="Extends the structure based on the Assembly ID in \
-                        the input file. The default is no extension")
+@click.option(
+    "--input", type=str, help="pdb or cif files to generate jsons for inference"
+)
+@click.option("--out_dir", type=str, default="./output", help="dir to save json files")
+@click.option(
+    "--altloc",
+    default="first",
+    type=str,
+    help=" Select the first altloc conformation of each residue in \
+                         the input file, or specify the altloc letter for selection. For example, 'first', 'A', 'B', etc.",
+)
+@click.option(
+    "--assembly_id",
+    default=None,
+    type=str,
+    help="Extends the structure based on the Assembly ID in \
+                        the input file. The default is no extension",
+)
 def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     """
     tojson
@@ -328,11 +343,11 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     :return:
     """
     init_logging()
-    logger.info(f"run tojson with input={input}, out_dir={out_dir}, altloc={altloc}, assembly_id={assembly_id}")
+    logger.info(
+        f"run tojson with input={input}, out_dir={out_dir}, altloc={altloc}, assembly_id={assembly_id}"
+    )
     if os.path.isdir(input):
-        input_files = [
-            str(file) for file in Path(input).rglob("*") if file.is_file()
-        ]
+        input_files = [str(file) for file in Path(input).rglob("*") if file.is_file()]
         if len(input_files) == 0:
             raise RuntimeError(
                 f"can not read a valid `pdb` or `cif` ligand_file in {input}"
@@ -341,8 +356,12 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
         input_files = [input]
     else:
         raise RuntimeError(f"can not read a special ligand_file: {input}")
-    input_files = [file for file in input_files if file.endswith(".pdb") or file.endswith(".cif")]
-    logger.info(f"will tojson jsons for {len(input_files)} input files with `pdb` or `cif` format.")
+    input_files = [
+        file for file in input_files if file.endswith(".pdb") or file.endswith(".cif")
+    ]
+    logger.info(
+        f"will tojson jsons for {len(input_files)} input files with `pdb` or `cif` format."
+    )
     output_jsons = []
     os.makedirs(out_dir, exist_ok=True)
     for input_file in input_files:
@@ -361,7 +380,12 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
                     output_json=output_json,
                 )
         elif input_file.endswith(".cif"):
-            cif_to_input_json(input_file, assembly_id=assembly_id, altloc=altloc, output_json=output_json)
+            cif_to_input_json(
+                input_file,
+                assembly_id=assembly_id,
+                altloc=altloc,
+                output_json=output_json,
+            )
         else:
             raise RuntimeError(f"can not read a special ligand_file: {input_file}")
         output_jsons.append(output_json)

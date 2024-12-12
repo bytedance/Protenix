@@ -67,7 +67,8 @@ If you want to speed up training, see [<u> setting up kernels documentation </u>
 If you want to fine-tune the model on a specific subset, such as an antibody dataset, you only need to provide a PDB list file and load the pretrained weights as [finetune_demo.sh](../finetune_demo.sh) shows:
     
 ```bash
-checkpoint_path="/af3-dev/release_model/model_v1.pt"
+# wget -P /af3-dev/release_model/ https://af3-dev.tos-cn-beijing.volces.com/release_model/model_v0.2.0.pt
+checkpoint_path="/af3-dev/release_model/model_v0.2.0.pt"
 ...
 
 --load_checkpoint_path ${checkpoint_path} \

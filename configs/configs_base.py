@@ -228,8 +228,8 @@ model_configs = {
             "max_atoms_per_token": GlobalConfigValue("max_atoms_per_token"),
             "pairformer_dropout": 0.0,
             "blocks_per_ckpt": GlobalConfigValue("blocks_per_ckpt"),
-            "distance_bin_start": 3.375,
-            "distance_bin_end": 21.375,
+            "distance_bin_start": 3.25,
+            "distance_bin_end": 52.0,
             "distance_bin_step": 1.25,
             "stop_gradient": True,
         },
@@ -289,8 +289,9 @@ loss_configs = {
         },
         "plddt": {
             "min_bin": 0,
-            "max_bin": 100,
+            "max_bin": 1.0,
             "no_bins": 50,
+            "normalize": True,
             "eps": 1e-6,
         },
         "pde": {

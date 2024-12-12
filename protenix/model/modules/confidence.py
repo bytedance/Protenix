@@ -43,8 +43,8 @@ class ConfidenceHead(nn.Module):
         max_atoms_per_token: int = 20,
         pairformer_dropout: float = 0.0,
         blocks_per_ckpt: Optional[int] = None,
-        distance_bin_start: float = 3.375,
-        distance_bin_end: float = 21.375,
+        distance_bin_start: float = 3.25,
+        distance_bin_end: float = 52.0,
         distance_bin_step: float = 1.25,
         stop_gradient: bool = True,
     ) -> None:
@@ -83,16 +83,19 @@ class ConfidenceHead(nn.Module):
         self.linear_no_bias_s2 = LinearNoBias(
             in_features=self.c_s_inputs, out_features=self.c_z
         )
-        self.bins = nn.Parameter(
-            torch.arange(
-                start=distance_bin_start, end=distance_bin_end, step=distance_bin_step
-            ),
-            requires_grad=False,
+        lower_bins = torch.arange(
+            distance_bin_start, distance_bin_end, distance_bin_step
         )
+        upper_bins = torch.cat([lower_bins[1:], torch.tensor([1e6])])
+
+        self.lower_bins = nn.Parameter(lower_bins, requires_grad=False)
+        self.upper_bins = nn.Parameter(upper_bins, requires_grad=False)
+        self.num_bins = len(lower_bins)  # + 1
 
         self.linear_no_bias_d = LinearNoBias(
-            in_features=self.bins.size(dim=0), out_features=self.c_z
+            in_features=self.num_bins, out_features=self.c_z
         )
+
         self.pairformer_stack = PairformerStack(
             c_z=self.c_z,
             c_s=self.c_s,
@@ -119,6 +122,17 @@ class ConfidenceHead(nn.Module):
         self.linear_no_bias_z_trunk = LinearNoBias(self.c_z, self.c_z)
         self.layernorm_z_trunk = LayerNorm(self.c_z)
 
+        self.layernorm_no_bias_z_cat = nn.LayerNorm(self.c_z * 2, bias=False)
+        self.layernorm_no_bias_s_cat = nn.LayerNorm(self.c_s * 2, bias=False)
+        self.linear_no_bias_z_cat = LinearNoBias(self.c_z * 2, self.c_z)
+        self.linear_no_bias_s_cat = LinearNoBias(self.c_s * 2, self.c_s)
+
+        # Output layernorm
+        self.pae_ln = LayerNorm(self.c_z)
+        self.pde_ln = LayerNorm(self.c_z)
+        self.plddt_ln = LayerNorm(self.c_s)
+        self.resolved_ln = LayerNorm(self.c_s)
+
         with torch.no_grad():
             # Zero init for output layer (before softmax) to zero
             nn.init.zeros_(self.linear_no_bias_pae.weight)
@@ -127,8 +141,8 @@ class ConfidenceHead(nn.Module):
             nn.init.zeros_(self.resolved_weight)
 
             # Zero init for trunk embedding input layer
-            nn.init.zeros_(self.linear_no_bias_s_trunk.weight)
-            nn.init.zeros_(self.linear_no_bias_z_trunk.weight)
+            # nn.init.zeros_(self.linear_no_bias_s_trunk.weight)
+            # nn.init.zeros_(self.linear_no_bias_z_trunk.weight)
 
     def forward(
         self,
@@ -176,22 +190,29 @@ class ConfidenceHead(nn.Module):
             s_trunk = s_trunk.detach()
             z_trunk = z_trunk.detach()
 
-        x_rep_atom_mask = input_feature_dict[
-            "distogram_rep_atom_mask"
-        ].bool()  # [N_atom]
-        x_pred_rep_coords = x_pred_coords[..., x_rep_atom_mask, :]
-        N_sample = x_pred_rep_coords.size(-3)
+        s_trunk = self.linear_no_bias_s_trunk(self.layernorm_s_trunk(s_trunk))
+        z_trunk = self.linear_no_bias_z_trunk(self.layernorm_z_trunk(z_trunk))
 
         z_init = (
             self.linear_no_bias_s1(s_inputs)[..., None, :, :]
             + self.linear_no_bias_s2(s_inputs)[..., None, :]
         )
         s_init = self.linear_no_bias_s_inputs(s_inputs)
-        s_trunk = s_init + self.linear_no_bias_s_trunk(self.layernorm_s_trunk(s_trunk))
-        z_trunk = z_init + self.linear_no_bias_z_trunk(self.layernorm_z_trunk(z_trunk))
+        s_trunk = torch.cat([s_init, s_trunk], dim=-1)
+        z_trunk = torch.cat([z_init, z_trunk], dim=-1)
+
+        s_trunk = self.linear_no_bias_s_cat(self.layernorm_no_bias_s_cat(s_trunk))
+        z_trunk = self.linear_no_bias_z_cat(self.layernorm_no_bias_z_cat(z_trunk))
+
         if not self.training:
             del z_init
             torch.cuda.empty_cache()
+
+        x_rep_atom_mask = input_feature_dict[
+            "distogram_rep_atom_mask"
+        ].bool()  # [N_atom]
+        x_pred_rep_coords = x_pred_coords[..., x_rep_atom_mask, :]
+        N_sample = x_pred_rep_coords.size(-3)
 
         plddt_preds, pae_preds, pde_preds, resolved_preds = [], [], [], []
         for i in range(N_sample):
@@ -257,7 +278,9 @@ class ConfidenceHead(nn.Module):
             x_pred_rep_coords, x_pred_rep_coords
         )  # [..., N_tokens, N_tokens]
         z_pair = z_pair + self.linear_no_bias_d(
-            one_hot(x=distance_pred, v_bins=self.bins)
+            one_hot(
+                x=distance_pred, lower_bins=self.lower_bins, upper_bins=self.upper_bins
+            )
         )  # [..., N_tokens, N_tokens, c_z]
         # Line 4
         s_single, z_pair = self.pairformer_stack(
@@ -271,8 +294,10 @@ class ConfidenceHead(nn.Module):
             chunk_size=chunk_size,
         )
 
-        pae_pred = self.linear_no_bias_pae(z_pair)
-        pde_pred = self.linear_no_bias_pde(z_pair + z_pair.transpose(-2, -3))
+        pae_pred = self.linear_no_bias_pae(self.pae_ln(z_pair))
+        pde_pred = self.linear_no_bias_pde(
+            self.pde_ln(z_pair + z_pair.transpose(-2, -3))
+        )
 
         atom_to_token_idx = input_feature_dict[
             "atom_to_token_idx"
@@ -285,10 +310,12 @@ class ConfidenceHead(nn.Module):
             x_token=s_single, atom_to_token_idx=atom_to_token_idx
         )
         plddt_pred = torch.einsum(
-            "...nc,ncb->...nb", a, self.plddt_weight[atom_to_tokatom_idx]
+            "...nc,ncb->...nb", self.plddt_ln(a), self.plddt_weight[atom_to_tokatom_idx]
         )
         resolved_pred = torch.einsum(
-            "...nc,ncb->...nb", a, self.resolved_weight[atom_to_tokatom_idx]
+            "...nc,ncb->...nb",
+            self.resolved_ln(a),
+            self.resolved_weight[atom_to_tokatom_idx],
         )
         if not self.training and z_pair.shape[-2] > 2000:
             torch.cuda.empty_cache()
