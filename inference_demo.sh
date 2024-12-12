@@ -22,8 +22,8 @@ N_cycle=10
 seed=101
 use_deepspeed_evo_attention=true
 input_json_path="./examples/example.json"
-# wget -P /af3-dev/release_model/ https://af3-dev.tos-cn-beijing.volces.com/release_model/model_v1.pt
-load_checkpoint_path="/af3-dev/release_model/model_v1.pt"
+# wget -P /af3-dev/release_model/ https://af3-dev.tos-cn-beijing.volces.com/release_model/model_v0.2.0.pt
+load_checkpoint_path="/af3-dev/release_model/model_v0.2.0.pt"
 dump_dir="./output"
 
 python3 runner/inference.py \

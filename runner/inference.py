@@ -157,7 +157,7 @@ class InferenceRunner(object):
         self.model.configs = new_configs
 
 
-def download_infercence_cache(configs: Any, model_version="v1") -> None:
+def download_infercence_cache(configs: Any, model_version="v0.2.0") -> None:
 
     ccd_data_cif = configs.data.ccd_components_file
 
@@ -280,12 +280,12 @@ def run() -> None:
         arg_str=parse_sys_args(),
         fill_required_with_null=True,
     )
-    download_infercence_cache(configs)
+    download_infercence_cache(configs, model_version="v0.2.0")
     main(configs)
 
 
 def run_default() -> None:
-    inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v1.pt"
+    inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v0.2.0.pt"
     configs_base["model"]["N_cycle"] = 10
     configs_base["sample_diffusion"]["N_sample"] = 5
     configs_base["sample_diffusion"]["N_step"] = 200

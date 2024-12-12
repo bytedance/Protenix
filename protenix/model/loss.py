@@ -1182,11 +1182,12 @@ class PLDDTLoss(nn.Module):
     def __init__(
         self,
         min_bin: float = 0,
-        max_bin: float = 100,
+        max_bin: float = 1,
         no_bins: int = 50,
         is_nucleotide_threshold: float = 30.0,
         is_not_nucleotide_threshold: float = 15.0,
         eps: float = 1e-6,
+        normalize: bool = True,
         reduction: str = "mean",
     ) -> None:
         """PLDDT loss
@@ -1202,6 +1203,7 @@ class PLDDTLoss(nn.Module):
             reduction (str, optional): reduction method for the batch dims. Defaults to mean.
         """
         super(PLDDTLoss, self).__init__()
+        self.normalize = normalize
         self.min_bin = min_bin
         self.max_bin = max_bin
         self.no_bins = no_bins
@@ -1283,7 +1285,11 @@ class PLDDTLoss(nn.Module):
         per_atom_lddt = torch.sum(
             lddt_lm * pair_mask, dim=-1, keepdim=True
         )  # [...,  N_sample, N_atom, 1]
-
+        if self.normalize:
+            per_atom_lddt = per_atom_lddt / (
+                torch.sum(pair_mask.to(dtype=per_atom_lddt.dtype), dim=-1, keepdim=True)
+                + self.eps
+            )
         # Distribute into bins
         boundaries = torch.linspace(
             start=self.min_bin,
