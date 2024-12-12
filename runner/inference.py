@@ -155,11 +155,12 @@ class InferenceRunner(object):
         self.model.configs = new_configs
 
 
-def download_infercence_cache(configs: Any, model_version="v0.2.0") -> None:
+def download_infercence_cache(configs: Any, model_version: str = "v0.2.0") -> None:
+    current_file_path = os.path.abspath(__file__)
+    current_directory = os.path.dirname(current_file_path)
+    code_directory = os.path.dirname(current_directory)
 
-    ccd_data_cif = configs.data.ccd_components_file
-
-    data_cache_dir = os.path.dirname(ccd_data_cif)
+    data_cache_dir = os.path.join(code_directory, "release_data/ccd_cache")
     os.makedirs(data_cache_dir, exist_ok=True)
     for cache_name, fname in [
         ("ccd_components_file", "components.v20240608.cif"),
@@ -171,6 +172,10 @@ def download_infercence_cache(configs: Any, model_version="v0.2.0") -> None:
             urllib.request.urlretrieve(tos_url, cache_path)
 
     checkpoint_path = configs.load_checkpoint_path
+    checkpoint_path = os.path.join(
+        code_directory, f"release_data/checkpoint/model_{model_version}.pt"
+    )
+
     if not opexists(checkpoint_path):
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         tos_url = URL[f"model_{model_version}"]

@@ -49,11 +49,11 @@ bash inference_demo.sh
 ```
 
 Arguments in this scripts are explained as follows:
-* `load_checkpoint_path`: path to the model checkpoints.
+
 * `input_json_path`: path to a JSON file that fully describes the input.
 * `dump_dir`: path to a directory where the results of the inference will be saved. 
 * `dtype`: data type used in inference. Valid options include `"bf16"` and `"fp32"`. 
-* `use_msa`: whether to use the MSA feature, the default is true. If you want to disable the MSA feature, add `--use_msa false` to the [inference_demo.sh](inference_demo.sh) script.
+* `use_msa`: whether to use the MSA feature, the default is true.
 
 
 Note: by default, we do not use layernorm and EvoformerAttention kernels for simple configuration, if you want to speed up inference, see [<u> setting up kernels documentation </u>](docs/kernels.md).
