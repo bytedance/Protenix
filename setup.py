@@ -20,7 +20,7 @@ with open("requirements.txt") as f:
 setup(
     name="protenix",
     python_requires=">=3.10",
-    version="0.2.0",
+    version="0.3.0",
     description="A trainable PyTorch reproduction of AlphaFold 3.",
     author="Bytedance Inc.",
     url="https://github.com/bytedance/Protenix",

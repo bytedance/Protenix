@@ -90,6 +90,6 @@ Please do **not** create a public GitHub issue.
 
 ## License
 
-The Protenix project, including code and model parameters are made available under the [Apache 2.0 License](./LICENSE), it is free for both academic research and commerical use. We welcome inquiries and collaboration opportunities for advanced applications of our model, including the development of new features,  fine-tuning for specific use cases, and more.
+The Protenix project, including code and model parameters, is made available under the [Apache 2.0 License](./LICENSE), it is free for both academic research and commercial use.
 
-Please reach out to us at ai4s-bio@bytedance.com if you are interested in all types of collaborations.
+We welcome inquiries and collaboration opportunities for advanced applications of our model, such as developing new features, fine-tuning for specific use cases, and more. Please feel free to contact us at ai4s-bio@bytedance.com.
