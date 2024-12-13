@@ -45,13 +45,13 @@ def merge_covalent_bonds(
     for bond_dict in covalent_bonds:
         bond_unique_string = []
         entity_counts = (
-            all_entity_counts[bond_dict["left_entity"]],
-            all_entity_counts[bond_dict["right_entity"]],
+            all_entity_counts[str(bond_dict["left_entity"])],
+            all_entity_counts[str(bond_dict["right_entity"])],
         )
         for i in ["left", "right"]:
             for j in ["entity", "position", "atom"]:
                 k = f"{i}_{j}"
-                bond_unique_string.append(bond_dict[k])
+                bond_unique_string.append(str(bond_dict[k]))
         bond_unique_string = "_".join(bond_unique_string)
         bonds_recorder[bond_unique_string].append(bond_dict)
         bonds_entity_counts[bond_unique_string] = entity_counts
