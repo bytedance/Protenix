@@ -220,10 +220,10 @@ def atom_array_to_input_json(
             for idx, i in enumerate(["left", "right"]):
                 atom = atom_array[atoms[idx]]
                 positon = atom.res_id
-                bond_dict[f"{i}_entity"] = label_entity_id_to_entity_id_in_json[
-                    atom.label_entity_id
-                ]
-                bond_dict[f"{i}_position"] = str(positon)
+                bond_dict[f"{i}_entity"] = int(
+                    label_entity_id_to_entity_id_in_json[atom.label_entity_id]
+                )
+                bond_dict[f"{i}_position"] = int(positon)
                 bond_dict[f"{i}_atom"] = atom.atom_name
                 bond_dict[f"{i}_copy"] = int(atom.copy_id)
 

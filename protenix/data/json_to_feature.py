@@ -185,7 +185,7 @@ class SampleDictToFeatures:
             bond_atoms = []
             for i in ["left", "right"]:
                 entity_id = int(bond_info_dict[f"{i}_entity"])
-                copy_id = bond_info_dict.get(f"{i}_copy")
+                copy_id = int(bond_info_dict.get(f"{i}_copy"))
                 position = int(bond_info_dict[f"{i}_position"])
                 atom_name = bond_info_dict[f"{i}_atom"]
 
