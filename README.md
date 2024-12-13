@@ -29,14 +29,14 @@ If you're interested in model training, we recommand to [<u> run with docker</u>
 If you set up `Protenix` by `pip`, you can run the following command to do model inference:
 
 ```bash
-# run with example.json and it should contain msa result info.
+# run with example.json, which contains precomputed msa dir.
 protenix predict --input examples/example.json --out_dir  ./output
 
-# or run with multiple json files
+# run with multiple json files.
 protenix predict --input ./jsons_dir/ --out_dir  ./output
 
 
-# run with example_without_msa.json if it dose not have msa result info.
+# if the json do not contain precomputed msa dir, add --use_msa_server to search msa and then predict.
 protenix predict --input examples/example_without_msa.json --out_dir ./output --use_msa_server
 ```
 
