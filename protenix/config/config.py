@@ -1,12 +1,11 @@
 # Copyright 2024 ByteDance and/or its affiliates.
 #
-# Licensed under the Attribution-NonCommercial 4.0 International
-# License (the "License"); you may not use this file except in
-# compliance with the License. You may obtain a copy of the
-# License at
-
-#     https://creativecommons.org/licenses/by-nc/4.0/
-
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -168,7 +167,9 @@ class ConfigManager(object):
                 continue
             full_key = f"{prefix}.{key}" if prefix else key
             dtype, default_value, allow_none, required = self.config_infos[full_key]
-            if full_key in new_configs and not isinstance(new_configs[full_key], ArgumentNotSet):
+            if full_key in new_configs and not isinstance(
+                new_configs[full_key], ArgumentNotSet
+            ):
                 if allow_none and new_configs[full_key] in [
                     "None",
                     "none",
@@ -233,7 +234,9 @@ def parse_configs(
             "--" + key, type=str, default=ArgumentNotSet(), required=required
         )
     # Merge user commandline pargs with default ones
-    merged_configs = manager.merge_configs(vars(parser.parse_args(arg_str.split())) if arg_str else {})
+    merged_configs = manager.merge_configs(
+        vars(parser.parse_args(arg_str.split())) if arg_str else {}
+    )
     return merged_configs
 
 
