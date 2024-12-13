@@ -18,23 +18,23 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import List, Sequence, Union
+from typing import List, Optional, Sequence, Union
 
 import click
 import tqdm
 from Bio import SeqIO
+from rdkit import Chem
+
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
-from rdkit import Chem
-from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
-
 from protenix.config import parse_configs
 from protenix.data.json_maker import cif_to_input_json
 from protenix.data.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
 from protenix.web_service.colab_request_parser import RequestParser
+from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
 
 logger = get_logger(__name__)
 
@@ -173,9 +173,7 @@ def generate_infer_jsons(
             ligand_chain["ligand"]["ligand"] = f"FILE_{li_file}"
             ligand_chain["ligand"]["count"] = 1
             one_infer_seq.append(ligand_chain)
-        one_infer_json = [
-            {"sequences": one_infer_seq, "modelSeeds": seeds, "name": ligand_name}
-        ]
+        one_infer_json = [{"sequences": one_infer_seq, "name": ligand_name}]
         json_file_name = os.path.join(
             current_local_json_dir, f"{ligand_name}_sdf_{uuid.uuid4().hex}.json"
         )
@@ -196,9 +194,7 @@ def generate_infer_jsons(
             ligand_chain["ligand"]["ligand"] = normalize_smile
             ligand_chain["ligand"]["count"] = 1
             one_infer_seq.append(ligand_chain)
-        one_infer_json = [
-            {"sequences": one_infer_seq, "modelSeeds": seeds, "name": ligand_name}
-        ]
+        one_infer_json = [{"sequences": one_infer_seq, "name": ligand_name}]
         json_file_name = os.path.join(
             current_local_json_dir, f"{ligand_name}_smi_{uuid.uuid4().hex}.json"
         )
@@ -212,7 +208,7 @@ def generate_infer_jsons(
     return infer_json_files
 
 
-def get_default_runner() -> InferenceRunner:
+def get_default_runner(seeds: Optional[list] = None) -> InferenceRunner:
     inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v0.2.0.pt"
     configs_base["use_deepspeed_evo_attention"] = (
         os.environ.get("USE_DEEPSPEED_EVO_ATTTENTION", False) == "true"
@@ -225,12 +221,17 @@ def get_default_runner() -> InferenceRunner:
         configs=configs,
         fill_required_with_null=True,
     )
+    if seeds is not None:
+        configs.seeds = seeds
     download_infercence_cache(configs, model_version="v0.2.0")
     return InferenceRunner(configs)
 
 
 def inference_jsons(
-    json_file: str, out_dir: str = "./output", use_msa_server: bool = False
+    json_file: str,
+    out_dir: str = "./output",
+    use_msa_server: bool = False,
+    seeds: list = [101],
 ) -> None:
     """
     infer_json: json file or directory, will run infer with these jsons
@@ -257,7 +258,7 @@ def inference_jsons(
     infer_errors = {}
     inference_configs["dump_dir"] = out_dir
     inference_configs["input_json_path"] = infer_jsons[0]
-    runner = get_default_runner()
+    runner = get_default_runner(seeds)
     configs = runner.configs
     for infer_json in tqdm.tqdm(infer_jsons):
         try:
@@ -314,7 +315,7 @@ def batch_inference(
     infer_errors = {}
     inference_configs["dump_dir"] = out_dir
     inference_configs["input_json_path"] = infer_jsons[0]
-    runner = get_default_runner()
+    runner = get_default_runner(seeds=seeds)
     configs = runner.configs
     for infer_json in tqdm.tqdm(infer_jsons):
         try:
@@ -338,8 +339,11 @@ def protenix_cli():
 @click.command()
 @click.option("--input", type=str, help="json files or dir for inference")
 @click.option("--out_dir", default="./output", type=str, help="infer result dir")
+@click.option(
+    "--seeds", type=str, default="101", help="the inference seed, split by comma"
+)
 @click.option("--use_msa_server", is_flag=True, help="do msa search or not")
-def predict(input, out_dir, use_msa_server):
+def predict(input, out_dir, seeds, use_msa_server):
     """
     predict: Run predictions with protenix.
     :param input, out_dir, use_msa_server
@@ -349,7 +353,8 @@ def predict(input, out_dir, use_msa_server):
     logger.info(
         f"run infer with input={input}, out_dir={out_dir}, use_msa_server={use_msa_server}"
     )
-    inference_jsons(input, out_dir, use_msa_server)
+    seeds = list(map(int, seeds.split(",")))
+    inference_jsons(input, out_dir, use_msa_server, seeds=seeds)
 
 
 @click.command()
@@ -468,7 +473,7 @@ def msa(input, out_dir) -> Union[str, dict]:
                 update_msa_res(seq, dict(zip(protein_seqs, msa_res_subdirs)))
         msa_input_json = os.path.join(
             os.path.dirname(input),
-            f"{os.path.splitext(os.path.basename(input))[0]}-msa.json",
+            f"{os.path.splitext(os.path.basename(input))[0]}-add-msa.json",
         )
         with open(msa_input_json, "w") as f:
             json.dump(input_json_data, f, indent=4)
