@@ -45,13 +45,13 @@ def merge_covalent_bonds(
     for bond_dict in covalent_bonds:
         bond_unique_string = []
         entity_counts = (
-            all_entity_counts[bond_dict["left_entity"]],
-            all_entity_counts[bond_dict["right_entity"]],
+            all_entity_counts[str(bond_dict["left_entity"])],
+            all_entity_counts[str(bond_dict["right_entity"])],
         )
         for i in ["left", "right"]:
             for j in ["entity", "position", "atom"]:
                 k = f"{i}_{j}"
-                bond_unique_string.append(bond_dict[k])
+                bond_unique_string.append(str(bond_dict[k]))
         bond_unique_string = "_".join(bond_unique_string)
         bonds_recorder[bond_unique_string].append(bond_dict)
         bonds_entity_counts[bond_unique_string] = entity_counts
@@ -220,10 +220,10 @@ def atom_array_to_input_json(
             for idx, i in enumerate(["left", "right"]):
                 atom = atom_array[atoms[idx]]
                 positon = atom.res_id
-                bond_dict[f"{i}_entity"] = label_entity_id_to_entity_id_in_json[
-                    atom.label_entity_id
-                ]
-                bond_dict[f"{i}_position"] = str(positon)
+                bond_dict[f"{i}_entity"] = int(
+                    label_entity_id_to_entity_id_in_json[atom.label_entity_id]
+                )
+                bond_dict[f"{i}_position"] = int(positon)
                 bond_dict[f"{i}_atom"] = atom.atom_name
                 bond_dict[f"{i}_copy"] = int(atom.copy_id)
 
