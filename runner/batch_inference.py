@@ -18,12 +18,11 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import List, Sequence, Union
+from typing import List, Optional, Sequence, Union
 
 import click
 import tqdm
 from Bio import SeqIO
-from git import Optional
 from rdkit import Chem
 
 from configs.configs_base import configs as configs_base
