@@ -29,14 +29,14 @@ If you're interested in model training, we recommand to [<u> run with docker</u>
 If you set up `Protenix` by `pip`, you can run the following command to do model inference:
 
 ```bash
-# run with example.json and it should contain msa result info.
+# run with example.json, which contains precomputed msa dir.
 protenix predict --input examples/example.json --out_dir  ./output
 
-# or run with multiple json files
+# run with multiple json files.
 protenix predict --input ./jsons_dir/ --out_dir  ./output
 
 
-# run with example_without_msa.json if it dose not have msa result info.
+# if the json do not contain precomputed msa dir, add --use_msa_server to search msa and then predict.
 protenix predict --input examples/example_without_msa.json --out_dir ./output --use_msa_server
 ```
 
@@ -49,11 +49,11 @@ bash inference_demo.sh
 ```
 
 Arguments in this scripts are explained as follows:
-* `load_checkpoint_path`: path to the model checkpoints.
+
 * `input_json_path`: path to a JSON file that fully describes the input.
 * `dump_dir`: path to a directory where the results of the inference will be saved. 
 * `dtype`: data type used in inference. Valid options include `"bf16"` and `"fp32"`. 
-* `use_msa`: whether to use the MSA feature, the default is true. If you want to disable the MSA feature, add `--use_msa false` to the [inference_demo.sh](inference_demo.sh) script.
+* `use_msa`: whether to use the MSA feature, the default is true.
 
 
 Note: by default, we do not use layernorm and EvoformerAttention kernels for simple configuration, if you want to speed up inference, see [<u> setting up kernels documentation </u>](docs/kernels.md).

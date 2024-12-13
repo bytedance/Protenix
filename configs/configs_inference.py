@@ -13,14 +13,23 @@
 # limitations under the License.
 
 # pylint: disable=C0114
+import os
+
 from protenix.config.extend_types import ListValue, RequiredValue
 
+current_file_path = os.path.abspath(__file__)
+current_directory = os.path.dirname(current_file_path)
+code_directory = os.path.dirname(current_directory)
+# The model will be download to the following dir if not exists:
+# "./release_data/checkpoint/model_v0.2.0.pt"
 inference_configs = {
     "seeds": ListValue([101]),
     "dump_dir": "./output",
     "need_atom_confidence": False,
     "input_json_path": RequiredValue(str),
-    "load_checkpoint_path": RequiredValue(str),
+    "load_checkpoint_path": os.path.join(
+        code_directory, "./release_data/checkpoint/model_v0.2.0.pt"
+    ),
     "num_workers": 16,
     "use_msa": True,
 }
