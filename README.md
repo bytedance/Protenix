@@ -30,14 +30,15 @@ If you set up `Protenix` by `pip`, you can run the following command to do model
 
 ```bash
 # run with example.json, which contains precomputed msa dir.
-protenix predict --input examples/example.json --out_dir  ./output
+protenix predict --input examples/example.json --out_dir  ./output --seeds 101
 
-# run with multiple json files.
+# run with multiple json files, the default seed is 101.
 protenix predict --input ./jsons_dir/ --out_dir  ./output
 
-
-# if the json do not contain precomputed msa dir, add --use_msa_server to search msa and then predict.
-protenix predict --input examples/example_without_msa.json --out_dir ./output --use_msa_server
+# if the json do not contain precomputed msa dir, 
+# add --use_msa_server to search msa and then predict.
+# if mutiple seeds are provided, split them by comma.
+protenix predict --input examples/example_without_msa.json --out_dir ./output --seeds 101,102 --use_msa_server
 ```
 
 **Detailed information on the format of the input JSON file and the output files can be found in [<u> input and output documentation </u>](docs/infer_json_format.md)**.
@@ -89,6 +90,6 @@ Please do **not** create a public GitHub issue.
 
 ## License
 
-The Protenix project, including code and model parameters are made available under the [Apache 2.0 License](./LICENSE), it is free for academic research and commerical use.
+The Protenix project, including code and model parameters are made available under the [Apache 2.0 License](./LICENSE), it is free for both academic research and commerical use. We welcome inquiries and collaboration opportunities for advanced applications of our model, including the development of new features,  fine-tuning for specific use cases, and more.
 
-We also welcome all types of collaborations. Please reach out to us at ai4s-bio@bytedance.com if you are interested. 
+Please reach out to us at ai4s-bio@bytedance.com if you are interested in all types of collaborations.

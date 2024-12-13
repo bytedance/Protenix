@@ -130,7 +130,6 @@ def atom_array_to_input_json(
 
     json_dict = {
         "sequences": [],
-        "modelSeeds": [],
     }
     if assembly_id is not None:
         json_dict["assembly_id"] = assembly_id
