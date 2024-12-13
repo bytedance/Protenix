@@ -86,6 +86,6 @@ Please do **not** create a public GitHub issue.
 
 ## License
 
-This project, including code and model parameters are made available under the terms of the Creative Commons Attribution-NonCommercial 4.0 International License. You can find details at: https://creativecommons.org/licenses/by-nc/4.0/
+The Protenix project, including code and model parameters are made available under the [Apache 2.0 License](./LICENSE), it is free for academic research and commerical use.
 
-For commercial use, please reach out to us at ai4s-bio@bytedance.com for the commercial license. We welcome all types of collaborations.
+We also welcome all types of collaborations. Please reach out to us at ai4s-bio@bytedance.com if you are interested. 

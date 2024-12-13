@@ -1,16 +1,39 @@
-import os, json, logging, uuid, time, tqdm, argparse, click, tempfile
+# Copyright 2024 ByteDance and/or its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+import argparse
+import json
+import logging
+import os
+import tempfile
+import time
+import uuid
 from pathlib import Path
+from typing import List
+
+import click
+import tqdm
 from rdkit import Chem
-from typing import Any, List
-from protenix.data.json_parser import lig_file_to_atom_info
-from runner.inference import download_infercence_cache, InferenceRunner, infer_predict
+
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
-from protenix.config import parse_configs, parse_sys_args
-from protenix.utils.logger import get_logger
+from protenix.config import parse_configs
 from protenix.data.json_maker import cif_to_input_json
+from protenix.data.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
+from protenix.utils.logger import get_logger
+from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
 
 logger = get_logger(__name__)
 

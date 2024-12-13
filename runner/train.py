@@ -1,12 +1,11 @@
 # Copyright 2024 ByteDance and/or its affiliates.
 #
-# Licensed under the Attribution-NonCommercial 4.0 International
-# License (the "License"); you may not use this file except in
-# compliance with the License. You may obtain a copy of the
-# License at
-
-#     https://creativecommons.org/licenses/by-nc/4.0/
-
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -21,10 +20,10 @@ from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
+import wandb
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
-import wandb
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from protenix.config import parse_configs, parse_sys_args
