@@ -4,7 +4,7 @@ A trainable PyTorch reproduction of [AlphaFold 3](https://www.nature.com/article
 
 For more information on the model's performance and capabilities, see our [technical report](Protenix_Technical_Report.pdf). 
 
-You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversation in the [discord server](https://discord.gg/Utgk4Ykw).
+You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversation in the [discord server](https://discord.gg/8ZMWy89aMf).
 
 ![Protenix predictions](assets/protenix_predictions.gif)
 
