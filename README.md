@@ -45,6 +45,8 @@ protenix predict --input examples/example_without_msa.json --out_dir ./output --
 
 Alternatively you can run inference by:
 
+Note: by default, we do not use layernorm and EvoformerAttention kernels for simple configuration, if you want to speed up inference, see [<u> setting up kernels documentation </u>](docs/kernels.md).
+
 ```bash
 bash inference_demo.sh
 ```
@@ -56,8 +58,6 @@ Arguments in this scripts are explained as follows:
 * `dtype`: data type used in inference. Valid options include `"bf16"` and `"fp32"`. 
 * `use_msa`: whether to use the MSA feature, the default is true.
 
-
-Note: by default, we do not use layernorm and EvoformerAttention kernels for simple configuration, if you want to speed up inference, see [<u> setting up kernels documentation </u>](docs/kernels.md).
 
 ### Notebook demo
 You can use [notebooks/protenix_inference.ipynb](notebooks/protenix_inference.ipynb)  to run the model inference.
