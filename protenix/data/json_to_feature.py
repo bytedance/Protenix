@@ -23,6 +23,7 @@ from protenix.data.featurizer import Featurizer
 from protenix.data.json_parser import add_entity_atom_array, remove_leaving_atoms
 from protenix.data.parser import AddAtomArrayAnnot
 from protenix.data.tokenizer import AtomArrayTokenizer, TokenArray
+from protenix.data.utils import int_to_letters
 
 logger = logging.getLogger(__name__)
 
@@ -70,23 +71,6 @@ class SampleDictToFeatures:
                     ]
         return entity_poly_type
 
-    @staticmethod
-    def int_to_letters(n: int) -> str:
-        """
-        Convert int to letters.
-        Useful for converting chain index to label_asym_id.
-
-        Args:
-            n (int): int number
-        Returns:
-            str: letters. e.g. 1 -> A, 2 -> B, 27 -> AA, 28 -> AB
-        """
-        result = ""
-        while n > 0:
-            n, remainder = divmod(n - 1, 26)
-            result = chr(65 + remainder) + result
-        return result
-
     def build_full_atom_array(self) -> AtomArray:
         """
         By assembling the AtomArray of each entity, a complete AtomArray is created.
@@ -102,7 +86,7 @@ class SampleDictToFeatures:
 
                 entity_atom_array = None
                 for asym_chain_count in range(1, entity["count"] + 1):
-                    asym_id_str = str(self.int_to_letters(asym_chain_idx + 1))
+                    asym_id_str = int_to_letters(asym_chain_idx + 1)
                     asym_chain = copy.deepcopy(entity["atom_array"])
                     chain_id = [asym_id_str] * len(asym_chain)
                     copy_id = [asym_chain_count] * len(asym_chain)
