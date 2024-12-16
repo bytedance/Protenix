@@ -18,23 +18,23 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional, Sequence, Union
+from typing import List, Optional, Union
 
 import click
 import tqdm
 from Bio import SeqIO
-from rdkit import Chem
-
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
+from rdkit import Chem
+from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
+from runner.msa_search import contain_msa_res, msa_search, msa_search_update
+
 from protenix.config import parse_configs
 from protenix.data.json_maker import cif_to_input_json
 from protenix.data.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
-from protenix.web_service.colab_request_parser import RequestParser
-from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
 
 logger = get_logger(__name__)
 
@@ -47,53 +47,6 @@ def init_logging():
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
     )
-
-
-def has_msa(json_file: str) -> bool:
-    """
-    check the json_path data has msa result or not.
-    """
-    if not os.path.exists(json_file):
-        raise RuntimeError(f"`{json_file}` not exists.")
-    with open(json_file, "r") as f:
-        json_data = json.load(f)
-    for seq in json_data:
-        for sequence in seq["sequences"]:
-            if "proteinChain" in sequence.keys():
-                proteinChain = sequence["proteinChain"]
-                if "msa" not in proteinChain.keys() or len(proteinChain["msa"]) == 0:
-                    return False
-    return True
-
-
-def update_msa_res(seq: dict, protein_msa_res: dict) -> dict:
-    for sequence in seq["sequences"]:
-        if "proteinChain" in sequence.keys():
-            sequence["proteinChain"]["msa"] = {
-                "precomputed_msa_dir": protein_msa_res[
-                    sequence["proteinChain"]["sequence"]
-                ],
-                "pairing_db": "uniref100",
-            }
-    return seq
-
-
-def msa_search(seqs: Sequence[str], msa_res_dir: str) -> Sequence[str]:
-    """
-    do msa search with mmseqs and return result subdirs.
-    """
-    os.makedirs(msa_res_dir, exist_ok=True)
-    tmp_fasta_fpath = os.path.join(msa_res_dir, f"tmp_{uuid.uuid4().hex}.fasta")
-    RequestParser.msa_search(
-        seqs_pending_msa=seqs,
-        tmp_fasta_fpath=tmp_fasta_fpath,
-        msa_res_dir=msa_res_dir,
-    )
-    msa_res_subdirs = RequestParser.msa_postprocess(
-        seqs_pending_msa=seqs,
-        msa_res_dir=msa_res_dir,
-    )
-    return msa_res_subdirs
 
 
 def generate_infer_jsons(
@@ -260,22 +213,16 @@ def inference_jsons(
     inference_configs["input_json_path"] = infer_jsons[0]
     runner = get_default_runner(seeds)
     configs = runner.configs
-    for infer_json in tqdm.tqdm(infer_jsons):
+    for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
         try:
             if use_msa_server:
-                infer_json = msa.main(
-                    [
-                        "--input",
-                        infer_json,
-                        "--out_dir",
-                        os.path.join(out_dir, "msa_res"),
-                    ],
-                    standalone_mode=False,
+                infer_json = msa_search_update(
+                    infer_json, os.path.join(out_dir, f"msa_res_{idx}")
                 )
-            elif not has_msa(infer_json):
+            elif not contain_msa_res(infer_json):
                 raise RuntimeError(f"can not find msa for {infer_json}")
             configs["input_json_path"] = infer_json
-            if not has_msa(infer_json):
+            if not contain_msa_res(infer_json):
                 raise RuntimeError(
                     f"`{infer_json}` has no msa result for `proteinChain`, please add first."
                 )
@@ -320,7 +267,7 @@ def batch_inference(
     for infer_json in tqdm.tqdm(infer_jsons):
         try:
             configs["input_json_path"] = infer_json
-            if not has_msa(infer_json):
+            if not contain_msa_res(infer_json):
                 raise RuntimeError(
                     f"`{infer_json}` has no msa result for `proteinChain`, please add first."
                 )
@@ -453,30 +400,7 @@ def msa(input, out_dir) -> Union[str, dict]:
     os.makedirs(out_dir, exist_ok=True)
     logger.info(f"run msa with input={input}, out_dir={out_dir}")
     if input.endswith(".json"):
-        assert os.path.exists(input), f"input file {input} not exists."
-        if has_msa(input):
-            logger.warning(f"{input} has already msa result, skip.")
-            return input
-        with open(input, "r") as f:
-            input_json_data = json.load(f)
-        for seq_idx, seq in enumerate(input_json_data):
-            protein_seqs = []
-            for sequence in seq["sequences"]:
-                if "proteinChain" in sequence.keys():
-                    protein_seqs.append(sequence["proteinChain"]["sequence"])
-            if len(protein_seqs) > 0:
-                protein_seqs = sorted(protein_seqs)
-                msa_res_subdirs = msa_search(
-                    protein_seqs, os.path.join(out_dir, f"msa_seq_{seq_idx}")
-                )
-                assert len(msa_res_subdirs) == len(msa_res_subdirs), "msa search failed"
-                update_msa_res(seq, dict(zip(protein_seqs, msa_res_subdirs)))
-        msa_input_json = os.path.join(
-            os.path.dirname(input),
-            f"{os.path.splitext(os.path.basename(input))[0]}-add-msa.json",
-        )
-        with open(msa_input_json, "w") as f:
-            json.dump(input_json_data, f, indent=4)
+        msa_input_json = msa_search_update(input, out_dir)
         logger.info(f"msa results have been update to {msa_input_json}")
         return msa_input_json
     elif input.endswith(".fasta"):
