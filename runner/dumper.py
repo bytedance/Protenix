@@ -15,6 +15,7 @@
 import os
 from pathlib import Path
 
+import numpy as np
 import torch
 from biotite.structure import AtomArray
 
@@ -104,7 +105,23 @@ class DataDumper:
         """
         prediction_save_dir = os.path.join(dump_dir, "predictions")
         os.makedirs(prediction_save_dir, exist_ok=True)
+
         # Dump structure
+        b_factor = None
+        if "full_data" in pred_dict:
+            all_atom_plddt = []
+            # len(pred_dict["full_data"]) == N_sample
+            for each_sample_dict in pred_dict["full_data"]:
+                if "atom_plddt" in each_sample_dict:
+                    # atom_plddt.shape == [N_atom]
+                    atom_plddt = each_sample_dict["atom_plddt"]
+                    if atom_plddt.dtype == torch.bfloat16:
+                        atom_plddt = atom_plddt.to(torch.float32)
+                    all_atom_plddt.append(atom_plddt.cpu().numpy() * 100.0)
+
+            if len(all_atom_plddt) == len(pred_dict["full_data"]):
+                b_factor = all_atom_plddt
+
         self._save_structure(
             pred_coordinates=pred_dict["coordinate"],
             prediction_save_dir=prediction_save_dir,
@@ -112,6 +129,7 @@ class DataDumper:
             atom_array=atom_array,
             entity_poly_type=entity_poly_type,
             seed=seed,
+            b_factor=b_factor,
         )
         # Dump confidence
         self._save_confidence(
@@ -129,16 +147,22 @@ class DataDumper:
         atom_array: AtomArray,
         entity_poly_type: dict[str, str],
         seed: int,
+        b_factor: torch.Tensor = None,
     ):
         assert atom_array is not None
         N_sample = pred_coordinates.shape[0]
-        for idx in range(N_sample):
+        for sample_idx in range(N_sample):
             output_fpath = os.path.join(
-                prediction_save_dir, f"{sample_name}_seed_{seed}_sample_{idx}.cif"
+                prediction_save_dir,
+                f"{sample_name}_seed_{seed}_sample_{sample_idx}.cif",
             )
+            if b_factor is not None:
+                # b_factor.shape == [N_sample, N_atom]
+                atom_array.set_annotation("b_factor", np.round(b_factor[sample_idx], 2))
+
             save_structure_cif(
                 atom_array=atom_array,
-                pred_coordinate=pred_coordinates[idx],
+                pred_coordinate=pred_coordinates[sample_idx],
                 output_fpath=output_fpath,
                 entity_poly_type=entity_poly_type,
                 pdb_id=sample_name,
