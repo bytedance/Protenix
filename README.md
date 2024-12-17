@@ -59,8 +59,25 @@ Arguments in this scripts are explained as follows:
 * `use_msa`: whether to use the MSA feature, the default is true.
 
 
-### Notebook demo
-You can use [notebooks/protenix_inference.ipynb](notebooks/protenix_inference.ipynb)  to run the model inference.
+### Convert PDB/CIF file to json
+
+If your input is pdb or cif file, you can convert it to json file for inference.
+```bash
+# run with pdb/cif file, and convert it to json file for inference.
+protenix tojson --input examples/7pzb.pdb --out_dir ./output
+```
+
+
+### MSA search
+We also provide an independent MSA search function, you can do msa search from json file or fasta file.
+```bash
+# run msa search with json file, it will write precomputed msa dir info to a new json file.
+protenix msa --input examples/example_without_msa.json --out_dir ./output
+
+# run msa search with fasta file which only contains protein.
+protenix msa --input examples/prot.fasta --out_dir ./output
+```
+
 
 ## Training
 If you're interested in model training, see [<u> training documentation </u>](docs/training.md).
