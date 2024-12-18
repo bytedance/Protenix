@@ -162,7 +162,6 @@ def generate_infer_jsons(
 
 
 def get_default_runner(seeds: Optional[list] = None) -> InferenceRunner:
-    inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v0.2.0.pt"
     configs_base["use_deepspeed_evo_attention"] = (
         os.environ.get("USE_DEEPSPEED_EVO_ATTTENTION", False) == "true"
     )
