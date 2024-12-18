@@ -173,15 +173,25 @@ def download_infercence_cache(configs: Any, model_version: str = "v0.2.0") -> No
             urllib.request.urlretrieve(tos_url, cache_path)
 
     checkpoint_path = configs.load_checkpoint_path
-    checkpoint_path = os.path.join(
-        code_directory, f"release_data/checkpoint/model_{model_version}.pt"
-    )
 
     if not opexists(checkpoint_path):
+        checkpoint_path = os.path.join(
+            code_directory, f"release_data/checkpoint/model_{model_version}.pt"
+        )
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         tos_url = URL[f"model_{model_version}"]
         logger.info(f"Downloading model checkpoint from\n {tos_url}...")
         urllib.request.urlretrieve(tos_url, checkpoint_path)
+        try:
+            ckpt = torch.load(checkpoint_path)
+            del ckpt
+        except:
+            os.remove(checkpoint_path)
+            raise RuntimeError(
+                "Download model checkpoint failed, please download by yourself with "
+                f"wget {tos_url} -O {checkpoint_path}"
+            )
+        configs.load_checkpoint_path = checkpoint_path
 
 
 def update_inference_configs(configs: Any, N_token: int):
@@ -297,14 +307,6 @@ def run() -> None:
     )
     download_infercence_cache(configs, model_version="v0.2.0")
     main(configs)
-
-
-def run_default() -> None:
-    inference_configs["load_checkpoint_path"] = "/af3-dev/release_model/model_v0.2.0.pt"
-    configs_base["model"]["N_cycle"] = 10
-    configs_base["sample_diffusion"]["N_sample"] = 5
-    configs_base["sample_diffusion"]["N_step"] = 200
-    run()
 
 
 if __name__ == "__main__":
