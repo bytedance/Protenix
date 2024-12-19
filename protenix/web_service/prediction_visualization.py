@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import glob
 import json
 import os
@@ -261,3 +262,99 @@ def plot_3d(
 
     view.zoomTo()
     return view
+
+
+def plot_best_confidence_measure(prediction_fpath: str, output_dir: str = None):
+    """
+    Plot confidence_measure from a directory
+
+    Args
+        full_confidence (list): list of full confidence metrics from prediction
+        summary_confidence (list): list of summary confidence metrics from prediction
+        fnames (list): list of prediction names
+    """
+    if output_dir is None or output_dir == "":
+        output_dir = prediction_fpath
+    pred_loader = PredictionLoader(prediction_fpath)
+    if (
+        pred_loader.full_confidence_data is None
+        or len(pred_loader.full_confidence_data) < 1
+    ):
+        print("no full confidence data found, skip ploting.")
+        return
+    full_confidence = pred_loader.full_confidence_data[:1]
+    summary_confidence = pred_loader.summary_confidence_data[:1]
+    atom_plddts = [d["atom_plddt"] for d in full_confidence]
+    token_pdes = [d["token_pair_pde"] for d in full_confidence]
+    token_paes = [d["token_pair_pae"] for d in full_confidence]
+    summary_keys = ["plddt", "gpde", "ptm", "iptm"]
+
+    fig, axes = plt.subplots(
+        nrows=3,
+        ncols=1,
+        figsize=(10, 20),
+        gridspec_kw={"height_ratios": [1.5, 2, 2]},
+    )
+    for i in range(3):
+        summary_text = ", ".join(
+            [
+                f"{k}: {v:.4f}"
+                for k, v in summary_confidence[0].items()
+                if k in summary_keys
+            ]
+        )
+        if i == 0:
+            axes[i].plot(atom_plddts[0], color="k")
+            axes[i].text(
+                0.5,
+                1.07,
+                summary_text,
+                ha="center",
+                va="center",
+                transform=axes[i].transAxes,
+                fontsize=10,
+            )
+            axes[i].set_xlabel("Atom ID", fontsize=12)
+            axes[i].set_ylabel("pLDDT", fontsize=12)
+            axes[i].set_ylim([0, 1])
+            axes[i].spines[["right", "top"]].set_visible(False)
+
+        else:
+            data_to_plot = token_pdes[0] if i == 1 else token_paes[0]
+            cax = axes[i].matshow(data_to_plot, origin="lower")
+            axes[i].xaxis.tick_bottom()
+            axes[i].set_aspect("equal")
+            axes[i].set_xlabel("Scored Residue", fontsize=12)
+            axes[i].set_ylabel("Aligned Residue", fontsize=12)
+            axes[i].xaxis.set_major_locator(MaxNLocator(3))  # Max 5 ticks on the x-axis
+            axes[i].yaxis.set_major_locator(MaxNLocator(3))  # Max 5 ticks on the y-axis
+            color_bar = fig.colorbar(
+                cax, ax=axes[i], orientation="vertical", pad=0.1, shrink=0.6
+            )
+            cbar_label = (
+                "Predicted Distance Error" if i == 1 else "Predicted Aligned Error"
+            )
+            color_bar.set_label(cbar_label)
+
+    out_png_fpath = os.path.join(output_dir, "best_sample_confidence.png")
+    plt.savefig(out_png_fpath)
+    print(f"save best sample confidence plot successfully to {out_png_fpath}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--prediction_fpath",
+        type=str,
+        required=True,
+        help="The prediction files to parse",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        required=False,
+        default=None,
+        help="ouput dir to save plot",
+    )
+    args = parser.parse_args()
+    plot_best_confidence_measure(args.prediction_fpath, args.output_dir)
