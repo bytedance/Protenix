@@ -218,8 +218,8 @@ class ConfidenceHead(nn.Module):
             plddt_pred, pae_pred, pde_pred, resolved_pred = (
                 self.memory_efficient_forward(
                     input_feature_dict=input_feature_dict,
-                    s_trunk=s_trunk,
-                    z_pair=z_trunk,
+                    s_trunk=s_trunk.clone() if inplace_safe else s_trunk,
+                    z_pair=z_trunk.clone() if inplace_safe else z_trunk,
                     pair_mask=pair_mask,
                     x_pred_rep_coords=x_pred_rep_coords[..., i, :, :],
                     use_memory_efficient_kernel=use_memory_efficient_kernel,
@@ -276,11 +276,22 @@ class ConfidenceHead(nn.Module):
         distance_pred = cdist(
             x_pred_rep_coords, x_pred_rep_coords
         )  # [..., N_tokens, N_tokens]
-        z_pair = z_pair + self.linear_no_bias_d(
-            one_hot(
-                x=distance_pred, lower_bins=self.lower_bins, upper_bins=self.upper_bins
-            )
-        )  # [..., N_tokens, N_tokens, c_z]
+        if inplace_safe:
+            z_pair += self.linear_no_bias_d(
+                one_hot(
+                    x=distance_pred,
+                    lower_bins=self.lower_bins,
+                    upper_bins=self.upper_bins,
+                )
+            )  # [..., N_tokens, N_tokens, c_z]
+        else:
+            z_pair = z_pair + self.linear_no_bias_d(
+                one_hot(
+                    x=distance_pred,
+                    lower_bins=self.lower_bins,
+                    upper_bins=self.upper_bins,
+                )
+            )  # [..., N_tokens, N_tokens, c_z]
         # Line 4
         s_single, z_pair = self.pairformer_stack(
             s_trunk,

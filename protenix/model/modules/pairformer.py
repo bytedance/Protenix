@@ -150,6 +150,14 @@ class PairformerBlock(nn.Module):
             )
             z = z.transpose(-2, -3).contiguous()
             z += self.pair_transition(z)
+            if self.c_s > 0:
+                s += self.attention_pair_bias(
+                    a=s,
+                    s=None,
+                    z=z,
+                )
+                s += self.single_transition(s)
+            return s, z
         else:
             tmu_update = self.tri_mul_out(
                 z, mask=pair_mask, inplace_safe=inplace_safe, _add_with_inplace=False
@@ -187,14 +195,14 @@ class PairformerBlock(nn.Module):
             z = z.transpose(-2, -3)
 
             z = z + self.pair_transition(z)
-        if self.c_s > 0:
-            s = s + self.attention_pair_bias(
-                a=s,
-                s=None,
-                z=z,
-            )
-            s = s + self.single_transition(s)
-        return s, z
+            if self.c_s > 0:
+                s = s + self.attention_pair_bias(
+                    a=s,
+                    s=None,
+                    z=z,
+                )
+                s = s + self.single_transition(s)
+            return s, z
 
 
 class PairformerStack(nn.Module):
