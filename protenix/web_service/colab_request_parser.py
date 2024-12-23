@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import json
 import os
 import subprocess
@@ -31,7 +32,7 @@ from protenix.data.json_to_feature import SampleDictToFeatures
 from protenix.web_service.colab_request_utils import run_mmseqs2_service
 from protenix.web_service.dependency_url import URL
 
-MMSEQS_SERVICE_HOST_URL = "http://101.126.11.40:80"
+MMSEQS_SERVICE_HOST_URL = os.getenv("MMSEQS_SERVICE_HOST_URL", "http://101.126.11.40:80")
 MAX_ATOM_NUM = 60000
 MAX_TOKEN_NUM = 5000
 DATA_CACHE_DIR = "/af3-dev/release_data/"
@@ -75,11 +76,12 @@ class TooLargeComplexError(Exception):
 
 
 class RequestParser(object):
-    def __init__(self, request_json_path: str, request_dir: str) -> None:
+    def __init__(self, request_json_path: str, request_dir: str, email: str = "") -> None:
         with open(request_json_path, "r") as f:
             self.request = json.load(f)
         self.request_dir = request_dir
         self.fpath = os.path.abspath(__file__)
+        self.email = email
         os.makedirs(self.request_dir, exist_ok=True)
 
     def download_data_cache(self) -> Dict[str, str]:
@@ -179,6 +181,7 @@ class RequestParser(object):
                 seqs_pending_msa=seqs_pending_msa,
                 tmp_fasta_fpath=tmp_fasta_fpath,
                 msa_res_dir=msa_res_dir,
+                email=self.email,
             )
             msa_res_subdirs = RequestParser.msa_postprocess(
                 seqs_pending_msa=seqs_pending_msa,
@@ -204,7 +207,7 @@ class RequestParser(object):
 
     @staticmethod
     def msa_search(
-        seqs_pending_msa: Sequence[str], tmp_fasta_fpath: str, msa_res_dir: str
+        seqs_pending_msa: Sequence[str], tmp_fasta_fpath: str, msa_res_dir: str, email: str = ""
     ) -> None:
         lines = []
         for idx, seq in enumerate(seqs_pending_msa):
@@ -226,6 +229,7 @@ class RequestParser(object):
                 use_templates=False,
                 host_url=MMSEQS_SERVICE_HOST_URL,
                 user_agent="colabfold/1.5.5",
+                email=email
             )
         except Exception as e:
             error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
@@ -385,8 +389,15 @@ class RequestParser(object):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--request_json_path", type=str, required=True, help="Path to the request JSON file.")
+    parser.add_argument("--request_dir", type=str, required=True, help="Path to the request directory.")
+    parser.add_argument("--email", type=str, required=False, default="", help="Your email address.")
+
+    args = parser.parse_args()
     parser = RequestParser(
-        request_json_path="/path/to/sample.json",
-        request_dir="./requests/debug",
+        request_json_path=args.request_json_path,
+        request_dir=args.request_dir,
+        email=args.email,
     )
     parser.launch()

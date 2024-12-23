@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import copy
 import os
 import re
@@ -673,3 +674,11 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
         entry_id=entry_id or os.path.basename(output_fname),
         include_bonds=True,
     )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pdb_file", type=str, required=True, help="The pdb file to parse")
+    parser.add_argument("--cif_file", type=str, required=True, help="The cif file path to generate")
+    args = parser.parse_args()
+    pdb_to_cif(args.pdb_file, args.cif_file)
