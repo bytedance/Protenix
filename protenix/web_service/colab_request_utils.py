@@ -42,6 +42,7 @@ def run_mmseqs2_service(
     pairing_strategy="greedy",
     host_url="https://api.colabfold.com",
     user_agent: str = "",
+    email: str = ""
 ) -> Tuple[List[str], List[str]]:
     submission_endpoint = "ticket/pair" if use_pairing else "ticket/msa"
 
@@ -66,7 +67,7 @@ def run_mmseqs2_service(
                 # "good practice to set connect timeouts to slightly larger than a multiple of 3"
                 res = requests.post(
                     f"{host_url}/{submission_endpoint}",
-                    data={"q": query, "mode": mode},
+                    data={"q": query, "mode": mode, "email": email},
                     timeout=6.02,
                     headers=headers,
                     auth=HTTPBasicAuth(username, password),

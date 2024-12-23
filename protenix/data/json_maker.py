@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import argparse
 import copy
 import json
 import os
@@ -294,3 +295,12 @@ def cif_to_input_json(
         save_entity_and_asym_id=save_entity_and_asym_id,
     )
     return json_dict
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cif_file", type=str, required=True, help="The cif file to parse")
+    parser.add_argument("--json_file", type=str, required=False, default=None, help="The json file path to generate")
+    args = parser.parse_args()
+    print(cif_to_input_json(args.cif_file, output_json=args.json_file))
+
