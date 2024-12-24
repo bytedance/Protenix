@@ -78,6 +78,9 @@ protenix msa --input examples/example_without_msa.json --out_dir ./output
 protenix msa --input examples/prot.fasta --out_dir ./output
 ```
 
+### Run with PyMol
+
+If you want to run Protenix inference with `PyMol`, please refer to [PyMOLfold](https://github.com/colbyford/PyMOLfold).
 
 ## Training
 If you're interested in model training, see [<u> training documentation </u>](docs/training.md).
