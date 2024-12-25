@@ -121,7 +121,7 @@ class DataDumper:
 
             if len(all_atom_plddt) == len(pred_dict["full_data"]):
                 b_factor = all_atom_plddt
-
+        sorted_indices = self._get_ranker_indices(data=pred_dict)
         self._save_structure(
             pred_coordinates=pred_dict["coordinate"],
             prediction_save_dir=prediction_save_dir,
@@ -129,6 +129,7 @@ class DataDumper:
             atom_array=atom_array,
             entity_poly_type=entity_poly_type,
             seed=seed,
+            sorted_indices=sorted_indices,
             b_factor=b_factor,
         )
         # Dump confidence
@@ -137,6 +138,7 @@ class DataDumper:
             prediction_save_dir=prediction_save_dir,
             sample_name=pdb_id,
             seed=seed,
+            sorted_indices=sorted_indices,
         )
 
     def _save_structure(
@@ -147,41 +149,32 @@ class DataDumper:
         atom_array: AtomArray,
         entity_poly_type: dict[str, str],
         seed: int,
+        sorted_indices: None,
         b_factor: torch.Tensor = None,
     ):
         assert atom_array is not None
         N_sample = pred_coordinates.shape[0]
-        for sample_idx in range(N_sample):
+        if sorted_indices is None:
+            sorted_indices = range(N_sample)  # do not rank the output file
+        for rank, idx in enumerate(sorted_indices):
             output_fpath = os.path.join(
                 prediction_save_dir,
-                f"{sample_name}_seed_{seed}_sample_{sample_idx}.cif",
+                f"{sample_name}_seed_{seed}_sample_{rank}.cif",
             )
             if b_factor is not None:
                 # b_factor.shape == [N_sample, N_atom]
-                atom_array.set_annotation("b_factor", np.round(b_factor[sample_idx], 2))
+                atom_array.set_annotation("b_factor", np.round(b_factor[idx], 2))
 
             save_structure_cif(
                 atom_array=atom_array,
-                pred_coordinate=pred_coordinates[sample_idx],
+                pred_coordinate=pred_coordinates[idx],
                 output_fpath=output_fpath,
                 entity_poly_type=entity_poly_type,
                 pdb_id=sample_name,
             )
 
-    def _save_confidence(
-        self,
-        data: dict,
-        prediction_save_dir: str,
-        sample_name: str,
-        seed: int,
-        sorted_by_ranking_score: bool = True,
-    ):
+    def _get_ranker_indices(self, data: dict, sorted_by_ranking_score: bool = True):
         N_sample = len(data["summary_confidence"])
-        for idx in range(N_sample):
-            if self.need_atom_confidence:
-                data["full_data"][idx] = get_clean_full_confidence(
-                    data["full_data"][idx]
-                )
         sorted_indices = range(N_sample)
         if sorted_by_ranking_score:
             sorted_indices = sorted(
@@ -189,7 +182,24 @@ class DataDumper:
                 key=lambda i: data["summary_confidence"][i]["ranking_score"],
                 reverse=True,
             )
+        return sorted_indices
 
+    def _save_confidence(
+        self,
+        data: dict,
+        prediction_save_dir: str,
+        sample_name: str,
+        seed: int,
+        sorted_indices: None,
+    ):
+        N_sample = len(data["summary_confidence"])
+        for idx in range(N_sample):
+            if self.need_atom_confidence:
+                data["full_data"][idx] = get_clean_full_confidence(
+                    data["full_data"][idx]
+                )
+        if sorted_indices is None:
+            sorted_indices = range(N_sample)
         for rank, idx in enumerate(sorted_indices):
             output_fpath = os.path.join(
                 prediction_save_dir,
@@ -199,6 +209,6 @@ class DataDumper:
             if self.need_atom_confidence:
                 output_fpath = os.path.join(
                     prediction_save_dir,
-                    f"{sample_name}_full_data_sample_{idx}.json",
+                    f"{sample_name}_full_data_sample_{rank}.json",
                 )
                 save_json(data["full_data"][idx], output_fpath, indent=None)
