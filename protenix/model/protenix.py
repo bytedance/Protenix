@@ -34,7 +34,11 @@ from protenix.utils.torch_utils import autocasting_disable_decorator
 
 from .modules.confidence import ConfidenceHead
 from .modules.diffusion import DiffusionModule
-from .modules.embedders import InputFeatureEmbedder, RelativePositionEncoding
+from .modules.embedders import (
+    InputFeatureEmbedder,
+    RelativePositionEncoding,
+    ConstraintEmbedder,
+)
 from .modules.head import DistogramHead
 from .modules.pairformer import MSAModule, PairformerStack, TemplateEmbedder
 from .modules.primitives import LinearNoBias
@@ -76,6 +80,9 @@ class Protenix(nn.Module):
         self.msa_module = MSAModule(
             **configs.model.msa_module,
             msa_configs=configs.data.get("msa", {}),
+        )
+        self.constraint_embedder = ConstraintEmbedder(
+            **configs.model.constraint_embedder
         )
         self.pairformer_stack = PairformerStack(**configs.model.pairformer)
         self.diffusion_module = DiffusionModule(**configs.model.diffusion_module)
@@ -145,6 +152,9 @@ class Protenix(nn.Module):
             self.pairformer_stack.eval()
 
         # Line 1-5
+        s_constraint, z_constraint = self.constraint_embedder(
+            input_feature_dict["constraint_feature"]
+        )
         s_inputs = self.input_embedder(
             input_feature_dict, inplace_safe=False, chunk_size=chunk_size
         )  # [..., N_token, 449]
@@ -158,11 +168,13 @@ class Protenix(nn.Module):
             z_init += self.linear_no_bias_token_bond(
                 input_feature_dict["token_bonds"].unsqueeze(dim=-1)
             )
+            z_init += z_constraint
         else:
             z_init = z_init + self.relative_position_encoding(input_feature_dict)
             z_init = z_init + self.linear_no_bias_token_bond(
                 input_feature_dict["token_bonds"].unsqueeze(dim=-1)
             )
+            z_init = z_init + z_constraint
         # Line 6
         z = torch.zeros_like(z_init)
         s = torch.zeros_like(s_init)
