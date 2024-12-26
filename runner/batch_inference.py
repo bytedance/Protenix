@@ -178,7 +178,7 @@ def get_default_runner(
     )
     if seeds is not None:
         configs.seeds = seeds
-    download_infercence_cache(configs, model_version="v0.2.0")
+    download_infercence_cache(configs, model_version="beta1_v0.2.0")
     return InferenceRunner(configs)
 
 
@@ -190,6 +190,7 @@ def inference_jsons(
     n_cycle: int = 10,
     n_step: int = 200,
     n_sample: int = 5,
+    use_esm: bool = False,
 ) -> None:
     """
     infer_json: json file or directory, will run infer with these jsons
@@ -218,11 +219,17 @@ def inference_jsons(
     inference_configs["input_json_path"] = infer_jsons[0]
     runner = get_default_runner(seeds, n_cycle, n_step, n_sample)
     configs = runner.configs
+    configs.use_esm = use_esm
     for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
         try:
             configs["input_json_path"] = update_infer_json(
-                infer_json, out_dir=out_dir, use_msa_server=use_msa_server
+                infer_json,
+                out_dir=out_dir,
+                use_msa_server=use_msa_server,
+                use_esm=use_esm,
             )
+            if use_esm:
+                configs.use_msa = use_msa_server
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
@@ -244,17 +251,24 @@ def protenix_cli():
 @click.option("--cycle", type=int, default=10, help="pairformer cycle number")
 @click.option("--step", type=int, default=200, help="diffusion step")
 @click.option("--sample", type=int, default=5, help="sample number")
-@click.option("--use_msa_server", is_flag=True, help="do msa search or not")
-def predict(input, out_dir, seeds, cycle, step, sample, use_msa_server):
+@click.option(
+    "--use_msa_server", is_flag=True, help="use msa result for inference or not"
+)
+@click.option("--use_esm", is_flag=True, help="run inference esm or not")
+def predict(input, out_dir, seeds, cycle, step, sample, use_msa_server, use_esm):
     """
     predict: Run predictions with protenix.
-    :param input, out_dir, use_msa_server
+    :param input, out_dir, use_msa_server, use_esm
     :return:
     """
     init_logging()
     logger.info(
-        f"run infer with input={input}, out_dir={out_dir}, cycle={cycle}, step={step}, sample={sample}, use_msa_server={use_msa_server}"
+        f"run infer with input={input}, out_dir={out_dir}, cycle={cycle}, step={step}, sample={sample}, use_msa_server={use_msa_server}, use_esm={use_esm}"
     )
+    if (not use_msa_server) and (not use_esm):
+        raise RuntimeError(
+            f"use_msa_server and use_esm can not be `False` simultaneously."
+        )
     seeds = list(map(int, seeds.split(",")))
     inference_jsons(
         input,
@@ -264,6 +278,7 @@ def predict(input, out_dir, seeds, cycle, step, sample, use_msa_server):
         n_cycle=cycle,
         n_step=step,
         n_sample=sample,
+        use_esm=use_esm,
     )
 
 

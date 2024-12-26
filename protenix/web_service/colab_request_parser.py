@@ -25,9 +25,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
+import requests
 
 import protenix.data.ccd as ccd
-import requests
 from protenix.data.json_to_feature import SampleDictToFeatures
 from protenix.web_service.colab_request_utils import run_mmseqs2_service
 from protenix.web_service.dependency_url import URL
@@ -127,11 +127,18 @@ class RequestParser(object):
         input_json_dict = {
             "name": (self.request["name"]),
             "covalent_bonds": self.request["covalent_bonds"],
+            "constraint": self.request["constraint"],
         }
         input_json_path = opjoin(self.request_dir, f"inputs.json")
 
         sequences = []
         entity_pending_msa = {}
+        use_msa = self.request.get("use_msa", True)
+        use_esm = self.request.get("use_esm", False)
+        if (not use_esm) and (not use_msa):
+            raise RuntimeError(
+                f"use_msa and use_esm can not be `False` simultaneously."
+            )
         for i, entity_info_wrapper in enumerate(self.request["sequences"]):
             entity_id = str(i + 1)
             entity_info_wrapper: Dict[str, Dict[Any]]
@@ -387,6 +394,7 @@ class RequestParser(object):
             f"--input_json_path {input_json_path}",
             f"--need_atom_confidence {self.request['atom_confidence']}",
             f"--use_msa {self.request['use_msa']}",
+            f"--use_esm {self.request['use_esm']}",  # TODO placeholder, self.request['use_esm'] is invalid for now
             "--num_workers 0",
             "--dtype bf16",
             "--use_deepspeed_evo_attention True",

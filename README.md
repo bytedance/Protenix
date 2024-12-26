@@ -47,10 +47,10 @@ If you set up `Protenix` by `pip`, you can run the following command to do model
 # the default n_cycle/n_step/n_samples is 10/200/5 respectively, you can modify it by passing --cycle x1 --step x2 --sample x3
 
 # run with example.json, which contains precomputed msa dir.
-protenix predict --input examples/example.json --out_dir  ./output --seeds 101
+protenix predict --input examples/example.json --out_dir  ./output --seeds 101 --use_msa_server
 
 # run with multiple json files, the default seed is 101.
-protenix predict --input ./jsons_dir/ --out_dir  ./output
+protenix predict --input ./jsons_dir/ --out_dir  ./output --use_msa_server
 
 # if the json do not contain precomputed msa dir,
 # add --use_msa_server to search msa and then predict.
@@ -131,11 +131,26 @@ If you're interested in model training, see [<u> training documentation </u>](do
 
 #### ***Early Access to NEW Constraint Feature!***
 
-🎉 Protenix now allows users to specify ***contacts***, enabling the model to leverage additional inter-chain information as constraint guidance! We benchmarked our constraint feature on Posebuster and a protein-antibody interfaces subset. Protenix demonstrates powerful ability in predicting more accurate structures. If you want to have a try, checkout to branch `constraint_esm` for details about the input format.
+🎉 Protenix now allows users to specify ***contacts***, enabling the model to leverage additional inter-chain information as constraint guidance! We benchmarked our constraint feature on Posebuster and a protein-antibody interfaces subset. Protenix demonstrates powerful ability in predicting more accurate structures. If you want to have a try, see our [page](docs/infer_json_format.md#constraint) for details about the input format.
 
 ![Constraint Metrics](assets/constraint_metrics.png)
 
 > **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out to this branch first.
+
+And you can run local with the fllowing command (you must install protenix by yourself from source):
+```
+# run esm inference with msa
+protenix predict --input examples/example.json --out_dir  ./output_msa --seeds 101 --use_esm --use_msa_server
+
+# or run esm inference without msa
+protenix predict --input examples/example.json --out_dir  ./output_no_msa --seeds 101 --use_esm
+
+# run constraint inference with msa
+protenix predict --input examples/example_constraint.json --out_dir  ./output_constraint --seeds 101 --use_msa_server
+
+# or run constraint inference with msa and esm
+protenix predict --input examples/example_constraint.json --out_dir  ./output_msa_esm --seeds 101 --use_msa_server --use_esm
+```
 
 ## Training and Inference Cost
 

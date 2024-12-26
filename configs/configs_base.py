@@ -177,6 +177,18 @@ model_configs = {
             "pair_dropout": 0.25,
             "blocks_per_ckpt": GlobalConfigValue("blocks_per_ckpt"),
         },
+        "constraint_embedder": {
+            "pocket_embedder": {
+                "c_s_input": 3,
+                "c_z_input": 3,
+            },
+            "contact_embedder": {
+                "c_z_input": 2,
+            },
+            "c_s": GlobalConfigValue("c_s_inputs"),
+            "c_z": GlobalConfigValue("c_z"),
+            "initialize_method": "zero",
+        },
         "pairformer": {
             "n_blocks": GlobalConfigValue("n_blocks"),
             "c_z": GlobalConfigValue("c_z"),

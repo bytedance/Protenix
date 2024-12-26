@@ -20,6 +20,7 @@ import torch
 from biotite.structure import AtomArray
 
 from protenix.data.featurizer import Featurizer
+from protenix.data.constraint_featurizer import ContactFeaturizer
 from protenix.data.json_parser import add_entity_atom_array, remove_leaving_atoms
 from protenix.data.parser import AddAtomArrayAnnot
 from protenix.data.tokenizer import AtomArrayTokenizer, TokenArray
@@ -148,6 +149,39 @@ class SampleDictToFeatures:
             mask = entity_mask & position_mask & atom_name_mask
         atom_indices = np.where(mask)[0]
         return atom_indices
+
+    @staticmethod
+    def get_atomarray_mask(
+        atom_array: AtomArray,
+        entity_id: int = None,
+        position: int = None,
+        atom_name: str = None,
+        copy_id: int = None,
+    ) -> np.ndarray:
+        """
+        Get the atom mask of with specific identifiers.
+
+        Args:
+            atom_array (AtomArray): Biotite Atom array.
+            entity_id (int): Entity id.
+            position (int): Residue index of the atom.
+            atom_name (str): Atom name.
+            copy_id (copy_id): A asym chain id in N copies of an entity.
+
+        Returns:
+            np.ndarray: Array of a bool mask.
+        """
+        mask = np.ones(atom_array.shape, dtype=np.bool_)
+
+        if entity_id is not None:
+            mask &= atom_array.label_entity_id == str(entity_id)
+        if position is not None:
+            mask &= atom_array.res_id == int(position)
+        if atom_name is not None:
+            mask &= atom_array.atom_name == str(atom_name)
+        if copy_id is not None:
+            mask &= atom_array.copy_id == int(copy_id)
+        return mask
 
     def add_bonds_between_entities(self, atom_array: AtomArray) -> AtomArray:
         """
@@ -305,6 +339,10 @@ class SampleDictToFeatures:
         featurizer = Featurizer(token_array, atom_array)
         feature_dict = featurizer.get_all_input_features()
 
+        feature_dict["constraint_feature"] = self.get_constraint_feature_dict(
+            token_array, atom_array, feature_dict["atom_to_token_idx"]
+        )
+
         token_array_with_frame = featurizer.get_token_frame(
             token_array=token_array,
             atom_array=atom_array,
@@ -322,3 +360,137 @@ class SampleDictToFeatures:
             token_array_with_frame.get_annotation("frame_atom_index")
         ).long()
         return feature_dict, atom_array, token_array
+
+    def _canonicalize_contact_format(self, contact_pair):
+        _key_list = [
+            "entity1",
+            "copy1",
+            "position1",
+            "atom1",
+            "entity2",
+            "copy2",
+            "position2",
+            "atom2",
+            "max_distance",
+        ]
+        pair = {k: contact_pair.get(k, None) for k in _key_list}
+        if all([pair[k] is None for k in ["entity1", "entity2"]]):
+            _key_list_old = [
+                "left_entity",
+                "left_copy",
+                "left_position",
+                "left_atom",
+                "right_entity",
+                "right_copy",
+                "right_position",
+                "right_atom",
+                "max_distance",
+            ]
+            pair = {
+                k: contact_pair.get(ko, None) for k, ko in zip(_key_list, _key_list_old)
+            }
+
+        for suffix in ["1", "2"]:
+            atom_key = f"atom{suffix}"
+            entity_id = pair[f"entity{suffix}"]
+            if isinstance(pair[atom_key], int):
+                entity_dict = list(
+                    self.input_dict["sequences"][int(entity_id - 1)].values()
+                )[0]
+                assert "atom_map_to_atom_name" in entity_dict
+                pair[atom_key] = entity_dict["atom_map_to_atom_name"][pair[atom_key]]
+
+        if hash((pair["entity1"], pair["copy1"])) == hash(
+            (pair["entity2"], pair["copy2"])
+        ):
+            raise ValueError("A contact pair can not be specified on the same chain")
+
+        return pair
+
+    def _canonicalize_pocket_pos_format(self, binder, pocket_pos):
+        _key_list = ["entity", "copy", "position"]
+        pocket_pos = {k: pocket_pos.get(k, None) for k in _key_list}
+
+        if hash((binder["entity"], binder["copy"])) == hash(
+            (pocket_pos["entity"], pocket_pos["copy"])
+        ):
+            raise ValueError("Pockets can not be the same chain with the binder")
+        return pocket_pos
+
+    def get_constraint_feature_dict(self, token_array, atom_array, atom_to_token_idx):
+        constraint_dict = {}
+        ## parse contact field
+        contact_specifics = []
+        for i, pair in enumerate(
+            self.input_dict.get("constraint", {}).get("contact", [])
+        ):
+            pair = self._canonicalize_contact_format(pair)
+            if pair is None:
+                logger.info("try to parse contact in old-style format")
+                pair = self._canonicalize_contact_format_old(pair)
+
+            atom_mask1 = SampleDictToFeatures.get_atomarray_mask(
+                atom_array=atom_array,
+                entity_id=pair["entity1"],
+                copy_id=pair["copy1"],
+                position=pair["position1"],
+                atom_name=pair["atom1"],
+            )
+            atom_mask2 = SampleDictToFeatures.get_atomarray_mask(
+                atom_array=atom_array,
+                entity_id=pair["entity2"],
+                copy_id=pair["copy2"],
+                position=pair["position2"],
+                atom_name=pair["atom2"],
+            )
+            token_list_1 = atom_to_token_idx[atom_mask1]
+            token_list_2 = atom_to_token_idx[atom_mask2]
+            if token_list_1.numel() == 0 or token_list_2.numel() == 0:
+                logger.info(f"Contact {i} not found for the input")
+                continue
+
+            contact_specifics.append((token_list_1, token_list_2, pair["max_distance"]))
+        contact_featurizer = ContactFeaturizer(
+            token_array=token_array, atom_array=atom_array
+        )
+        constraint_dict["contact"] = contact_featurizer.generate_spec_constraint(
+            contact_specifics, feature_type="continuous"
+        )
+
+        logger.info(f"Loaded constraint feature: #contact:{len(contact_specifics)}")
+
+        # TODO remove debug logging
+        if constraint_dict["contact"] is not None:
+            ## logging contact feature
+            token_idx_1, token_idx_2 = torch.nonzero(
+                torch.triu(constraint_dict["contact"][..., 1]), as_tuple=True
+            )
+            # asym_id_1 = features_dict["asym_id"][token_idx_1]
+            # asym_id_2 = features_dict["asym_id"][token_idx_2]
+
+            atom1_index = token_array[token_idx_1].get_annotation("centre_atom_index")
+            atom2_index = token_array[token_idx_2].get_annotation("centre_atom_index")
+
+            res_id_1 = atom_array.res_id[atom1_index]
+            res_id_2 = atom_array.res_id[atom2_index]
+
+            res_name_1 = atom_array.res_name[atom1_index]
+            res_name_2 = atom_array.res_name[atom2_index]
+
+            atom_name_1 = atom_array.atom_name[atom1_index]
+            atom_name_2 = atom_array.atom_name[atom2_index]
+
+            chain_id_1 = atom_array.chain_id[atom1_index]
+            chain_id_2 = atom_array.chain_id[atom2_index]
+
+            distance = constraint_dict["contact"][token_idx_1, token_idx_2, 1]
+
+            contact_info = {
+                "chain_id": np.stack([chain_id_1, chain_id_2]).T.tolist(),
+                "res_name": np.stack([res_name_1, res_name_2]).T.tolist(),
+                "atom_name": np.stack([atom_name_1, atom_name_2]).T.tolist(),
+                "distance": distance.numpy(),
+            }
+            logger.info(f"loaded contact info:{contact_info}")
+
+        return constraint_dict

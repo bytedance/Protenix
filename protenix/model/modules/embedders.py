@@ -32,6 +32,7 @@ class InputFeatureEmbedder(nn.Module):
         c_atom: int = 128,
         c_atompair: int = 16,
         c_token: int = 384,
+        esm_configs: dict = {},
     ) -> None:
         """
         Args:
@@ -50,6 +51,17 @@ class InputFeatureEmbedder(nn.Module):
             has_coords=False,
         )
         # Line2
+        self.esm_configs = {
+            "enable": esm_configs.get("enable", True),
+            "model_name": esm_configs.get("model_name", "esm2-3b"),
+            "embedding_dim": esm_configs.get("embedding_dim", 2560),
+        }
+        if self.esm_configs["enable"]:
+            self.linear_esm = LinearNoBias(
+                self.esm_configs["embedding_dim"],
+                self.c_token + 32 + 32 + 1,
+            )
+            nn.init.zeros_(self.linear_esm.weight)
         self.input_feature = {"restype": 32, "profile": 32, "deletion_mean": 1}
 
     def forward(
@@ -84,6 +96,9 @@ class InputFeatureEmbedder(nn.Module):
             ],
             dim=-1,
         )
+        if self.esm_configs["enable"]:
+            esm_embeddings = self.linear_esm(input_feature_dict["esm_token_embedding"])
+            s_inputs = s_inputs + esm_embeddings
         return s_inputs
 
 
@@ -254,3 +269,64 @@ class FourierEmbedding(nn.Module):
         return torch.cos(
             input=2 * torch.pi * (t_hat_noise_level.unsqueeze(dim=-1) * self.w + self.b)
         )
+
+
+class ConstraintEmbedder(nn.Module):
+    """
+    Implements Constraint Embedder
+    """
+
+    def __init__(
+        self,
+        pocket_embedder: dict[str:int],
+        contact_embedder: dict[str:int],
+        c_s,
+        c_z,
+        initialize_method: str = "kaiming",
+    ) -> None:
+        """
+
+        Args:
+
+        """
+        super(ConstraintEmbedder, self).__init__()
+
+        # contact embedder
+        self.contact_embedder = LinearNoBias(
+            in_features=contact_embedder.get("c_z_input", 2), out_features=c_z
+        )
+
+        # pocket embedder. Not used by now, coming soon
+        self.is_pocket_s_embedder = LinearNoBias(
+            in_features=pocket_embedder.get("c_s_input", 1),
+            out_features=c_s,
+        )
+        self.is_pocket_z_embedder = LinearNoBias(
+            in_features=pocket_embedder.get("c_z_input", 1),
+            out_features=c_z,
+        )
+
+        if initialize_method == "zero":
+            nn.init.zeros_(self.is_pocket_s_embedder.weight)
+            nn.init.zeros_(self.is_pocket_z_embedder.weight)
+            nn.init.zeros_(self.contact_embedder.weight)
+
+    def forward(
+        self,
+        constraint_feature_dict: dict[str, Union[torch.Tensor, int, float, dict]],
+    ) -> torch.Tensor:
+        """
+
+        Args:
+            constraint_feature_dict (dict[str, Union[torch.Tensor, int, float, dict]]): dict of input features
+
+        Returns:
+            torch.Tensor: token embedding
+                [..., N_token, c_s]
+            torch.Tensor: token-pair embedding
+                [..., N_token, N_token, c_s]
+        """
+        s_constraint, z_constraint = None, None
+
+        z_constraint = self.contact_embedder(constraint_feature_dict["contact"])
+        return s_constraint, z_constraint

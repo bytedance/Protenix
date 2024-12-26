@@ -1742,6 +1742,9 @@ class ProtenixLoss(nn.Module):
         with torch.no_grad():
             label_dict = self.calculate_label(feat_dict, label_dict)
 
+        for k in ["coordinate", "coordinate_mini"]:
+            if k in pred_dict:
+                pred_dict[k] = pred_dict[k].to(torch.float32)
         pred_dict = self.calculate_prediction(pred_dict)
 
         if diffusion_chunk_size <= 0:
