@@ -169,7 +169,9 @@ class SampleDictToFeatures:
             bond_atoms = []
             for idx, i in enumerate(["left", "right"]):
                 entity_id = int(
-                    bond_info_dict.get(f"{i}_entity", bond_info_dict[f"entity{idx+1}"])
+                    bond_info_dict.get(
+                        f"{i}_entity", bond_info_dict.get(f"entity{idx+1}")
+                    )
                 )
                 copy_id = int(
                     bond_info_dict.get(f"{i}_copy", bond_info_dict.get(f"copy{idx+1}"))
@@ -206,8 +208,8 @@ class SampleDictToFeatures:
                 bond_atoms.append(atom_indices)
             assert len(bond_atoms[0]) == len(bond_atoms[1]), (
                 'Can not create bonds because the "count" of entity1 '
-                f'({bond_info_dict.get("left_entity", bond_info_dict["entity1"])}) '
-                f'and entity2 ({bond_info_dict.get("right_entity", bond_info_dict["entity2"])}) are not equal. '
+                f'({bond_info_dict.get("left_entity", bond_info_dict.get("entity1"))}) '
+                f'and entity2 ({bond_info_dict.get("right_entity", bond_info_dict.get("entity2"))}) are not equal. '
             )
 
             # Create bond between each asym chain pair
