@@ -156,7 +156,7 @@ class DataDumper:
         N_sample = pred_coordinates.shape[0]
         if sorted_indices is None:
             sorted_indices = range(N_sample)  # do not rank the output file
-        for rank, idx in enumerate(sorted_indices):
+        for idx, rank in enumerate(sorted_indices):
             output_fpath = os.path.join(
                 prediction_save_dir,
                 f"{sample_name}_seed_{seed}_sample_{rank}.cif",
@@ -175,13 +175,18 @@ class DataDumper:
 
     def _get_ranker_indices(self, data: dict, sorted_by_ranking_score: bool = True):
         N_sample = len(data["summary_confidence"])
-        sorted_indices = range(N_sample)
         if sorted_by_ranking_score:
-            sorted_indices = sorted(
-                range(N_sample),
-                key=lambda i: data["summary_confidence"][i]["ranking_score"],
-                reverse=True,
+            value = torch.tensor(
+                [
+                    data["summary_confidence"][i]["ranking_score"]
+                    for i in range(N_sample)
+                ]
             )
+            sorted_indices = [
+                i for i in torch.argsort(torch.argsort(value, descending=True))
+            ]
+        else:
+            sorted_indices = [i for i in range(N_sample)]
         return sorted_indices
 
     def _save_confidence(
@@ -200,7 +205,7 @@ class DataDumper:
                 )
         if sorted_indices is None:
             sorted_indices = range(N_sample)
-        for rank, idx in enumerate(sorted_indices):
+        for idx, rank in enumerate(sorted_indices):
             output_fpath = os.path.join(
                 prediction_save_dir,
                 f"{sample_name}_seed_{seed}_summary_confidence_sample_{rank}.json",
