@@ -187,14 +187,14 @@ the DNA chemical modifications:
 ```json
 "covalent_bonds": [
             {
-                "left_entity": "2",
-                "left_copy": 1,
-                "left_position": "2",
-                "left_atom": "N6",
-                "right_entity": "3",
-                "right_copy": 1,
-                "right_position": "1",
-                "right_atom": "C1"
+                "entity1": "2",
+                "copy1": 1,
+                "position1": "2",
+                "atom1": "N6",
+                "entity2": "3",
+                "copy2": 1,
+                "position2": "1",
+                "atom2": "C1"
             }
 ]
 ```
@@ -202,18 +202,20 @@ the DNA chemical modifications:
 The `covalent_bonds` section specifies covalent bonds between a polymer and a ligand, or between two ligands.
 To define a covalent bond, two atoms involved in the bond must be identified. The following fields are used:
 
-* `left_entity`, `right_entity`: The entity numbers for the two atoms involved in the bond. 
+* `entity1`, `entity2`: The entity numbers for the two atoms involved in the bond. 
 The entity number corresponds to the order in which the entity appears in the `sequences` list, starting from 1.
-* `left_copy`, `right_copy`: The copy index (starting from 1) of the `left_entity` and `right_entity`, respectively. These fields are optional, but if specified, both `left_copy` and `right_copy` must be filled simultaneously or left empty at the same time. If neither field is provided, a bond will be created between all pairs of copies of the two entities. For example, if both entity1 and entity2 have two copies, a bond will be formed between entity1.copy1 and entity2.copy1, as well as between entity1.copy2 and entity2.copy2. In this case, the number of copies for both entities must be equal.
-* `left_position`, `right_position` - The position of the residue (or ligand part) within the entity. 
+* `copy2`, `copy2`: The copy index (starting from 1) of the `left_entity` and `right_entity`, respectively. These fields are optional, but if specified, both `left_copy` and `right_copy` must be filled simultaneously or left empty at the same time. If neither field is provided, a bond will be created between all pairs of copies of the two entities. For example, if both entity1 and entity2 have two copies, a bond will be formed between entity1.copy1 and entity2.copy1, as well as between entity1.copy2 and entity2.copy2. In this case, the number of copies for both entities must be equal.
+* `position1`, `position2` - The position of the residue (or ligand part) within the entity. 
 The position value starts at 1 and can vary based on the type of entity:
   * For **polymers** (e.g., proteins, DNA, RNA), the position corresponds to the location of the residue in the sequence.
   * For **ligands** composed of multiple CCD codes, the position refers to the serial number of the CCD code.
   * For **single CCD code ligands**, or ligands defined by **SMILES** or **FILE**, the position is always set to 1.
     
-* `left_atom`, `right_atom` - The atom names (or atom indices) of the atoms to be bonded.
+* `atom1`, `atom2` - The atom names (or atom indices) of the atoms to be bonded.
   *  If the entity is a polymer or described by a CCD code, the atom names are consistent with those defined in the CCD.
   * If the entity is a ligand defined by SMILES or a FILE, atoms can be specified by their atom index. The atom index corresponds to the position of the atom in the file or in the SMILES string, starting from 0.
+
+Deprecation Notice: The previous fields such as old `left_entity`, `right_entity`, and other fields starting with `left`/`right` have been updated to use `1` and `2` to denote the two atoms forming a bond. The current code still supports the old field names, but they may be deprecated in the future, leaving only the new field names.
 
 ### Format of the model output
 The outputs will be saved in the directory provided via the `--dump_dir` flag in the inference script. The outputs include the predicted structures in CIF format and the confidence in JSON files. The `--dump_dir` will have the following structure:

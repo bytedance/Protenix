@@ -167,11 +167,23 @@ class SampleDictToFeatures:
         bond_count = {}
         for bond_info_dict in self.input_dict["covalent_bonds"]:
             bond_atoms = []
-            for i in ["left", "right"]:
-                entity_id = int(bond_info_dict[f"{i}_entity"])
-                copy_id = int(bond_info_dict.get(f"{i}_copy"))
-                position = int(bond_info_dict[f"{i}_position"])
-                atom_name = bond_info_dict[f"{i}_atom"]
+            for idx, i in enumerate(["left", "right"]):
+                entity_id = int(
+                    bond_info_dict.get(
+                        f"{i}_entity", bond_info_dict.get(f"entity{idx+1}")
+                    )
+                )
+                copy_id = int(
+                    bond_info_dict.get(f"{i}_copy", bond_info_dict.get(f"copy{idx+1}"))
+                )
+                position = int(
+                    bond_info_dict.get(
+                        f"{i}_position", bond_info_dict.get(f"position{idx+1}")
+                    )
+                )
+                atom_name = bond_info_dict.get(
+                    f"{i}_atom", bond_info_dict.get(f"atom{idx+1}")
+                )
 
                 if isinstance(atom_name, str):
                     if atom_name.isdigit():
@@ -194,11 +206,11 @@ class SampleDictToFeatures:
                     atom_indices.size > 0
                 ), f"No atom found for {atom_name} in entity {entity_id} at position {position}."
                 bond_atoms.append(atom_indices)
-
-            assert len(bond_atoms[0]) == len(
-                bond_atoms[1]
-            ), f'Can not create bonds because the "count" of entity {bond_info_dict["left_entity"]} \
-                and {bond_info_dict["right_entity"]} are not equal. '
+            assert len(bond_atoms[0]) == len(bond_atoms[1]), (
+                'Can not create bonds because the "count" of entity1 '
+                f'({bond_info_dict.get("left_entity", bond_info_dict.get("entity1"))}) '
+                f'and entity2 ({bond_info_dict.get("right_entity", bond_info_dict.get("entity2"))}) are not equal. '
+            )
 
             # Create bond between each asym chain pair
             for atom_idx1, atom_idx2 in zip(bond_atoms[0], bond_atoms[1]):

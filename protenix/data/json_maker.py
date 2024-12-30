@@ -46,12 +46,12 @@ def merge_covalent_bonds(
     for bond_dict in covalent_bonds:
         bond_unique_string = []
         entity_counts = (
-            all_entity_counts[str(bond_dict["left_entity"])],
-            all_entity_counts[str(bond_dict["right_entity"])],
+            all_entity_counts[str(bond_dict["entity1"])],
+            all_entity_counts[str(bond_dict["entity2"])],
         )
-        for i in ["left", "right"]:
+        for i in range(2):
             for j in ["entity", "position", "atom"]:
-                k = f"{i}_{j}"
+                k = f"{j}{i+1}"
                 bond_unique_string.append(str(bond_dict[k]))
         bond_unique_string = "_".join(bond_unique_string)
         bonds_recorder[bond_unique_string].append(bond_dict)
@@ -59,12 +59,12 @@ def merge_covalent_bonds(
 
     merged_covalent_bonds = []
     for k, v in bonds_recorder.items():
-        left_counts = bonds_entity_counts[k][0]
-        right_counts = bonds_entity_counts[k][1]
-        if left_counts == right_counts == len(v):
+        counts1 = bonds_entity_counts[k][0]
+        counts2 = bonds_entity_counts[k][1]
+        if counts1 == counts2 == len(v):
             bond_dict_copy = copy.deepcopy(v[0])
-            del bond_dict_copy["left_copy"]
-            del bond_dict_copy["right_copy"]
+            del bond_dict_copy["copy1"]
+            del bond_dict_copy["copy2"]
             merged_covalent_bonds.append(bond_dict_copy)
         else:
             merged_covalent_bonds.extend(v)
@@ -217,15 +217,15 @@ def atom_array_to_input_json(
         covalent_bonds = []
         for atoms in inter_entity_bonds[:, :2]:
             bond_dict = {}
-            for idx, i in enumerate(["left", "right"]):
-                atom = atom_array[atoms[idx]]
+            for i in range(2):
+                atom = atom_array[atoms[i]]
                 positon = atom.res_id
-                bond_dict[f"{i}_entity"] = int(
+                bond_dict[f"entity{i+1}"] = int(
                     label_entity_id_to_entity_id_in_json[atom.label_entity_id]
                 )
-                bond_dict[f"{i}_position"] = int(positon)
-                bond_dict[f"{i}_atom"] = atom.atom_name
-                bond_dict[f"{i}_copy"] = int(atom.copy_id)
+                bond_dict[f"position{i+1}"] = int(positon)
+                bond_dict[f"atom{i+1}"] = atom.atom_name
+                bond_dict[f"copy{i+1}"] = int(atom.copy_id)
 
             covalent_bonds.append(bond_dict)
 
@@ -299,8 +299,15 @@ def cif_to_input_json(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cif_file", type=str, required=True, help="The cif file to parse")
-    parser.add_argument("--json_file", type=str, required=False, default=None, help="The json file path to generate")
+    parser.add_argument(
+        "--cif_file", type=str, required=True, help="The cif file to parse"
+    )
+    parser.add_argument(
+        "--json_file",
+        type=str,
+        required=False,
+        default=None,
+        help="The json file path to generate",
+    )
     args = parser.parse_args()
     print(cif_to_input_json(args.cif_file, output_json=args.json_file))
-
