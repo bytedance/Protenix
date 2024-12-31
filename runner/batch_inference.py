@@ -215,9 +215,7 @@ def inference_jsons(
     for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
         try:
             if use_msa_server:
-                infer_json = msa_search_update(
-                    infer_json, os.path.join(out_dir, f"msa_res_{idx}")
-                )
+                infer_json = msa_search_update(infer_json, out_dir)
             elif not contain_msa_res(infer_json):
                 raise RuntimeError(f"can not find msa for {infer_json}")
             configs["input_json_path"] = infer_json
@@ -395,8 +393,6 @@ def msa(input, out_dir) -> Union[str, dict]:
     :return:
     """
     init_logging()
-    out_dir = os.path.join(out_dir, uuid.uuid4().hex)
-    os.makedirs(out_dir, exist_ok=True)
     logger.info(f"run msa with input={input}, out_dir={out_dir}")
     if input.endswith(".json"):
         msa_input_json = msa_search_update(input, out_dir)
