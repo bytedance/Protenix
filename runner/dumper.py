@@ -44,9 +44,15 @@ def get_clean_full_confidence(full_confidence_dict: dict) -> dict:
 
 
 class DataDumper:
-    def __init__(self, base_dir, need_atom_confidence: bool = False):
+    def __init__(
+        self,
+        base_dir,
+        need_atom_confidence: bool = False,
+        sorted_by_ranking_score: bool = True,
+    ) -> None:
         self.base_dir = base_dir
         self.need_atom_confidence = need_atom_confidence
+        self.sorted_by_ranking_score = sorted_by_ranking_score
 
     def dump(
         self,
@@ -173,9 +179,9 @@ class DataDumper:
                 pdb_id=sample_name,
             )
 
-    def _get_ranker_indices(self, data: dict, sorted_by_ranking_score: bool = True):
+    def _get_ranker_indices(self, data: dict):
         N_sample = len(data["summary_confidence"])
-        if sorted_by_ranking_score:
+        if self.sorted_by_ranking_score:
             value = torch.tensor(
                 [
                     data["summary_confidence"][i]["ranking_score"]

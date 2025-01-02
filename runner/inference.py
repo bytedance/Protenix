@@ -47,7 +47,10 @@ class InferenceRunner(object):
         self.init_basics()
         self.init_model()
         self.load_checkpoint()
-        self.init_dumper(need_atom_confidence=configs.need_atom_confidence)
+        self.init_dumper(
+            need_atom_confidence=configs.need_atom_confidence,
+            sorted_by_ranking_score=configs.sorted_by_ranking_score,
+        )
 
     def init_env(self) -> None:
         self.print(
@@ -117,9 +120,13 @@ class InferenceRunner(object):
         self.model.eval()
         self.print(f"Finish loading checkpoint.")
 
-    def init_dumper(self, need_atom_confidence: bool = False):
+    def init_dumper(
+        self, need_atom_confidence: bool = False, sorted_by_ranking_score: bool = True
+    ):
         self.dumper = DataDumper(
-            base_dir=self.dump_dir, need_atom_confidence=need_atom_confidence
+            base_dir=self.dump_dir,
+            need_atom_confidence=need_atom_confidence,
+            sorted_by_ranking_score=sorted_by_ranking_score,
         )
 
     # Adapted from runner.train.Trainer.evaluate
@@ -228,7 +235,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
 
     num_data = len(dataloader.dataset)
     for seed in configs.seeds:
-        seed_everything(seed=seed, deterministic=False)
+        seed_everything(seed=seed, deterministic=configs.deterministic)
         for batch in dataloader:
             try:
                 data, atom_array, data_error_message = batch[0]

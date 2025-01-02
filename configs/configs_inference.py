@@ -26,6 +26,7 @@ inference_configs = {
     "seeds": ListValue([101]),
     "dump_dir": "./output",
     "need_atom_confidence": False,
+    "sorted_by_ranking_score": True,
     "input_json_path": RequiredValue(str),
     "load_checkpoint_path": os.path.join(
         code_directory, "./release_data/checkpoint/model_v0.2.0.pt"
