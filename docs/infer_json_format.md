@@ -13,17 +13,21 @@ Here is an overview of the JSON file format:
   {
     "name": "Test Fold Job Number One",
     "sequences": [...],
-    "covalent_bonds": [...]
+    "covalent_bonds": [...],
+    "constraint":{
+      "contact":[...]
+    }
   }
 ]
 ```
 The JSON file consists of a list of dictionaries, where each dictionary represents a set of sequences you want to model. 
 Even if you are modeling only one set of sequences, the top-level structure should still be a list.
 
-Each dictionary contains the following three keys:
+Each dictionary contains the following four keys:
 * `name`: A string representing the name of the inference job.
 * `sequences`: A list of dictionaries that describe the entities (e.g., proteins, DNA, RNA, small molecules, and ions) involved in the inference.
 * `covalent_bonds`: An optional list of dictionaries that define the covalent bonds between atoms from different entities.
+* `constraint`: An optional directory for providing constraints to enable additional specified structural information
 
 Details of `sequences` and `covalent_bonds` are provided below.
 
@@ -155,7 +159,6 @@ the DNA chemical modifications:
   * A string containing the CCD code of the ligand, prefixed with "CCD_". For glycans or similar structures, this can be a concatenation of multiple CCD codes, for example, "CCD_NAG_BMA_BGC".
   * A molecular SMILES string representing the ligand.
   * A path to a molecular structure file, prefixed with "FILE_", where the supported file formats are PDB, SDF, MOL, and MOL2. The file must include the 3D conformation of the molecule.
-
 * `count` is the number of copies of this ligand (integer).
 
 ##### ion
@@ -194,10 +197,9 @@ the DNA chemical modifications:
 
 The `covalent_bonds` section specifies covalent bonds between a polymer and a ligand, or between two ligands.
 To define a covalent bond, two atoms involved in the bond must be identified. The following fields are used:
-
 * `entity1`, `entity2`: The entity numbers for the two atoms involved in the bond. 
 The entity number corresponds to the order in which the entity appears in the `sequences` list, starting from 1.
-* `copy2`, `copy2`: The copy index (starting from 1) of the `left_entity` and `right_entity`, respectively. These fields are optional, but if specified, both `left_copy` and `right_copy` must be filled simultaneously or left empty at the same time. If neither field is provided, a bond will be created between all pairs of copies of the two entities. For example, if both entity1 and entity2 have two copies, a bond will be formed between entity1.copy1 and entity2.copy1, as well as between entity1.copy2 and entity2.copy2. In this case, the number of copies for both entities must be equal.
+* `copy2`, `copy2`: The copy index (starting from 1) of the `entity1` and `entity2`, respectively. These fields are optional, but if specified, both `copy1` and `copy2` must be filled simultaneously or left empty at the same time. If neither field is provided, a bond will be created between all pairs of copies of the two entities. For example, if both entity1 and entity2 have two copies, a bond will be formed between entity1.copy1 and entity2.copy1, as well as between entity1.copy2 and entity2.copy2. In this case, the number of copies for both entities must be equal.
 * `position1`, `position2` - The position of the residue (or ligand part) within the entity. 
 The position value starts at 1 and can vary based on the type of entity:
   * For **polymers** (e.g., proteins, DNA, RNA), the position corresponds to the location of the residue in the sequence.
@@ -209,6 +211,39 @@ The position value starts at 1 and can vary based on the type of entity:
   * If the entity is a ligand defined by SMILES or a FILE, atoms can be specified by their atom index. The atom index corresponds to the position of the atom in the file or in the SMILES string, starting from 0.
 
 Deprecation Notice: The previous fields such as old `left_entity`, `right_entity`, and other fields starting with `left`/`right` have been updated to use `1` and `2` to denote the two atoms forming a bond. The current code still supports the old field names, but they may be deprecated in the future, leaving only the new field names.
+
+#### constraint
+The `constraint` section specifies additional structural information to enable inter-chain guidance for Protenix. Currently, the `contact` constraint is supported, which allows you to specify residue-residue (or residue-atom) level distance prior information.
+
+```json
+"contact": [
+            {
+                "entity1": "2",
+                "copy1": 1,
+                "position1": "2",
+                "atom1": "N6",    //optional
+                "entity2": "3",
+                "copy2": 1,
+                "position2": "1",
+                "atom2": "C1",    //optional
+                "max_distance": 8
+            }
+]
+```
+
+Similar to the `covalent_bonds` mentioned above, the `contact` constraint consists of at least six fields to identify a structural relation. The details of these fields are defined as follows:
+
+* `entity1`, `entity2`: **[Required]** The entity numbers for the two atoms involved in the contact. (Same as `covalent_bonds`)
+
+* `copy2`, `copy2`:  **[Required]** The copy index (starting from 1) of `entity1` and `entity2`, respectively. (Same as `covalent_bonds`) 
+
+* `position1`, `position2`: **[Required]** The position of the residue (or ligand part) within the entity. (Same as `covalent_bonds`) 
+
+* `atom1`, `atom2`: **[Optional]** The atom names (or atom indices) of the atoms to be bonded. (Same as `covalent_bonds`). This field is only applicable when the corresponding entity is a ligand and will be ignored for other entity types.
+
+* `max_distance`: **[Required]** The upper bound distance of the contact as expected by the user. Notably, this is not a hard constraint; the model may predict a structure that does not satisfy the distance.
+
+Protenix is trained on protein-protein interfaces and protein-ligand interfaces. Other types of interfaces are not supported. Although you can draft a JSON specifying constraints for DNA-protein interfaces or ligand-ligand interfaces, the behavior is not guaranteed.
 
 ### Format of the model output
 The outputs will be saved in the directory provided via the `--dump_dir` flag in the inference script. The outputs include the predicted structures in CIF format and the confidence in JSON files. The `--dump_dir` will have the following structure:

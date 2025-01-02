@@ -363,23 +363,36 @@ class SampleDictToFeatures:
 
     def _canonicalize_contact_format(self, contact_pair):
         _key_list = [
-            "left_entity",
-            "left_copy",
-            "left_position",
-            "left_atom",
-            "right_entity",
-            "right_copy",
-            "right_position",
-            "right_atom",
+            "entity1",
+            "copy1",
+            "position1",
+            "atom1",
+            "entity2",
+            "copy2",
+            "position2",
+            "atom2",
             "max_distance",
         ]
         pair = {k: contact_pair.get(k, None) for k in _key_list}
-        for key_ in ["left_", "right_"]:
-            atom_key = f"{key_}atom"
-            entity_id = pair[f"{key_}entity"]
-            if isinstance(pair[atom_key], str):
-                if pair[atom_key].isdigit():
-                    pair[atom_key] = int(pair[atom_key])
+        if all([pair[k] is None for k in ["entity1", "entity2"]]):
+            _key_list_old = [
+                "left_entity",
+                "left_copy",
+                "left_position",
+                "left_atom",
+                "right_entity",
+                "right_copy",
+                "right_position",
+                "right_atom",
+                "max_distance",
+            ]
+            pair = {
+                k: contact_pair.get(ko, None) for k, ko in zip(_key_list, _key_list_old)
+            }
+
+        for suffix in ["1", "2"]:
+            atom_key = f"atom{suffix}"
+            entity_id = pair[f"entity{suffix}"]
             if isinstance(pair[atom_key], int):
                 entity_dict = list(
                     self.input_dict["sequences"][int(entity_id - 1)].values()
@@ -387,8 +400,8 @@ class SampleDictToFeatures:
                 assert "atom_map_to_atom_name" in entity_dict
                 pair[atom_key] = entity_dict["atom_map_to_atom_name"][pair[atom_key]]
 
-        if hash((pair["left_entity"], pair["left_copy"])) == hash(
-            (pair["right_entity"], pair["right_copy"])
+        if hash((pair["entity1"], pair["copy1"])) == hash(
+            (pair["entity2"], pair["copy2"])
         ):
             raise ValueError("A contact pair can not be specified on the same chain")
 
@@ -412,20 +425,23 @@ class SampleDictToFeatures:
             self.input_dict.get("constraint", {}).get("contact", [])
         ):
             pair = self._canonicalize_contact_format(pair)
+            if pair is None:
+                logger.info("try to parse contact in old-style format")
+                pair = self._canonicalize_contact_format_old(pair)
 
             atom_mask1 = SampleDictToFeatures.get_atomarray_mask(
                 atom_array=atom_array,
-                entity_id=pair["left_entity"],
-                copy_id=pair["left_copy"],
-                position=pair["left_position"],
-                atom_name=pair["left_atom"],
+                entity_id=pair["entity1"],
+                copy_id=pair["copy1"],
+                position=pair["position1"],
+                atom_name=pair["atom1"],
             )
             atom_mask2 = SampleDictToFeatures.get_atomarray_mask(
                 atom_array=atom_array,
-                entity_id=pair["right_entity"],
-                copy_id=pair["right_copy"],
-                position=pair["right_position"],
-                atom_name=pair["right_atom"],
+                entity_id=pair["entity2"],
+                copy_id=pair["copy2"],
+                position=pair["position2"],
+                atom_name=pair["atom2"],
             )
             token_list_1 = atom_to_token_idx[atom_mask1]
             token_list_2 = atom_to_token_idx[atom_mask2]
