@@ -173,8 +173,8 @@ class SampleDictToFeatures:
                         f"{i}_entity", bond_info_dict.get(f"entity{idx+1}")
                     )
                 )
-                copy_id = int(
-                    bond_info_dict.get(f"{i}_copy", bond_info_dict.get(f"copy{idx+1}"))
+                copy_id = bond_info_dict.get(
+                    f"{i}_copy", bond_info_dict.get(f"copy{idx+1}")
                 )
                 position = int(
                     bond_info_dict.get(
@@ -184,6 +184,9 @@ class SampleDictToFeatures:
                 atom_name = bond_info_dict.get(
                     f"{i}_atom", bond_info_dict.get(f"atom{idx+1}")
                 )
+
+                if copy_id is not None:
+                    copy_id = int(copy_id)
 
                 if isinstance(atom_name, str):
                     if atom_name.isdigit():
