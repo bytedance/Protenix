@@ -501,6 +501,11 @@ def smiles_to_atom_info(smiles: str) -> dict:
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
     ret_code = AllChem.EmbedMolecule(mol)
+
+    if ret_code != 0:
+        # retry with random coords
+        ret_code = AllChem.EmbedMolecule(mol, useRandomCoords=True)
+
     assert ret_code == 0, f"Conformer generation failed for input SMILES: {smiles}"
     atom_info = rdkit_mol_to_atom_info(mol)
     return atom_info
