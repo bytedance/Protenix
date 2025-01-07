@@ -23,10 +23,11 @@ from typing import Any, Mapping
 
 import torch
 import torch.distributed as dist
-
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
+from runner.dumper import DataDumper
+
 from protenix.config import parse_configs, parse_sys_args
 from protenix.data.infer_data_pipeline import get_inference_dataloader
 from protenix.model.protenix import Protenix
@@ -34,8 +35,6 @@ from protenix.utils.distributed import DIST_WRAPPER
 from protenix.utils.seed import seed_everything
 from protenix.utils.torch_utils import to_device
 from protenix.web_service.dependency_url import URL
-from runner.dumper import DataDumper
-from runner.msa_search import contain_msa_res, msa_search_update
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +114,7 @@ class InferenceRunner(object):
             }
         self.model.load_state_dict(
             state_dict=checkpoint["model"],
-            strict=True,
+            strict=self.configs.load_strict,
         )
         self.model.eval()
         self.print(f"Finish loading checkpoint.")
@@ -218,17 +217,6 @@ def update_inference_configs(configs: Any, N_token: int):
 
 
 def infer_predict(runner: InferenceRunner, configs: Any) -> None:
-    # update msa result if not contains precomputed msa dir
-    if not contain_msa_res(configs.input_json_path):
-        logger.info(
-            f"{configs.input_json_path} dose not contain precomputed msa dir, now searching it."
-        )
-        configs.input_json_path = msa_search_update(
-            configs.input_json_path, configs.dump_dir
-        )
-        logger.info(
-            f"msa searching completed, new input json is {configs.input_json_path}"
-        )
     # Data
     logger.info(f"Loading data from\n{configs.input_json_path}")
     dataloader = get_inference_dataloader(configs=configs)

@@ -28,7 +28,7 @@ from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
 from rdkit import Chem
 from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
-from runner.msa_search import contain_msa_res, msa_search, msa_search_update
+from runner.msa_search import msa_search, update_infer_json
 
 from protenix.config import parse_configs
 from protenix.data.json_maker import cif_to_input_json
@@ -214,15 +214,9 @@ def inference_jsons(
     configs = runner.configs
     for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
         try:
-            if use_msa_server:
-                infer_json = msa_search_update(infer_json, out_dir)
-            elif not contain_msa_res(infer_json):
-                raise RuntimeError(f"can not find msa for {infer_json}")
-            configs["input_json_path"] = infer_json
-            if not contain_msa_res(infer_json):
-                raise RuntimeError(
-                    f"`{infer_json}` has no msa result for `proteinChain`, please add first."
-                )
+            configs["input_json_path"] = update_infer_json(
+                infer_json, out_dir=out_dir, use_msa_server=use_msa_server
+            )
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
@@ -263,11 +257,7 @@ def batch_inference(
     configs = runner.configs
     for infer_json in tqdm.tqdm(infer_jsons):
         try:
-            configs["input_json_path"] = infer_json
-            if not contain_msa_res(infer_json):
-                raise RuntimeError(
-                    f"`{infer_json}` has no msa result for `proteinChain`, please add first."
-                )
+            configs["input_json_path"] = update_infer_json(infer_json, out_dir)
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
@@ -395,7 +385,7 @@ def msa(input, out_dir) -> Union[str, dict]:
     init_logging()
     logger.info(f"run msa with input={input}, out_dir={out_dir}")
     if input.endswith(".json"):
-        msa_input_json = msa_search_update(input, out_dir)
+        msa_input_json = update_infer_json(input, out_dir, use_msa_server=True)
         logger.info(f"msa results have been update to {msa_input_json}")
         return msa_input_json
     elif input.endswith(".fasta"):
