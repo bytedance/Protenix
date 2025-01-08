@@ -16,7 +16,7 @@ import math
 import warnings
 
 import torch
-from torch.optim.lr_scheduler import LRScheduler
+from torch.optim.lr_scheduler import ConstantLR, LRScheduler
 
 
 class CosineAnnealingWithWarmup(LRScheduler):
@@ -144,3 +144,46 @@ def get_lr_scheduler(
     else:
         raise ValueError(f"Invalid lr scheduler: [{configs.lr_scheduler}]")
     return lr_scheduler
+
+
+class ConstantLRScheduler(ConstantLR):
+    def __init__(self, optimizer, lr, last_epoch=-1, verbose=False):
+        self.lr = lr
+        super(ConstantLRScheduler, self).__init__(
+            optimizer, factor=1.0, last_epoch=last_epoch, verbose=verbose
+        )
+
+    def _get_step_lr(self, step):
+        return self.lr
+
+
+class FinetuneLRScheduler(LRScheduler):
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        base_lr_config,
+        finetune_lr_config,
+        last_epoch: int = -1,
+        verbose: bool = False,
+    ) -> None:
+
+        self.lr_scheduler = get_lr_scheduler(base_lr_config, optimizer)
+        self.finetune_lr_scheduler = get_lr_scheduler(finetune_lr_config, optimizer)
+        super(FinetuneLRScheduler, self).__init__(
+            optimizer=optimizer, last_epoch=last_epoch, verbose=verbose
+        )
+
+    def _get_step_lr(self, step):
+        lr = self.lr_scheduler._get_step_lr(step)
+        ft_lr = self.finetune_lr_scheduler._get_step_lr(step)
+        # this order is same to the order in optimizer
+        return ft_lr, lr
+
+    def get_lr(self) -> list[float]:
+        if not self._get_lr_called_within_step:
+            warnings.warn(
+                "To get the last learning rate computed by the scheduler, "
+                "please use `get_last_lr()`.",
+                UserWarning,
+            )
+        return self._get_step_lr(self.last_epoch)
