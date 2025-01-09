@@ -32,6 +32,7 @@ class InputFeatureEmbedder(nn.Module):
         c_atom: int = 128,
         c_atompair: int = 16,
         c_token: int = 384,
+        esm_configs: dict = {},
     ) -> None:
         """
         Args:
@@ -50,6 +51,17 @@ class InputFeatureEmbedder(nn.Module):
             has_coords=False,
         )
         # Line2
+        self.esm_configs = {
+            "enable": esm_configs.get("enable", True),
+            "model_name": esm_configs.get("model_name", "esm2-3b"),
+            "embedding_dim": esm_configs.get("embedding_dim", 2560),
+        }
+        if self.esm_configs["enable"]:
+            self.linear_esm = LinearNoBias(
+                self.esm_configs["embedding_dim"],
+                self.c_token + 32 + 32 + 1,
+            )
+            nn.init.zeros_(self.linear_esm.weight)
         self.input_feature = {"restype": 32, "profile": 32, "deletion_mean": 1}
 
     def forward(
@@ -84,6 +96,9 @@ class InputFeatureEmbedder(nn.Module):
             ],
             dim=-1,
         )
+        if self.esm_configs["enable"]:
+            esm_embeddings = self.linear_esm(input_feature_dict["esm_token_embedding"])
+            s_inputs = s_inputs + esm_embeddings
         return s_inputs
 
 

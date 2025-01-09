@@ -140,6 +140,12 @@ data_configs = {
                 "mol_2_type": ListValue(["ions"]),
             },
         },
+        "esm_fusion_rate": {
+            "msa": 0.3,
+            "esm": 0.3,
+            "both": 0.3,
+            "neither": 0.1,
+        },
         **deepcopy(default_weighted_pdb_configs),
     },
     "recentPDB_1536_sample384_0925": {
@@ -207,6 +213,13 @@ data_configs = {
             "train": 2048,
             "test": 2048,
         },
+    },
+    "esm": {
+        "enable": True,
+        "model_name": "esm2-3b",
+        "embedding_dim": 2560,
+        "embedding_dir": "esm_cache/esm2_3b",
+        "sequence_fpath": "esm_cache/pdb_labels_seqs.csv",
     },
     "template": {
         "enable": False,

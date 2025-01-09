@@ -104,6 +104,17 @@ class AlphaFold3LRScheduler(LRScheduler):
         ]
 
 
+class ConstantLRScheduler(ConstantLR):
+    def __init__(self, optimizer, lr, last_epoch=-1, verbose=False):
+        self.lr = lr
+        super(ConstantLRScheduler, self).__init__(
+            optimizer, factor=1.0, last_epoch=last_epoch, verbose=verbose
+        )
+
+    def _get_step_lr(self, step):
+        return self.lr
+
+
 def get_lr_scheduler(
     configs, optimizer: torch.optim.Optimizer, **kwargs
 ) -> torch.optim.lr_scheduler.LRScheduler:
@@ -135,10 +146,9 @@ def get_lr_scheduler(
             **kwargs,
         )
     elif configs.lr_scheduler == "constant":
-        lr_scheduler = torch.optim.lr_scheduler.ConstantLR(
+        lr_scheduler = ConstantLRScheduler(
             optimizer,
-            factor=1.0,
-            total_iters=configs.max_steps,
+            lr=configs.lr,
             **kwargs,
         )
     else:
