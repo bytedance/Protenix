@@ -14,15 +14,13 @@
 
 import logging
 import os
-import random
 import tarfile
 import time
 from typing import List, Tuple
 
+import requests
 from requests.auth import HTTPBasicAuth
 from tqdm import tqdm
-
-import requests
 
 TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [elapsed: {elapsed} estimate remaining: {remaining}]"
 logger = logging.getLogger(__name__)
@@ -42,7 +40,7 @@ def run_mmseqs2_service(
     pairing_strategy="greedy",
     host_url="https://api.colabfold.com",
     user_agent: str = "",
-    email: str = ""
+    email: str = "",
 ) -> Tuple[List[str], List[str]]:
     submission_endpoint = "ticket/pair" if use_pairing else "ticket/msa"
 
