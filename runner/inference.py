@@ -29,6 +29,7 @@ from configs.configs_inference import inference_configs
 from runner.dumper import DataDumper
 
 from protenix.config import parse_configs, parse_sys_args
+from protenix.data.compute_esm import ESM_CONFIG
 from protenix.data.infer_data_pipeline import get_inference_dataloader
 from protenix.model.protenix import Protenix
 from protenix.utils.distributed import DIST_WRAPPER
@@ -94,6 +95,11 @@ class InferenceRunner(object):
         os.makedirs(self.dump_dir, exist_ok=True)
         os.makedirs(self.error_dir, exist_ok=True)
 
+        # esm related
+        esm_model = self.configs.data.esm.model_name
+        self.configs.data.esm.embedding_dim = ESM_CONFIG[esm_model]["emb_dim"]
+        self.configs.data.esm.embedding_dir = ESM_CONFIG[esm_model]["emb_dir"]
+
     def init_model(self) -> None:
         self.model = Protenix(self.configs).to(self.device)
 
@@ -101,9 +107,7 @@ class InferenceRunner(object):
         checkpoint_path = self.configs.load_checkpoint_path
         if not os.path.exists(checkpoint_path):
             raise Exception(f"Given checkpoint path not exist [{checkpoint_path}]")
-        self.print(
-            f"Loading from {checkpoint_path}, strict: {self.configs.load_strict}"
-        )
+        self.print(f"Loading from {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, self.device)
 
         sample_key = [k for k in checkpoint["model"].keys()][0]
