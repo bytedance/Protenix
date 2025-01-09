@@ -29,6 +29,7 @@ from torch.utils.data import Dataset
 
 from protenix.data.constants import EvaluationChainInterface
 from protenix.data.data_pipeline import DataPipeline
+from protenix.data.esm_featurizer import ESMFeaturizer
 from protenix.data.featurizer import Featurizer
 from protenix.data.msa_featurizer import MSAFeaturizer
 from protenix.data.tokenizer import TokenArray
@@ -55,6 +56,7 @@ class BaseSingleDataset(Dataset):
         indices_fpath: Union[str, Path],
         cropping_configs: dict[str, Any],
         msa_featurizer: Optional[MSAFeaturizer] = None,
+        esm_featurizer: Optional[ESMFeaturizer] = None,
         template_featurizer: Optional[Any] = None,
         name: str = None,
         **kwargs,
@@ -87,6 +89,9 @@ class BaseSingleDataset(Dataset):
         self.random_sample_if_failed = kwargs.get("random_sample_if_failed", False)
         self.use_reference_chains_only = kwargs.get("use_reference_chains_only", False)
         self.is_distillation = kwargs.get("is_distillation", False)
+        self.esm_fusion_rate = kwargs.get(
+            "esm_fusion_rate", {"msa": 1.0, "esm": 0.0, "both": 0.0, "neither": 0.0}
+        )
 
         # Configs for data filters
         self.max_n_token = kwargs.get("max_n_token", -1)
@@ -104,6 +109,7 @@ class BaseSingleDataset(Dataset):
             os.makedirs(self.error_dir, exist_ok=True)
 
         self.msa_featurizer = msa_featurizer
+        self.esm_featurizer = esm_featurizer
         self.template_featurizer = template_featurizer
 
         # Read data
@@ -480,15 +486,54 @@ class BaseSingleDataset(Dataset):
             **self.cropping_configs,
         )
 
+        # Randomly keep msa or esm features
+        assert np.isclose(sum(self.esm_fusion_rate.values()), 1.0, rtol=1e-9)
+        drop_msa, drop_esm = False, False
+        p = np.random.rand()
+        if p < self.esm_fusion_rate["msa"]:
+            # only keep msa
+            drop_esm = True
+        elif p < self.esm_fusion_rate["msa"] + self.esm_fusion_rate["esm"]:
+            # only keep esm
+            drop_msa = True
+        elif p > (
+            self.esm_fusion_rate["msa"]
+            + self.esm_fusion_rate["esm"]
+            + self.esm_fusion_rate["both"]
+        ):
+            # do not use msa and esm
+            drop_esm = True
+            drop_msa = True
+
         feat, label, label_full = self.get_feature_and_label(
             idx=idx,
             token_array=cropped_token_array,
             atom_array=cropped_atom_array,
-            msa_features=cropped_msa_features,
+            msa_features=cropped_msa_features if not drop_msa else {},
             template_features=cropped_template_features,
             full_atom_array=bioassembly_dict["atom_array"],
             is_spatial_crop="spatial" in crop_method.lower(),
         )
+
+        # ESM feature
+        if self.esm_featurizer is not None:
+            x_esm = self.esm_featurizer(
+                token_array=cropped_token_array,
+                atom_array=cropped_atom_array,
+                bioassembly_dict=bioassembly_dict,
+            )
+            if drop_esm:
+                feat["esm_token_embedding"] = torch.zeros_like(x_esm)
+            else:
+                feat["esm_token_embedding"] = x_esm
+        if drop_msa and not drop_esm:
+            feat["esm_fusion_mode"] = "esm"
+        elif not drop_msa and drop_esm:
+            feat["esm_fusion_mode"] = "msa"
+        elif (not drop_msa) and (not drop_esm):
+            feat["esm_fusion_mode"] = "both"
+        else:
+            feat["esm_fusion_mode"] = "neither"
 
         # Basic info, e.g. dimension related items
         basic_info = {
@@ -826,6 +871,30 @@ def get_msa_featurizer(configs, dataset_name: str, stage: str) -> Optional[Calla
         return None
 
 
+def get_esm_featurizer(configs, error_dir=None) -> Optional[Callable]:
+    """
+    Creates and returns an ESMFeaturizer object based on the provided configurations.
+
+    Args:
+        configs: A dictionary containing the configurations for the MSAFeaturizer.
+        dataset_name: The name of the dataset.
+        stage: The stage of the dataset (e.g., 'train', 'test').
+
+    Returns:
+        An MSAFeaturizer object if MSA is enabled in the configurations, otherwise None.
+    """
+    esm_info = configs["data"].get("esm", {})
+    if esm_info.get("enable", False):
+        return ESMFeaturizer(
+            embedding_dir=esm_info.embedding_dir,
+            sequence_fpath=esm_info.sequence_fpath,
+            embedding_dim=esm_info.embedding_dim,
+            error_dir=error_dir,
+        )
+    else:
+        return None
+
+
 class WeightedMultiDataset(Dataset):
     """
     A weighted dataset composed of multiple datasets with weights.
@@ -1059,6 +1128,7 @@ def get_datasets(
             "cropping_configs": config_dict["cropping_configs"],
             "error_dir": error_dir,
             "msa_featurizer": get_msa_featurizer(configs, dataset_name, stage),
+            "esm_featurizer": get_esm_featurizer(configs, error_dir),
             "template_featurizer": None,
             "lig_atom_rename": config_dict.get("lig_atom_rename", False),
             "shuffle_mols": config_dict.get("shuffle_mols", False),

@@ -35,9 +35,9 @@ from protenix.utils.torch_utils import autocasting_disable_decorator
 from .modules.confidence import ConfidenceHead
 from .modules.diffusion import DiffusionModule
 from .modules.embedders import (
+    ConstraintEmbedder,
     InputFeatureEmbedder,
     RelativePositionEncoding,
-    ConstraintEmbedder,
 )
 from .modules.head import DistogramHead
 from .modules.pairformer import MSAModule, PairformerStack, TemplateEmbedder
@@ -72,7 +72,9 @@ class Protenix(nn.Module):
         self.diffusion_batch_size = self.configs.diffusion_batch_size
 
         # Model
-        self.input_embedder = InputFeatureEmbedder(**configs.model.input_embedder)
+        self.input_embedder = InputFeatureEmbedder(
+            **configs.model.input_embedder, esm_configs=configs.data.get("esm", {})
+        )
         self.relative_position_encoding = RelativePositionEncoding(
             **configs.model.relative_position_encoding
         )

@@ -33,4 +33,6 @@ inference_configs = {
     ),
     "num_workers": 16,
     "use_msa": True,
+    "use_esm": True,
+    "esm_model_name": "esm2-3b",
 }

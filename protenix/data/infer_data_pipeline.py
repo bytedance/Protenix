@@ -14,6 +14,7 @@
 
 import json
 import logging
+import os
 import time
 import traceback
 import warnings
@@ -21,9 +22,11 @@ from typing import Any, Mapping
 
 import torch
 from biotite.structure import AtomArray
+from ml_collections.config_dict import ConfigDict
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
 from protenix.data.data_pipeline import DataPipeline
+from protenix.data.esm_featurizer import ESMFeaturizer
 from protenix.data.json_to_feature import SampleDictToFeatures
 from protenix.data.msa_featurizer import InferenceMSAFeaturizer
 from protenix.data.utils import data_type_transform, make_dummy_feature
@@ -48,7 +51,9 @@ def get_inference_dataloader(configs: Any) -> DataLoader:
     inference_dataset = InferenceDataset(
         input_json_path=configs.input_json_path,
         dump_dir=configs.dump_dir,
+        cfg_esm=configs.data.esm,
         use_msa=configs.use_msa,
+        use_esm=configs.use_esm,
     )
     sampler = DistributedSampler(
         dataset=inference_dataset,
@@ -71,14 +76,34 @@ class InferenceDataset(Dataset):
         self,
         input_json_path: str,
         dump_dir: str,
+        cfg_esm: ConfigDict,
         use_msa: bool = True,
+        use_esm: bool = True,
     ) -> None:
 
         self.input_json_path = input_json_path
         self.dump_dir = dump_dir
         self.use_msa = use_msa
+        self.use_esm = use_esm
+        self.cfg_esm = cfg_esm
         with open(self.input_json_path, "r") as f:
             self.inputs = json.load(f)
+
+        # If ESM embedding doesn't exist, pre-compute them
+        if use_esm:
+            os.makedirs(cfg_esm.embedding_dir, exist_ok=True)
+            os.makedirs(os.path.dirname(cfg_esm.sequence_fpath), exist_ok=True)
+            ESMFeaturizer.precompute_esm_embedding(
+                self.inputs,
+                cfg_esm.model_name,
+                cfg_esm.embedding_dir,
+                cfg_esm.sequence_fpath,
+            )
+            self.esm_featurizer = ESMFeaturizer(
+                embedding_dir=cfg_esm.embedding_dir,
+                sequence_fpath=cfg_esm.sequence_fpath,
+                embedding_dim=cfg_esm.embedding_dim,
+            )
 
     def process_one(
         self,
@@ -108,18 +133,34 @@ class InferenceDataset(Dataset):
         entity_poly_type = sample2feat.entity_poly_type
         t1 = time.time()
 
-        # Msa features
-        entity_to_asym_id = DataPipeline.get_label_entity_id_to_asym_id_int(atom_array)
-        msa_features = (
-            InferenceMSAFeaturizer.make_msa_feature(
-                bioassembly=single_sample_dict["sequences"],
-                entity_to_asym_id=entity_to_asym_id,
+        # MSA features
+        if self.use_msa:
+            entity_to_asym_id = DataPipeline.get_label_entity_id_to_asym_id_int(
+                atom_array
+            )
+            msa_features = (
+                InferenceMSAFeaturizer.make_msa_feature(
+                    bioassembly=single_sample_dict["sequences"],
+                    entity_to_asym_id=entity_to_asym_id,
+                    token_array=token_array,
+                    atom_array=atom_array,
+                )
+                if self.use_msa
+                else {}
+            )
+        # ESM features
+        if self.use_esm:
+            x_esm = self.esm_featurizer(
                 token_array=token_array,
                 atom_array=atom_array,
+                bioassembly_dict=single_sample_dict,
+                inference_mode=True,
             )
-            if self.use_msa
-            else {}
-        )
+            features_dict["esm_token_embedding"] = x_esm
+        else:
+            features_dict["esm_token_embedding"] = torch.zeros(
+                [len(token_array), self.cfg_esm.embedding_dim]
+            )
 
         # Make dummy features for not implemented features
         dummy_feats = ["template"]
