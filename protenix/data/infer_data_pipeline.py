@@ -86,6 +86,7 @@ class InferenceDataset(Dataset):
         self.use_msa = use_msa
         self.use_esm = use_esm
         self.cfg_esm = cfg_esm
+        assert use_msa or use_esm, "Neither MSA feautre nor ESM feature is used."
         with open(self.input_json_path, "r") as f:
             self.inputs = json.load(f)
 
@@ -148,6 +149,9 @@ class InferenceDataset(Dataset):
                 if self.use_msa
                 else {}
             )
+        else:
+            msa_features = []
+
         # ESM features
         if self.use_esm:
             x_esm = self.esm_featurizer(
