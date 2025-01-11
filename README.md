@@ -88,6 +88,19 @@ If you're interested in model training, see [<u> training documentation </u>](do
 ## Performance
 See the [<u>performance documentation</u>](docs/model_performance.md) for memory and time consumption in training and inference.
 
+## Citing This Work
+
+If you use this code or the model in your research, please use the following BibTeX entry to properly cite Protenix. Our technical report is currently in the process of being made available through a preprint repository. We will add the specific DOI when the process is approved. The following BibTeX entry contains minimal information allowing for citation.
+
+```
+@article{chen2025protenix,
+  title={Protenix: Advancing Structure Prediction Through a Comprehensive AlphaFold3 Reproduction},
+  author={Chen, Xinshi and Zhang, Yuxuan and Lu, Chan and Ma, Wenzhi and Guan, Jiaqi and Gong, Chengyue and Yang, Jincai and Zhang, Hanyu and Zhang, Ke and Wu, Shenghao and Zhou, Kuangqi and Yang, Yanping and Liu, Zhenyu and Wang, Lan and Shi, Bo and Shi, Shaochen and Xiao, Wenzhi},
+  year={2025}
+}
+```
+
+
 ## Acknowledgements
 
 Implementation of the layernorm operators referred to [OneFlow](https://github.com/Oneflow-Inc/oneflow) and [FastFold](https://github.com/hpcaitech/FastFold). We used [OpenFold](https://github.com/aqlaboratory/openfold) for some [module](protenix/openfold_local/) implementations, except the [`LayerNorm`](protenix/model/layer_norm/).
