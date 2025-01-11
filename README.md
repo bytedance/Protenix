@@ -94,7 +94,7 @@ If you use this code or the model in your research, please cite the following pa
 
 ```
 @article{chen2025protenix,
-  title={Protenix: Advancing Structure Prediction Through a Comprehensive AlphaFold3 Reproduction},
+  title={Protenix - Advancing Structure Prediction Through a Comprehensive AlphaFold3 Reproduction},
   author={Chen, Xinshi and Zhang, Yuxuan and Lu, Chan and Ma, Wenzhi and Guan, Jiaqi and Gong, Chengyue and Yang, Jincai and Zhang, Hanyu and Zhang, Ke and Wu, Shenghao and Zhou, Kuangqi and Yang, Yanping and Liu, Zhenyu and Wang, Lan and Shi, Bo and Shi, Shaochen and Xiao, Wenzhi},
   year={2025},
   doi = {10.1101/2025.01.08.631967},
