@@ -2,7 +2,7 @@
 
 A trainable PyTorch reproduction of [AlphaFold 3](https://www.nature.com/articles/s41586-024-07487-w).
 
-For more information on the model's performance and capabilities, see our [technical report](Protenix_Technical_Report.pdf). 
+For more information on the model's performance and capabilities, see our [technical report](https://www.biorxiv.org/content/10.1101/2025.01.08.631967v1). 
 
 You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversation in the [discord server](https://discord.gg/8ZMWy89aMf).
 
@@ -90,13 +90,15 @@ See the [<u>performance documentation</u>](docs/model_performance.md) for memory
 
 ## Citing This Work
 
-If you use this code or the model in your research, please use the following BibTeX entry to properly cite Protenix. Our technical report is currently in the process of being made available through a preprint repository. We will add the specific DOI when the process is approved. The following BibTeX entry contains minimal information allowing for citation.
+If you use this code or the model in your research, please cite the following paper:
 
 ```
 @article{chen2025protenix,
   title={Protenix: Advancing Structure Prediction Through a Comprehensive AlphaFold3 Reproduction},
   author={Chen, Xinshi and Zhang, Yuxuan and Lu, Chan and Ma, Wenzhi and Guan, Jiaqi and Gong, Chengyue and Yang, Jincai and Zhang, Hanyu and Zhang, Ke and Wu, Shenghao and Zhou, Kuangqi and Yang, Yanping and Liu, Zhenyu and Wang, Lan and Shi, Bo and Shi, Shaochen and Xiao, Wenzhi},
-  year={2025}
+  year={2025},
+  doi = {10.1101/2025.01.08.631967},
+  journal = {bioRxiv}
 }
 ```
 
