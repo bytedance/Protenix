@@ -27,6 +27,7 @@ def need_msa_search(json_data: dict) -> bool:
     # TODO: add esm check
     if not need_msa:
         return need_msa
+    need_msa = False
     for sequence in json_data["sequences"]:
         if "proteinChain" in sequence.keys():
             proteinChain = sequence["proteinChain"]
