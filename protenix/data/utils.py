@@ -317,6 +317,11 @@ class CIFWriter:
         pdbx.set_structure(cif, self.atom_array, include_bonds=include_bonds)
         block = cif.block
         atom_site = block.get("atom_site")
+
+        occ = atom_site.get("occupancy")
+        if occ is None:
+            atom_site["occupancy"] = np.ones(len(self.atom_array), dtype=float)
+
         atom_site["label_entity_id"] = self.atom_array.label_entity_id
         cif.write(output_path)
 
@@ -678,7 +683,11 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pdb_file", type=str, required=True, help="The pdb file to parse")
-    parser.add_argument("--cif_file", type=str, required=True, help="The cif file path to generate")
+    parser.add_argument(
+        "--pdb_file", type=str, required=True, help="The pdb file to parse"
+    )
+    parser.add_argument(
+        "--cif_file", type=str, required=True, help="The cif file path to generate"
+    )
     args = parser.parse_args()
     pdb_to_cif(args.pdb_file, args.cif_file)
