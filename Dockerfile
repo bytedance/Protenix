@@ -47,7 +47,8 @@ RUN pip3 --no-cache-dir install \
     scikit-learn \
     scikit-learn-extra \
     deepspeed>=0.15.1 \
-    protobuf==3.20.2 tos icecream ipdb wandb numpy==1.26.3 matplotlib==3.9.2 ipywidgets py3Dmol
+    protobuf==3.20.2 tos icecream ipdb wandb numpy==1.26.3 matplotlib==3.9.2 ipywidgets py3Dmol \
+    fair-esm~=2.0.0
 
 # For H20 compatibility
 RUN pip3 install --no-cache-dir nvidia-cublas-cu12==12.4.5.8 --no-deps
