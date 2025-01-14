@@ -22,11 +22,12 @@ from protenix.web_service.colab_request_parser import RequestParser
 logger = get_logger(__name__)
 
 
-def need_msa_search(json_data: dict) -> bool:
-    need_msa = json_data.get("use_msa", True)
-    # TODO: add esm check
-    if not need_msa:
-        return need_msa
+def need_msa_search(
+    json_data: dict, use_msa: bool = True, use_esm: bool = False
+) -> bool:
+    # use_msa and use_esm can not be false at the same time.
+    if use_esm and (not use_msa):
+        return use_msa
     need_msa = False
     for sequence in json_data["sequences"]:
         if "proteinChain" in sequence.keys():
@@ -76,7 +77,10 @@ def update_seq_msa(infer_seq: dict, msa_res_dir: str) -> dict:
 
 
 def update_infer_json(
-    json_file: str, out_dir: str, use_msa_server: bool = False
+    json_file: str,
+    out_dir: str,
+    use_msa_server: bool = True,
+    use_esm: bool = False,
 ) -> str:
     """
     update json file for inference.
@@ -92,21 +96,16 @@ def update_infer_json(
 
     actual_updated = False
     for seq_idx, infer_data in enumerate(json_data):
-        if need_msa_search(infer_data):
+        if need_msa_search(infer_data, use_msa_server, use_esm):
             actual_updated = True
-            if use_msa_server:
-                seq_name = infer_data.get("name", f"seq_{seq_idx}")
-                logger.info(
-                    f"starting to update msa result for seq {seq_idx} in {json_file}"
-                )
-                update_seq_msa(
-                    infer_data,
-                    os.path.join(out_dir, seq_name, "msa_res" f"msa_seq_{seq_idx}"),
-                )
-            else:
-                raise RuntimeError(
-                    f"infer seq {seq_idx} in `{json_file}` has no msa result, please add first."
-                )
+            seq_name = infer_data.get("name", f"seq_{seq_idx}")
+            logger.info(
+                f"starting to update msa result for seq {seq_idx} in {json_file}"
+            )
+            update_seq_msa(
+                infer_data,
+                os.path.join(out_dir, seq_name, "msa_res" f"msa_seq_{seq_idx}"),
+            )
     if actual_updated:
         updated_json = os.path.join(
             os.path.dirname(os.path.abspath(json_file)),

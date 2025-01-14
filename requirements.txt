@@ -21,3 +21,4 @@ ipywidgets
 py3Dmol
 nvidia-cublas-cu12
 torch==2.3.1
+fair-esm~=2.0.0
