@@ -183,7 +183,11 @@ def download_infercence_cache(configs: Any, model_version: str = "v0.2.0") -> No
             urllib.request.urlretrieve(tos_url, cache_path)
 
     checkpoint_path = configs.load_checkpoint_path
-
+    if not checkpoint_path.endswith(f"model_{model_version}.pt"):
+        checkpoint_path = os.path.join(
+            code_directory, f"release_data/checkpoint/model_{model_version}.pt"
+        )
+        configs.load_checkpoint_path = checkpoint_path
     if not opexists(checkpoint_path):
         checkpoint_path = os.path.join(
             code_directory, f"release_data/checkpoint/model_{model_version}.pt"
@@ -303,7 +307,7 @@ def run() -> None:
         arg_str=parse_sys_args(),
         fill_required_with_null=True,
     )
-    download_infercence_cache(configs, model_version="v0.2.0")
+    download_infercence_cache(configs, model_version="beta1_v0.2.0")
     main(configs)
 
 

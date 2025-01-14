@@ -175,7 +175,7 @@ def get_default_runner(seeds: Optional[list] = None) -> InferenceRunner:
     )
     if seeds is not None:
         configs.seeds = seeds
-    download_infercence_cache(configs, model_version="v0.2.0")
+    download_infercence_cache(configs, model_version="beta1_v0.2.0")
     return InferenceRunner(configs)
 
 
@@ -184,6 +184,7 @@ def inference_jsons(
     out_dir: str = "./output",
     use_msa_server: bool = False,
     seeds: list = [101],
+    use_esm: bool = False,
 ) -> None:
     """
     infer_json: json file or directory, will run infer with these jsons
@@ -215,8 +216,13 @@ def inference_jsons(
     for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
         try:
             configs["input_json_path"] = update_infer_json(
-                infer_json, out_dir=out_dir, use_msa_server=use_msa_server
+                infer_json,
+                out_dir=out_dir,
+                use_msa_server=use_msa_server,
+                use_esm=use_esm,
             )
+            if use_esm:
+                configs.use_msa = use_msa_server
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
@@ -276,19 +282,26 @@ def protenix_cli():
 @click.option(
     "--seeds", type=str, default="101", help="the inference seed, split by comma"
 )
-@click.option("--use_msa_server", is_flag=True, help="do msa search or not")
-def predict(input, out_dir, seeds, use_msa_server):
+@click.option(
+    "--use_msa_server", is_flag=True, help="use msa result for inference or not"
+)
+@click.option("--use_esm", is_flag=True, help="run inference esm or not")
+def predict(input, out_dir, seeds, use_msa_server, use_esm):
     """
     predict: Run predictions with protenix.
-    :param input, out_dir, use_msa_server
+    :param input, out_dir, use_msa_server, use_esm
     :return:
     """
     init_logging()
     logger.info(
-        f"run infer with input={input}, out_dir={out_dir}, use_msa_server={use_msa_server}"
+        f"run infer with input={input}, out_dir={out_dir}, use_msa_server={use_msa_server}, use_esm={use_esm}"
     )
+    if (not use_msa_server) and (not use_esm):
+        raise RuntimeError(
+            f"use_msa_server and use_esm can not be `False` simultaneously."
+        )
     seeds = list(map(int, seeds.split(",")))
-    inference_jsons(input, out_dir, use_msa_server, seeds=seeds)
+    inference_jsons(input, out_dir, use_msa_server, seeds=seeds, use_esm=use_esm)
 
 
 @click.command()

@@ -25,9 +25,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
+import requests
 
 import protenix.data.ccd as ccd
-import requests
 from protenix.data.json_to_feature import SampleDictToFeatures
 from protenix.web_service.colab_request_utils import run_mmseqs2_service
 from protenix.web_service.dependency_url import URL
@@ -132,6 +132,12 @@ class RequestParser(object):
 
         sequences = []
         entity_pending_msa = {}
+        use_msa = self.request.get("use_msa", True)
+        use_esm = self.request.get("use_esm", False)
+        if (not use_esm) and (not use_msa):
+            raise RuntimeError(
+                f"use_msa and use_esm can not be `False` simultaneously."
+            )
         for i, entity_info_wrapper in enumerate(self.request["sequences"]):
             entity_id = str(i + 1)
             entity_info_wrapper: Dict[str, Dict[Any]]
