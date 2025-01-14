@@ -387,6 +387,7 @@ class RequestParser(object):
             f"--input_json_path {input_json_path}",
             f"--need_atom_confidence {self.request['atom_confidence']}",
             f"--use_msa {self.request['use_msa']}",
+            f"--use_esm {self.request['use_esm']}",  # TODO placeholder, self.request['use_esm'] is invalid for now
             "--num_workers 0",
             "--dtype bf16",
             "--use_deepspeed_evo_attention True",
