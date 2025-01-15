@@ -127,6 +127,7 @@ class RequestParser(object):
         input_json_dict = {
             "name": (self.request["name"]),
             "covalent_bonds": self.request["covalent_bonds"],
+            "constraint": self.request["constraint"],
         }
         input_json_path = opjoin(self.request_dir, f"inputs.json")
 
