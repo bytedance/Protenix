@@ -485,16 +485,12 @@ class SampleDictToFeatures:
 
             distance = constraint_dict["contact"][token_idx_1, token_idx_2, 1]
 
-            import pprint
-
-            pprint.pprint(
-                {
-                    "chain_id": np.stack([chain_id_1, chain_id_2]).T,
-                    "res_name": np.stack([res_name_1, res_name_2]).T,
-                    "atom_name": np.stack([atom_name_1, atom_name_2]).T,
-                    "distance": distance.numpy(),
-                },
-                sort_dicts=False,
-            )
+            contact_info = {
+                "chain_id": np.stack([chain_id_1, chain_id_2]).T.tolist(),
+                "res_name": np.stack([res_name_1, res_name_2]).T.tolist(),
+                "atom_name": np.stack([atom_name_1, atom_name_2]).T.tolist(),
+                "distance": distance.numpy(),
+            }
+            logger.info(f"loaded contact info:{contact_info}")
 
         return constraint_dict
