@@ -113,44 +113,24 @@
     "constraint": {
         "contact": [
             {
-                "left_entity": "2",
-                "left_copy": 2,
-                "left_position": 133,
-                "right_entity": "4",
-                "right_copy": 2,
-                "right_position": 1,
-                "max_distance": 6,
-                "right_atom": "C7"
+                "entity1": 2,
+                "copy1": 2,
+                "position1": 133,
+                "entity2": 4,
+                "copy2": 2,
+                "position2": 1,
+                "atom2": "C7",
+                "max_distance": 6
             },
             {
-                "left_entity": "2",
-                "left_copy": 2,
-                "left_position": 128,
-                "right_entity": "4",
-                "right_copy": 2,
-                "right_position": 1,
-                "max_distance": 6,
-                "right_atom": "O5"
-            },
-            {
-                "left_entity": "2",
-                "left_copy": 2,
-                "left_position": 129,
-                "right_entity": "4",
-                "right_copy": 2,
-                "right_position": 1,
-                "max_distance": 6,
-                "right_atom": "O5"
-            },
-            {
-                "left_entity": "2",
-                "left_copy": 2,
-                "left_position": 127,
-                "right_entity": "4",
-                "right_copy": 2,
-                "right_position": 1,
-                "max_distance": 6,
-                "right_atom": "O7"
+                "entity1": 2,
+                "copy1": 2,
+                "position1": 128,
+                "entity2": 4,
+                "copy2": 2,
+                "position2": 1,
+                "atom2": "O5",
+                "max_distance": 6
             }
         ]
     }
