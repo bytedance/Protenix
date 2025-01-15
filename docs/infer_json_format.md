@@ -183,13 +183,13 @@ the DNA chemical modifications:
 ```json
 "covalent_bonds": [
             {
-                "entity1": "2",
+                "entity1": 2,
                 "copy1": 1,
-                "position1": "2",
+                "position1": 2,
                 "atom1": "N6",
-                "entity2": "3",
+                "entity2": 3,
                 "copy2": 1,
-                "position2": "1",
+                "position2": 1,
                 "atom2": "C1"
             }
 ]
@@ -213,37 +213,37 @@ The position value starts at 1 and can vary based on the type of entity:
 Deprecation Notice: The previous fields such as old `left_entity`, `right_entity`, and other fields starting with `left`/`right` have been updated to use `1` and `2` to denote the two atoms forming a bond. The current code still supports the old field names, but they may be deprecated in the future, leaving only the new field names.
 
 #### constraint
-The `constraint` section specifies additional structural information to enable inter-chain guidance for Protenix. Currently, the `contact` constraint is supported, which allows you to specify residue-residue (or residue-atom) level distance prior information.
+The `constraint` section specifies additional structural information to enable inter-chain guidance for Protenix. Currently, the `contact` constraint is supported, which allows you to specify residue-residue (or residue-atom) level prior information.
 
 ```json
 "contact": [
             {
-                "entity1": "2",
+                "entity1": 2,
                 "copy1": 1,
-                "position1": "2",
-                "atom1": "N6",    //optional
-                "entity2": "3",
+                "position1": 2,
+                "atom1": "N6",    // Only required if entity1 is a ligand
+                "entity2": 3,
                 "copy2": 1,
-                "position2": "1",
-                "atom2": "C1",    //optional
+                "position2": 1,
+                "atom2": "C1",    // Only required if entity2 is a ligand
                 "max_distance": 8
             }
 ]
 ```
 
-Similar to the `covalent_bonds` mentioned above, the `contact` constraint consists of at least six fields to identify a structural relation. The details of these fields are defined as follows:
+Similar to the `covalent_bonds` mentioned above, a `contact` constraint consists of at least six fields to identify a structural relation. Multiple contacts can be added by repeating the dict. The details of these fields are defined as follows:
 
-* `entity1`, `entity2`: **[Required]** The entity numbers for the two atoms involved in the contact. (Same as `covalent_bonds`)
+* `entity1`, `entity2`: **[Required]** The entity number of the chains involved in the contact. (Same as *covalent bonds*)
 
-* `copy2`, `copy2`:  **[Required]** The copy index (starting from 1) of `entity1` and `entity2`, respectively. (Same as `covalent_bonds`) 
+* `copy2`, `copy2`:  **[Required]** The copy index (starting from 1) of `entity1` and `entity2`, respectively. (Same as *covalent bonds*) 
 
-* `position1`, `position2`: **[Required]** The position of the residue (or ligand part) within the entity. (Same as `covalent_bonds`) 
+* `position1`, `position2`: **[Required]** The position of the residue (or ligand part) within the entity. (Same as *covalent bonds*) 
 
-* `atom1`, `atom2`: **[Optional]** The atom names (or atom indices) of the atoms to be bonded. (Same as `covalent_bonds`). This field is only applicable when the corresponding entity is a ligand and will be ignored for other entity types.
+* `atom1`, `atom2`: **[Optional]** Atoms forming the contact, specified by atom names or indices. Only required for ligand entities.
 
-* `max_distance`: **[Required]** The upper bound distance of the contact as expected by the user. Notably, this is not a hard constraint; the model may predict a structure that does not satisfy the distance.
+* `max_distance`: **[Required]** The upper bound distance (in Ångstrom) of the contact as expected by users. Notably, this is not a hard constraint; the model may predict a structure that does not satisfy the distance.
 
-Protenix is trained on protein-protein interfaces and protein-ligand interfaces. Other types of interfaces are not supported. Although you can draft a JSON specifying constraints for DNA-protein interfaces or ligand-ligand interfaces, the behavior is not guaranteed.
+>Protenix is trained on **protein-protein interfaces** and **protein-ligand interfaces**. Other types of interfaces are not supported in principle. Although you can draft a JSON specifying constraints for DNA-protein interfaces or ligand-ligand interfaces, the behavior is not guaranteed.
 
 ### Format of the model output
 The outputs will be saved in the directory provided via the `--dump_dir` flag in the inference script. The outputs include the predicted structures in CIF format and the confidence in JSON files. The `--dump_dir` will have the following structure:
