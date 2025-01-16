@@ -243,6 +243,8 @@ Similar to the `covalent_bonds` mentioned above, a `contact` constraint consists
 
 * `max_distance`: **[Required]** The upper bound distance (in Ångstrom) of the contact as expected by users. Notably, this is not a hard constraint; the model may predict a structure that does not satisfy the distance.
 
+We have prepared an [example](../examples/example_constraint.json) with pre-filled contact feature. 
+
 >Protenix is trained on **protein-protein interfaces** and **protein-ligand interfaces**. Other types of interfaces are not supported in principle. Although you can draft a JSON specifying constraints for DNA-protein interfaces or ligand-ligand interfaces, the behavior is not guaranteed.
 
 ### Format of the model output
