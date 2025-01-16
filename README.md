@@ -13,18 +13,10 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 
 
 ## 🔥 Feature Update
-* 🚀 The preview version of [constraint feature](./README.md#early-access-to-new-features) is released to branch `constraint_esm`.
+* 🚀 The preview version of [constraint feature](./README.md##early-access-to-new-constraint-feature) is released to branch [`constraint_esm`](https://github.com/bytedance/Protenix/tree/constraint_esm).
 * 🪐 The [training data pipeline](./docs/prepare_training_data.md) is released. 
 * ⚡️  The [MSA pipeline](./docs/msa_pipeline.md) is released.
 * 🛸 Use [local colabfold_search](./docs/colabfold_compatiable_msa.md) to generate protenix-compatible MSA.
-
-#### ***Early Access to NEW Constraint Feature!***
-
-🎉 Protenix now allows users to specify ***contacts***, enabling the model to leverage additional inter-chain information as constraint guidance! We benchmarked our constraint feature on Posebuster and a protein-antibody interfaces subset. Protenix demonstrates powerful ability in predicting more accurate structures. If you want to have a try, checkout to branch `constraint_esm` for details about the input format.
-
-![Constraint Metrics](assets/constraint_metrics.png)
-
-> **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out this branch first.
 
 ## Installation
 
@@ -102,7 +94,19 @@ If you want to run Protenix inference with `PyMol`, please refer to [PyMOLfold](
 If you're interested in model training, see [<u> training documentation </u>](docs/training.md).
 
 ## Performance
+#### **Model Performance across Several Benchmarks**
+![Overall Metrics](assets/overall_metrics.png)
+
 See the [<u>performance documentation</u>](docs/model_performance.md) for memory and time consumption in training and inference.
+
+
+#### ***Early Access to NEW Constraint Feature!***
+
+🎉 Protenix now allows users to specify ***contacts***, enabling the model to leverage additional inter-chain information as constraint guidance! We benchmarked our constraint feature on Posebuster and a protein-antibody interfaces subset. Protenix demonstrates powerful ability in predicting more accurate structures. If you want to have a try, checkout to branch `constraint_esm` for details about the input format.
+
+![Constraint Metrics](assets/constraint_metrics.png)
+
+> **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out this branch first.
 
 ## Citing This Work
 
