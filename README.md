@@ -11,6 +11,13 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 ## ⚡ Try it online
 - [Web server link](http://101.126.11.40:8000/) 
 
+
+## 🔥 Feature Update
+* 🪐 The [training data pipeline](./docs/prepare_training_data.md) is released. 
+* ⚡️  The [MSA pipeline](./docs/msa_pipeline.md) is released.
+* 🛸 Use [local colabfold_search](./docs/colabfold_compatiable_msa.md) to generate protenix-compatible MSA.
+
+
 ## Installation
 
 ### Run with PyPI (recommended):

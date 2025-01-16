@@ -24,7 +24,9 @@ The data should be placed in the `/af3-dev/release_data/` directory. You can als
   ├── recentPDB_bioassembly [1.5G] # preprocessed recentPDB structural data
   └── seq_to_pdb_index.json [45M] # sequence to pdb id mapping file
   ```
-Data processing scripts are still being organized and prepared, and distillation data will be released in the future.
+
+Data processing scripts have also been released. you can refer to [prepare_training_data.md](./prepare_training_data.md) for generating `{dataset}_bioassembly` and `indices`. And you can refer to [msa_pipeline.md](./msa_pipeline.md) for pipelines to get `mmcif_msa` and `seq_to_pdb_index.json`.
+
 ### Training demo
 After the installation and data preparations, you can run the following command to train the model from scratch:
 

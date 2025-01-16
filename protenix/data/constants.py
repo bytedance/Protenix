@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from rdkit.Chem import GetPeriodicTable
+
 EvaluationChainInterface = [
     "intra_ligand",
     "intra_dna",
@@ -36,10 +38,16 @@ EntityPolyTypeDict = {
     "ligand": ["cyclic-pseudo-peptide", "other"],
 }
 
+CRYSTALLIZATION_METHODS = {
+    "X-RAY DIFFRACTION",
+    "NEUTRON DIFFRACTION",
+    "ELECTRON CRYSTALLOGRAPHY",
+    "POWDER CRYSTALLOGRAPHY",
+    "FIBER DIFFRACTION",
+}
 
 ### Protein Constants ###
 # https://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v40.dic/Items/_entity_poly.pdbx_seq_one_letter_code_can.html
-from rdkit.Chem import GetPeriodicTable
 
 mmcif_restype_1to3 = {
     "A": "ALA",

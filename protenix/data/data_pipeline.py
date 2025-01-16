@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 from collections import defaultdict
 from pathlib import Path
@@ -24,7 +25,8 @@ import torch
 from biotite.structure import AtomArray
 
 from protenix.data.msa_featurizer import MSAFeaturizer
-from protenix.data.tokenizer import TokenArray
+from protenix.data.parser import DistillationMMCIFParser, MMCIFParser
+from protenix.data.tokenizer import AtomArrayTokenizer, TokenArray
 from protenix.utils.cropping import CropData
 from protenix.utils.file_io import load_gzip_pickle
 
@@ -32,6 +34,64 @@ torch.multiprocessing.set_sharing_strategy("file_system")
 
 
 class DataPipeline(object):
+    """
+    DataPipeline class provides static methods to handle various data processing tasks related to bioassembly structures.
+    """
+
+    @staticmethod
+    def get_data_from_mmcif(
+        mmcif: Union[str, Path],
+        pdb_cluster_file: Union[str, Path, None] = None,
+        dataset: str = "WeightedPDB",
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """
+        Get raw data from mmcif with tokenizer and a list of chains and interfaces for sampling.
+
+        Args:
+            mmcif (Union[str, Path]): The raw mmcif file.
+            pdb_cluster_file (Union[str, Path, None], optional): Cluster info txt file. Defaults to None.
+            dataset (str, optional): The dataset type, either "WeightedPDB" or "Distillation". Defaults to "WeightedPDB".
+
+        Returns:
+            tuple[list[dict[str, Any]], dict[str, Any]]:
+                sample_indices_list (list[dict[str, Any]]): The sample indices list (each one is a chain or an interface).
+                bioassembly_dict (dict[str, Any]): The bioassembly dict with sequence, atom_array, and token_array.
+        """
+        try:
+            if dataset == "WeightedPDB":
+                parser = MMCIFParser(mmcif_file=mmcif)
+                bioassembly_dict = parser.get_bioassembly()
+            elif dataset == "Distillation":
+                parser = DistillationMMCIFParser(mmcif_file=mmcif)
+                bioassembly_dict = parser.get_structure_dict()
+            else:
+                raise NotImplementedError(
+                    'Unsupported "dataset", please input either "WeightedPDB" or "Distillation".'
+                )
+
+            sample_indices_list = parser.make_indices(
+                bioassembly_dict=bioassembly_dict, pdb_cluster_file=pdb_cluster_file
+            )
+            if len(sample_indices_list) == 0:
+                # empty indices and AtomArray
+                return [], bioassembly_dict
+
+            atom_array = bioassembly_dict["atom_array"]
+            atom_array.set_annotation(
+                "resolution", [parser.resolution] * len(atom_array)
+            )
+
+            tokenizer = AtomArrayTokenizer(atom_array)
+            token_array = tokenizer.get_token_array()
+            bioassembly_dict["msa_features"] = None
+            bioassembly_dict["template_features"] = None
+
+            bioassembly_dict["token_array"] = token_array
+            return sample_indices_list, bioassembly_dict
+
+        except Exception as e:
+            logging.warning("Gen data failed for %s due to %s", mmcif, e)
+            return [], {}
 
     @staticmethod
     def get_label_entity_id_to_asym_id_int(atom_array: AtomArray) -> dict[str, int]:
