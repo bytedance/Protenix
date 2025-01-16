@@ -35,7 +35,7 @@ If you're interested in model training, we recommand to [<u> run with docker</u>
 ### Early Access to NEW Features!
 #### ***Constraint Feature***
 
-🎉 Protenix now allows users to specify ***contacts***, enabling the model to leverage additional inter-chain information as constraint guidance! We benchmarked our constraint feature on Posebuster and a protein-antibody interfaces subset. Protenix demonstrates significant power in predicting more accurate structures. If you want to have a try, see our [page](./docs/infer_json_format.md#constraint) for details about the input format.
+🎉 Protenix now allows users to specify ***contacts***, enabling the model to leverage additional inter-chain information as constraint guidance! We benchmarked our constraint feature on Posebuster and a protein-antibody interfaces subset. Protenix demonstrates powerful ability in predicting more accurate structures. If you want to have a try, checkout to branch `constraint_esm` for details about the input format.
 
 ![Constraint Metrics](assets/constraint_metrics.png)
 
