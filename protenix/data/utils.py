@@ -14,6 +14,7 @@
 
 import argparse
 import copy
+import functools
 import os
 import re
 from collections import defaultdict
@@ -59,6 +60,27 @@ def int_to_letters(n: int) -> str:
     return result
 
 
+def get_inter_residue_bonds(atom_array: AtomArray) -> np.ndarray:
+    """get inter residue bonds by checking chain_id and res_id
+
+    Args:
+        atom_array (AtomArray): Biotite AtomArray, must have chain_id and res_id
+
+    Returns:
+        np.ndarray: inter residue bonds, shape = (n,2)
+    """
+    if atom_array.bonds is None:
+        return []
+    idx_i = atom_array.bonds._bonds[:, 0]
+    idx_j = atom_array.bonds._bonds[:, 1]
+    chain_id_diff = atom_array.chain_id[idx_i] != atom_array.chain_id[idx_j]
+    res_id_diff = atom_array.res_id[idx_i] != atom_array.res_id[idx_j]
+    diff_mask = chain_id_diff | res_id_diff
+    inter_residue_bonds = atom_array.bonds._bonds[diff_mask]
+    inter_residue_bonds = inter_residue_bonds[:, :2]  # remove bond type
+    return inter_residue_bonds
+
+
 def get_starts_by(
     atom_array: AtomArray, by_annot: str, add_exclusive_stop=False
 ) -> np.ndarray:
@@ -86,6 +108,26 @@ def get_starts_by(
         return np.concatenate(([0], starts, [atom_array.array_length()]))
     else:
         return np.concatenate(([0], starts))
+
+
+def atom_select(atom_array: AtomArray, select_dict: dict, as_mask=False) -> np.ndarray:
+    """return index of atom_array that match select_dict
+
+    Args:
+        atom_array (AtomArray): Biotite AtomArray
+        select_dict (dict): select dict, eg: {'element': 'C'}
+        as_mask (bool, optional): return mask of atom_array. Defaults to False.
+
+    Returns:
+        np.ndarray: index of atom_array that match select_dict
+    """
+    mask = np.ones(len(atom_array), dtype=bool)
+    for k, v in select_dict.items():
+        mask = mask & (getattr(atom_array, k) == v)
+    if as_mask:
+        return mask
+    else:
+        return np.where(mask)[0]
 
 
 def get_ligand_polymer_bond_mask(
@@ -138,6 +180,38 @@ def get_ligand_polymer_bond_mask(
             lig_polymer_bond_indices
         ]  # np.array([[atom1, atom2, bond_order]...])
     return lig_polymer_bonds
+
+
+@functools.lru_cache
+def parse_pdb_cluster_file_to_dict(
+    cluster_file: str, remove_uniprot: bool = True
+) -> dict[str, tuple]:
+    """parse PDB cluster file, and return a pandas dataframe
+    example cluster file:
+    https://cdn.rcsb.org/resources/sequence/clusters/clusters-by-entity-40.txt
+
+    Args:
+        cluster_file (str): cluster_file path
+    Returns:
+        dict(str, tuple(str, str)): {pdb_id}_{entity_id} --> [cluster_id, cluster_size]
+    """
+    pdb_cluster_dict = {}
+    with open(cluster_file) as f:
+        for line in f:
+            pdb_clusters = []
+            for ids in line.strip().split():
+                if remove_uniprot:
+                    if ids.startswith("AF_") or ids.startswith("MA_"):
+                        continue
+                pdb_clusters.append(ids)
+            cluster_size = len(pdb_clusters)
+            if cluster_size == 0:
+                continue
+            # use first member as cluster id.
+            cluster_id = f"pdb_cluster_{pdb_clusters[0]}"
+            for ids in pdb_clusters:
+                pdb_cluster_dict[ids.lower()] = (cluster_id, cluster_size)
+    return pdb_cluster_dict
 
 
 def get_clean_data(atom_array: AtomArray) -> AtomArray:

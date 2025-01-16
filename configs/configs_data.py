@@ -61,10 +61,22 @@ default_weighted_pdb_configs = {
 }
 
 DATA_ROOT_DIR = "/af3-dev/release_data/"
-CCD_COMPONENTS_FILE_PATH = os.path.join(DATA_ROOT_DIR, "components.v20240608.cif")
+
+# Use CCD cache created by scripts/gen_ccd_cache.py priority. (without date in filename)
+# See: docs/prepare_data.md
+CCD_COMPONENTS_FILE_PATH = os.path.join(DATA_ROOT_DIR, "components.cif")
 CCD_COMPONENTS_RDKIT_MOL_FILE_PATH = os.path.join(
-    DATA_ROOT_DIR, "components.v20240608.cif.rdkit_mol.pkl"
+    DATA_ROOT_DIR, "components.cif.rdkit_mol.pkl"
 )
+
+if (not os.path.exists(CCD_COMPONENTS_FILE_PATH)) or (
+    not os.path.exists(CCD_COMPONENTS_RDKIT_MOL_FILE_PATH)
+):
+    CCD_COMPONENTS_FILE_PATH = os.path.join(DATA_ROOT_DIR, "components.v20240608.cif")
+    CCD_COMPONENTS_RDKIT_MOL_FILE_PATH = os.path.join(
+        DATA_ROOT_DIR, "components.v20240608.cif.rdkit_mol.pkl"
+    )
+
 
 # This is a patch in inference stage for users that do not have root permission.
 # If you run
@@ -85,11 +97,20 @@ if (not os.path.exists(CCD_COMPONENTS_FILE_PATH)) or (
     code_directory = os.path.dirname(current_directory)
 
     data_cache_dir = os.path.join(code_directory, "release_data/ccd_cache")
-    CCD_COMPONENTS_FILE_PATH = os.path.join(data_cache_dir, "components.v20240608.cif")
+    CCD_COMPONENTS_FILE_PATH = os.path.join(data_cache_dir, "components.cif")
     CCD_COMPONENTS_RDKIT_MOL_FILE_PATH = os.path.join(
-        data_cache_dir, "components.v20240608.cif.rdkit_mol.pkl"
+        data_cache_dir, "components.cif.rdkit_mol.pkl"
     )
+    if (not os.path.exists(CCD_COMPONENTS_FILE_PATH)) or (
+        not os.path.exists(CCD_COMPONENTS_RDKIT_MOL_FILE_PATH)
+    ):
 
+        CCD_COMPONENTS_FILE_PATH = os.path.join(
+            data_cache_dir, "components.v20240608.cif"
+        )
+        CCD_COMPONENTS_RDKIT_MOL_FILE_PATH = os.path.join(
+            data_cache_dir, "components.v20240608.cif.rdkit_mol.pkl"
+        )
 
 data_configs = {
     "num_dl_workers": 16,

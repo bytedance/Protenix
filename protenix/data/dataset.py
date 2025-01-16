@@ -894,25 +894,34 @@ def get_weighted_pdb_weight(
     cluster_size: int,
     chain_count: dict,
     eps: float = 1e-9,
-    beta_dict: dict = {
-        "chain": 0.5,
-        "interface": 1,
-    },
-    alpha_dict: dict = {
-        "prot": 3,
-        "nuc": 3,
-        "ligand": 1,
-    },
+    beta_dict: Optional[dict] = None,
+    alpha_dict: Optional[dict] = None,
 ) -> float:
     """
-    Get sample weight for each examples in weighted pdb dataset. AF3-SI (1)
-    Args:
-        data_type: chain or interface
-        cluster_size: cluster size of this chain/interface
-        chain_count: count of each kinds of chains, {"prot": int, "nuc": int, "ligand": int}
+    Get sample weight for each example in a weighted PDB dataset.
+
+        data_type (str): Type of data, either 'chain' or 'interface'.
+        cluster_size (int): Cluster size of this chain/interface.
+        chain_count (dict): Count of each kind of chains, e.g., {"prot": int, "nuc": int, "ligand": int}.
+        eps (float, optional): A small epsilon value to avoid division by zero. Default is 1e-9.
+        beta_dict (Optional[dict], optional): Dictionary containing beta values for 'chain' and 'interface'.
+        alpha_dict (Optional[dict], optional): Dictionary containing alpha values for different chain types.
+
     Returns:
-        weights: float
+         float: Calculated weight for the given chain/interface.
     """
+    if not beta_dict:
+        beta_dict = {
+            "chain": 0.5,
+            "interface": 1,
+        }
+    if not alpha_dict:
+        alpha_dict = {
+            "prot": 3,
+            "nuc": 3,
+            "ligand": 1,
+        }
+
     assert cluster_size > 0
     assert data_type in ["chain", "interface"]
     beta = beta_dict[data_type]

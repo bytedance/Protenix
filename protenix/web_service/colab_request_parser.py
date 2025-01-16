@@ -32,7 +32,9 @@ from protenix.data.json_to_feature import SampleDictToFeatures
 from protenix.web_service.colab_request_utils import run_mmseqs2_service
 from protenix.web_service.dependency_url import URL
 
-MMSEQS_SERVICE_HOST_URL = os.getenv("MMSEQS_SERVICE_HOST_URL", "http://101.126.11.40:80")
+MMSEQS_SERVICE_HOST_URL = os.getenv(
+    "MMSEQS_SERVICE_HOST_URL", "http://101.126.11.40:80"
+)
 MAX_ATOM_NUM = 60000
 MAX_TOKEN_NUM = 5000
 DATA_CACHE_DIR = "/af3-dev/release_data/"
@@ -76,7 +78,9 @@ class TooLargeComplexError(Exception):
 
 
 class RequestParser(object):
-    def __init__(self, request_json_path: str, request_dir: str, email: str = "") -> None:
+    def __init__(
+        self, request_json_path: str, request_dir: str, email: str = ""
+    ) -> None:
         with open(request_json_path, "r") as f:
             self.request = json.load(f)
         self.request_dir = request_dir
@@ -207,7 +211,10 @@ class RequestParser(object):
 
     @staticmethod
     def msa_search(
-        seqs_pending_msa: Sequence[str], tmp_fasta_fpath: str, msa_res_dir: str, email: str = ""
+        seqs_pending_msa: Sequence[str],
+        tmp_fasta_fpath: str,
+        msa_res_dir: str,
+        email: str = "",
     ) -> None:
         lines = []
         for idx, seq in enumerate(seqs_pending_msa):
@@ -229,7 +236,7 @@ class RequestParser(object):
                 use_templates=False,
                 host_url=MMSEQS_SERVICE_HOST_URL,
                 user_agent="colabfold/1.5.5",
-                email=email
+                email=email,
             )
         except Exception as e:
             error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
@@ -250,13 +257,20 @@ class RequestParser(object):
         def read_a3m(a3m_file: str) -> Tuple[List[str], List[str]]:
             heads = []
             seqs = []
+            # Record the row index. The index before this index is the MSA of Uniref30 DB,
+            # and the index after this index is the MSA of ColabfoldDB.
+            uniref_index = 0
             with open(a3m_file, "r") as infile:
-                for line in infile:
+                for idx, line in enumerate(infile):
                     if line.startswith(">"):
                         heads.append(line)
+                        if idx == 0:
+                            query_name = line
+                        elif idx > 0 and line == query_name:
+                            uniref_index = idx
                     else:
                         seqs.append(line)
-            return heads, seqs
+            return heads, seqs, uniref_index
 
         def make_pairing_and_non_pairing_msa(
             query_seq: str,
@@ -265,18 +279,22 @@ class RequestParser(object):
             uniref_to_ncbi_taxid: Mapping[str, str],
         ) -> List[str]:
 
-            heads, msa_seqs = read_a3m(raw_a3m_path)
+            heads, msa_seqs, uniref_index = read_a3m(raw_a3m_path)
             uniref100_lines = [">query\n", f"{query_seq}\n"]
             other_lines = [">query\n", f"{query_seq}\n"]
 
-            for head, msa_seq in zip(heads, msa_seqs):
+            for idx, (head, msa_seq) in enumerate(zip(heads, msa_seqs)):
                 if msa_seq.rstrip("\n") == query_seq:
                     continue
 
-                if "UniRef" in head:
-                    uniref_id = head.split("\t")[0][1:]
-                    ncbi_taxid = uniref_to_ncbi_taxid.get(uniref_id, None)
-                    if ncbi_taxid is not None:
+                uniref_id = head.split("\t")[0][1:]
+                ncbi_taxid = uniref_to_ncbi_taxid.get(uniref_id, None)
+                if (ncbi_taxid is not None) and (idx < (uniref_index // 2)):
+                    if not uniref_id.startswith("UniRef100_"):
+                        head = head.replace(
+                            uniref_id, f"UniRef100_{uniref_id}_{ncbi_taxid}/"
+                        )
+                    else:
                         head = head.replace(uniref_id, f"{uniref_id}_{ncbi_taxid}/")
                     uniref100_lines.extend([head, msa_seq])
                 else:
@@ -294,7 +312,7 @@ class RequestParser(object):
             seq_dir: str,
             raw_a3m_path: str,
         ):
-            heads, msa_seqs = read_a3m(raw_a3m_path)
+            heads, msa_seqs, _ = read_a3m(raw_a3m_path)
             other_lines = [">query\n", f"{query_seq}\n"]
             for head, msa_seq in zip(heads, msa_seqs):
                 if msa_seq.rstrip("\n") == query_seq:
@@ -390,9 +408,18 @@ class RequestParser(object):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--request_json_path", type=str, required=True, help="Path to the request JSON file.")
-    parser.add_argument("--request_dir", type=str, required=True, help="Path to the request directory.")
-    parser.add_argument("--email", type=str, required=False, default="", help="Your email address.")
+    parser.add_argument(
+        "--request_json_path",
+        type=str,
+        required=True,
+        help="Path to the request JSON file.",
+    )
+    parser.add_argument(
+        "--request_dir", type=str, required=True, help="Path to the request directory."
+    )
+    parser.add_argument(
+        "--email", type=str, required=False, default="", help="Your email address."
+    )
 
     args = parser.parse_args()
     parser = RequestParser(
