@@ -13,7 +13,7 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 
 
 ## 🔥 Feature Update
-* 🚀 The preview version of [constraint feature](./README.md##early-access-to-new-constraint-feature) is released to branch [`constraint_esm`](https://github.com/bytedance/Protenix/tree/constraint_esm).
+* 🚀 The preview version of [constraint feature](./README.md#early-access-to-new-constraint-feature) is released to branch [`constraint_esm`](https://github.com/bytedance/Protenix/tree/constraint_esm).
 * 🪐 The [training data pipeline](./docs/prepare_training_data.md) is released. 
 * ⚡️  The [MSA pipeline](./docs/msa_pipeline.md) is released.
 * 🛸 Use [local colabfold_search](./docs/colabfold_compatiable_msa.md) to generate protenix-compatible MSA.
@@ -106,7 +106,7 @@ See the [<u>performance documentation</u>](docs/model_performance.md) for memory
 
 ![Constraint Metrics](assets/constraint_metrics.png)
 
-> **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out this branch first.
+> **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out to this branch first.
 
 ## Citing This Work
 
