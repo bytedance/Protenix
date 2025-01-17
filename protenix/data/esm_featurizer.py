@@ -131,7 +131,9 @@ class ESMFeaturizer:
                             "part_id": pdb_entity_id[1:3],
                         }
                     )
-        df_seq = pd.DataFrame(all_seq_dict)
+        df_seq = pd.DataFrame(
+            all_seq_dict, columns=["seq", "pdb_entity_id", "seq_label", "part_id"]
+        )
         df_seq.to_csv(sequence_fpath)
         print(f"Save sequence file to {sequence_fpath}")
 
