@@ -219,7 +219,14 @@ def update_inference_configs(configs: Any, N_token: int):
 def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     # Data
     logger.info(f"Loading data from\n{configs.input_json_path}")
-    dataloader = get_inference_dataloader(configs=configs)
+    try:
+        dataloader = get_inference_dataloader(configs=configs)
+    except Exception as e:
+        error_message = f"{e}:\n{traceback.format_exc()}"
+        logger.info(error_message)
+        with open(opjoin(runner.error_dir, "error.txt"), "a") as f:
+            f.write(error_message)
+        return
 
     num_data = len(dataloader.dataset)
     for seed in configs.seeds:
@@ -227,17 +234,14 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         for batch in dataloader:
             try:
                 data, atom_array, data_error_message = batch[0]
+                sample_name = data["sample_name"]
 
                 if len(data_error_message) > 0:
                     logger.info(data_error_message)
-                    with open(
-                        opjoin(runner.error_dir, f"{data['sample_name']}.txt"),
-                        "w",
-                    ) as f:
+                    with open(opjoin(runner.error_dir, f"{sample_name}.txt"), "a") as f:
                         f.write(data_error_message)
                     continue
 
-                sample_name = data["sample_name"]
                 logger.info(
                     (
                         f"[Rank {DIST_WRAPPER.rank} ({data['sample_index'] + 1}/{num_data})] {sample_name}: "
@@ -266,15 +270,10 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 error_message = f"[Rank {DIST_WRAPPER.rank}]{data['sample_name']} {e}:\n{traceback.format_exc()}"
                 logger.info(error_message)
                 # Save error info
-                if opexists(
-                    error_path := opjoin(runner.error_dir, f"{sample_name}.txt")
-                ):
-                    os.remove(error_path)
-                with open(error_path, "w") as f:
+                with open(opjoin(runner.error_dir, f"{sample_name}.txt"), "a") as f:
                     f.write(error_message)
                 if hasattr(torch.cuda, "empty_cache"):
                     torch.cuda.empty_cache()
-                raise RuntimeError(f"run infer failed: {str(e)}")
 
 
 def main(configs: Any) -> None:
