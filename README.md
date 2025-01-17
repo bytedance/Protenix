@@ -41,27 +41,6 @@ python3 setup.py develop --cpu
 
 If you set up `Protenix` by `pip`, you can run the following command to do model inference:
 
-🎉 ***Protenix Model Now Supports ESM-2 Features!***
-
-🎉 Protenix now allows users to specify ***contacts***, enabling the model to leverage additional inter-chain information as constraint guidance! We benchmarked our constraint feature on Posebuster and a protein-antibody interfaces subset. Protenix demonstrates significant power in predicting more accurate structures. If you want to have a try, see our [page](docs/infer_json_format.md#constraint) for details about the input format.
-
-To enable ESM features, simply add the argument `--use_esm` when running the inference script. The released model checkpoint is fully compatible with:  
-- MSA-only features 
-- ESM-only features
-- Combined ESM and MSA features
-
-> **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out this branch first.
-
-```
-# run esm inference with msa
-protenix predict --input examples/example.json --out_dir  ./output_msa --seeds 101 --use_esm --use_msa_server
-
-# or run esm inference without msa
-protenix predict --input examples/example.json --out_dir  ./output_no_msa --seeds 101 --use_esm
-```
-
-***The current branch proposes reasoning for esm and constant features, if you want to run inference without these features, you should checkout the main branch.***
-
 ```bash
 # run with example.json, which contains precomputed msa dir.
 protenix predict --input examples/example.json --out_dir  ./output --seeds 101 --use_msa_server
@@ -153,6 +132,15 @@ If you're interested in model training, see [<u> training documentation </u>](do
 ![Constraint Metrics](assets/constraint_metrics.png)
 
 > **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out to this branch first.
+
+And you can run local with the fllowing command (you must install protenix by yourself from source):
+```
+# run esm inference with msa
+protenix predict --input examples/example.json --out_dir  ./output_msa --seeds 101 --use_esm --use_msa_server
+
+# or run esm inference without msa
+protenix predict --input examples/example.json --out_dir  ./output_no_msa --seeds 101 --use_esm
+```
 
 ## Training and Inference Cost
 
