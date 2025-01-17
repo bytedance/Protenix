@@ -23,11 +23,10 @@ from typing import Any, Mapping
 
 import torch
 import torch.distributed as dist
+
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
-from runner.dumper import DataDumper
-
 from protenix.config import parse_configs, parse_sys_args
 from protenix.data.compute_esm import ESM_CONFIG
 from protenix.data.infer_data_pipeline import get_inference_dataloader
@@ -36,6 +35,7 @@ from protenix.utils.distributed import DIST_WRAPPER
 from protenix.utils.seed import seed_everything
 from protenix.utils.torch_utils import to_device
 from protenix.web_service.dependency_url import URL
+from runner.dumper import DataDumper
 
 logger = logging.getLogger(__name__)
 
@@ -183,11 +183,6 @@ def download_infercence_cache(configs: Any, model_version: str = "v0.2.0") -> No
             urllib.request.urlretrieve(tos_url, cur_cache_fpath)
 
     checkpoint_path = configs.load_checkpoint_path
-    if not checkpoint_path.endswith(f"model_{model_version}.pt"):
-        checkpoint_path = os.path.join(
-            code_directory, f"release_data/checkpoint/model_{model_version}.pt"
-        )
-        configs.load_checkpoint_path = checkpoint_path
     if not opexists(checkpoint_path):
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         tos_url = URL[f"model_{model_version}"]
