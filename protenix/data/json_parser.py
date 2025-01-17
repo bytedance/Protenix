@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import concurrent.futures
 import copy
 import logging
 import random
@@ -500,7 +501,17 @@ def smiles_to_atom_info(smiles: str) -> dict:
     atom_info = {}
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
-    ret_code = AllChem.EmbedMolecule(mol)
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(AllChem.EmbedMolecule, mol)
+
+        try:
+            ret_code = future.result(timeout=90)
+        except concurrent.futures.TimeoutError as exc:
+            raise TimeoutError(
+                'Conformer generation timed out.  \
+                    Please change the "ligand" input format to "CCD_" or "FILE_".'
+            ) from exc
 
     if ret_code != 0:
         # retry with random coords
