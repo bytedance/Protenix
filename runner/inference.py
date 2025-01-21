@@ -189,6 +189,9 @@ def download_infercence_cache(configs: Any, model_version: str = "v0.2.0") -> No
         checkpoint_path = os.path.join(
             code_directory, f"release_data/checkpoint/model_{model_version}.pt"
         )
+        if opexists(checkpoint_path):
+            configs.load_checkpoint_path = checkpoint_path
+            return
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         tos_url = URL[f"model_{model_version}"]
         logger.info(f"Downloading model checkpoint from\n {tos_url}...")
