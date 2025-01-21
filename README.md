@@ -140,6 +140,12 @@ protenix predict --input examples/example.json --out_dir  ./output_msa --seeds 1
 
 # or run esm inference without msa
 protenix predict --input examples/example.json --out_dir  ./output_no_msa --seeds 101 --use_esm
+
+# run constraint inference with msa
+protenix predict --input examples/example_constraint.json --out_dir  ./output_constraint --seeds 101 --use_msa_server
+
+# or run constraint inference with msa and esm
+protenix predict --input examples/example_constraint.json --out_dir  ./output_msa_esm --seeds 101 --use_msa_server --use_esm
 ```
 
 ## Training and Inference Cost
