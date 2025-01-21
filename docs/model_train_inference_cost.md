@@ -23,14 +23,14 @@ The model will be infered in BF16 Mixed precision, by **default**, the `SampleDi
 
 Below are reference examples of cuda memory usage (G).
 
-| Ntoken | Natom | Default | Full BF16 Mixed |
+| Ntoken | Natom | Memory(G) | Inference time(s) |
 |--------|-------|-------|------------------|
-| 500    | 10000 | 5.6   | 5.1  |
-| 1500   | 30000 | 24.8  | 19.2 |
-| 2500   | 25000 | 52.2  | 34.8 |
-| 3500   | 35000 | 67.6  | 38.2 |
-| 4500   | 45000 | 77.0  | 59.2 |
-| 5000   | 50000 | OOM   | 72.8 |
+| 500    | 5000  | 5.2   | 72   |
+| 1000   | 10000 | 11.5  | 229  |
+| 2000   | 20000 | 42.8  | 933  |
+| 3000   | 30000 | 73.9  | 2295 |
+| 3500   | 35000 | 69.5  | 3329 |
+| 4000   | 40000 | 67.5  | 4483 |
 
 The script in [runner/inference.py](../runner/inference.py) will automatically change the default precision to compute `SampleDiffusion`,`ConfidenceHead` to avoid OOM as follows:
 ```python
