@@ -2260,7 +2260,7 @@ class AddAtomArrayAnnot(object):
         """
         Unique chain ID and add asym_id, entity_id, sym_id.
         Adds a number to the chain ID to make chain IDs in the assembly unique.
-        Example: [A, B, A, B, C] ==> [A0, B0, A1, B1, C0]
+        Example: [A, B, A, B, C] -> [A, B, A.1, B.1, C]
 
         Args:
             atom_array (AtomArray): Biotite AtomArray object.
@@ -2271,49 +2271,26 @@ class AddAtomArrayAnnot(object):
                 - entity_id_int: np.array(int)
                 - sym_id_int: np.array(int)
         """
-        entity_id_uniq = np.sort(np.unique(atom_array.label_entity_id))
-        entity_id_dict = {e: i for i, e in enumerate(entity_id_uniq)}
-        asym_ids = np.zeros(len(atom_array), dtype=int)
-        entity_ids = np.zeros(len(atom_array), dtype=int)
-        sym_ids = np.zeros(len(atom_array), dtype=int)
-        chain_ids = np.zeros(len(atom_array), dtype="U4")
-        counter = Counter()
-        start_indices = struc.get_chain_starts(atom_array, add_exclusive_stop=True)
-        for i in range(len(start_indices) - 1):
-            start_i = start_indices[i]
-            stop_i = start_indices[i + 1]
-            asym_ids[start_i:stop_i] = i
+        chain_ids = np.zeros(len(atom_array), dtype="<U8")
+        chain_starts = get_chain_starts(atom_array, add_exclusive_stop=True)
 
-            entity_id = atom_array.label_entity_id[start_i]
-            entity_ids[start_i:stop_i] = entity_id_dict[entity_id]
+        chain_counter = Counter()
+        for start, stop in zip(chain_starts[:-1], chain_starts[1:]):
+            ori_chain_id = atom_array.chain_id[start]
+            cnt = chain_counter[ori_chain_id]
+            if cnt == 0:
+                new_chain_id = ori_chain_id
+            else:
+                new_chain_id = f"{ori_chain_id}.{chain_counter[ori_chain_id]}"
 
-            sym_ids[start_i:stop_i] = counter[entity_id]
-            counter[entity_id] += 1
-            new_chain_id = f"{atom_array.chain_id[start_i]}{sym_ids[start_i]}"
-            chain_ids[start_i:stop_i] = new_chain_id
+            chain_ids[start:stop] = new_chain_id
+            chain_counter[ori_chain_id] += 1
 
-        atom_array.set_annotation("asym_id_int", asym_ids)
-        atom_array.set_annotation("entity_id_int", entity_ids)
-        atom_array.set_annotation("sym_id_int", sym_ids)
-        atom_array.chain_id = chain_ids
-        return atom_array
+        assert "" not in chain_ids
+        # reset chain id
+        atom_array.del_annotation("chain_id")
+        atom_array.set_annotation("chain_id", chain_ids)
 
-    @staticmethod
-    def add_int_id(atom_array):
-        """
-        Unique chain ID and add asym_id, entity_id, sym_id.
-        Adds a number to the chain ID to make chain IDs in the assembly unique.
-        Example: [A, B, A, B, C] ==> [A0, B0, A1, B1, C0]
-
-        Args:
-            atom_array (AtomArray): Biotite AtomArray object.
-
-        Returns:
-            AtomArray: Biotite AtomArray object with new annotations:
-                - asym_id_int: np.array(int)
-                - entity_id_int: np.array(int)
-                - sym_id_int: np.array(int)
-        """
         entity_id_uniq = np.sort(np.unique(atom_array.label_entity_id))
         entity_id_dict = {e: i for i, e in enumerate(entity_id_uniq)}
         asym_ids = np.zeros(len(atom_array), dtype=int)
