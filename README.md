@@ -97,9 +97,6 @@ If you're interested in model training, see [<u> training documentation </u>](do
 #### **Model Performance across Several Benchmarks**
 ![Overall Metrics](assets/overall_metrics.png)
 
-See the [<u>performance documentation</u>](docs/model_performance.md) for memory and time consumption in training and inference.
-
-
 #### ***Early Access to NEW Constraint Feature!***
 
 🎉 Protenix now allows users to specify ***contacts***, enabling the model to leverage additional inter-chain information as constraint guidance! We benchmarked our constraint feature on Posebuster and a protein-antibody interfaces subset. Protenix demonstrates powerful ability in predicting more accurate structures. If you want to have a try, checkout to branch `constraint_esm` for details about the input format.
@@ -107,6 +104,11 @@ See the [<u>performance documentation</u>](docs/model_performance.md) for memory
 ![Constraint Metrics](assets/constraint_metrics.png)
 
 > **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out to this branch first.
+
+## Training and Inference Cost
+
+See the [<u>model_train_inference_cost documentation</u>](docs/model_train_inference_cost.md) for memory and time consumption in training and inference.
+
 
 ## Citing This Work
 
