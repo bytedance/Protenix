@@ -30,7 +30,9 @@ class ESMFeaturizer:
 
     def get_seq_to_filename(self, sequence_fpath: str) -> dict[str, str]:
         df = pd.read_csv(sequence_fpath)
-        df["filename"] = df["part_id"] + "/" + df["seq_label"] + ".pt"
+        df["filename"] = (
+            df["part_id"].astype(str) + "/" + df["seq_label"].astype(str) + ".pt"
+        )
         return df.set_index("seq")["filename"].to_dict()
 
     def load_esm_embedding(self, sequence: str):
