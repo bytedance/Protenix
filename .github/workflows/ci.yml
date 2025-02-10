@@ -9,6 +9,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Declare default permissions as read only.
+permissions: read-all
+
 jobs:
   build:
 
