@@ -544,13 +544,6 @@ class Attention(nn.Module):
 
         if use_memory_efficient_kernel:
             raise Exception(f"use_memory_efficient_kernel=True not supported!!!")
-            if len(biases) > 2:
-                raise ValueError(
-                    "If use_memory_efficient_kernel is True, you may only "
-                    "provide up to two bias terms"
-                )
-            o = attention_core(q, k, v, *((biases + [None] * 2)[:2]))
-            o = o.transpose(-2, -3)
         elif use_deepspeed_evo_attention:
             if len(biases) > 2:
                 raise ValueError(

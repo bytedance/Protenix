@@ -30,6 +30,7 @@ def get_seqs(mmcif_file):
 
     entity_poly = mmcif_parser.get_category_table("entity_poly")
     if entity_poly is None:
+        pdb_id = mmcif_file.name.split(".")[0]
         return pdb_id, None
     entity_poly["mmcif_seq_old"] = entity_poly.pdbx_seq_one_letter_code_can.str.replace(
         "\n", ""
