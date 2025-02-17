@@ -105,7 +105,6 @@ If your input is pdb or cif file, you can convert it to json file for inference.
 protenix tojson --input examples/7pzb.pdb --out_dir ./output
 ```
 
-
 ### MSA search
 We also provide an independent MSA search function, you can do msa search from json file or fasta file.
 ```bash
