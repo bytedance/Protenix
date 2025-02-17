@@ -13,9 +13,24 @@
 # limitations under the License.
 
 from setuptools import find_packages, setup
+import sys
 
+
+# Read requirements from the file
 with open("requirements.txt") as f:
     install_requires = f.read().splitlines()
+
+# Check if the user specified the CPU option
+if '--cpu' in sys.argv:
+    # Remove the gpu packages
+    try:
+        to_drop = [x for x in install_requires if "nvidia" in x or "cuda" in x]
+        for x in to_drop:
+            install_requires.remove(x)
+    except ValueError:
+        pass
+    # Remove the --cpu option from sys.argv so setuptools doesn't get confused
+    sys.argv.remove('--cpu')
 
 setup(
     name="protenix",
