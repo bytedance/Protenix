@@ -77,7 +77,6 @@ protenix tojson --input examples/7pzb.cif --out_dir ./output
 
 ### Performance details
 
-
 **Detailed information on the format of the input JSON file and the output files can be found in [<u> input and output documentation </u>](docs/infer_json_format.md)**.
 
 Alternatively you can run inference by:
