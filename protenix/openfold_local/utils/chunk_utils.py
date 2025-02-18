@@ -14,28 +14,15 @@
 import logging
 import math
 from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Optional, Sequence, Tuple
 
+import optree
 import torch
-
 from protenix.openfold_local.utils.tensor_utils import tensor_tree_map, tree_map
 
 
 def _fetch_dims(tree):
-    shapes = []
-    tree_type = type(tree)
-    if tree_type is dict:
-        for v in tree.values():
-            shapes.extend(_fetch_dims(v))
-    elif tree_type is list or tree_type is tuple:
-        for t in tree:
-            shapes.extend(_fetch_dims(t))
-    elif tree_type is torch.Tensor:
-        shapes.append(tree.shape)
-    else:
-        raise ValueError("Not supported")
-
-    return shapes
+    return optree.tree_flatten(optree.tree_map(lambda x: x.shape, tree))[0]
 
 
 @torch.jit.ignore

@@ -37,7 +37,6 @@ def download_ccd_cif(output_path: Path):
         output_path (Path): The output path for saving the downloaded CCD CIF file.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_cif = output_path / "components.cif"
 
     logging.info("Downloading CCD CIF file from rcsb.org ...")
 
@@ -46,6 +45,7 @@ def download_ccd_cif(output_path: Path):
         logging.info("Remove old zipped CCD CIF file: %s", output_cif_gz)
         output_cif_gz.unlink()
 
+    output_cif = output_cif_gz.with_suffix("")
     if output_cif.exists():
         logging.info("Remove old CCD CIF file: %s", output_cif)
         output_cif.unlink()
@@ -57,7 +57,7 @@ def download_ccd_cif(output_path: Path):
     )
 
     sp.run(
-        f"zcat {output_cif_gz} > {output_cif}",
+        f"gunzip {output_cif_gz}",
         shell=True,
         check=True,
     )
