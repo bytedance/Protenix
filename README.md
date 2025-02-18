@@ -29,6 +29,12 @@ pip3 install protenix
 
 If you're interested in model training, we recommand to [<u> run with docker</u>](docs/docker_installation.md).
 
+### Local installation (cpu only)
+For development on a CPU-only machine, it is convenient to install with the `--cpu` flag in editable mode: 
+```
+python3 setup.py develop --cpu
+```
+
 ## Inference
 
 ### Command line inference
@@ -47,6 +53,29 @@ protenix predict --input ./jsons_dir/ --out_dir  ./output
 # if mutiple seeds are provided, split them by comma.
 protenix predict --input examples/example_without_msa.json --out_dir ./output --seeds 101,102 --use_msa_server
 ```
+
+### Convert PDB/CIF file to json
+
+If your input is pdb or cif file, you can convert it to json file for inference.
+
+```bash
+# ensure `release_data/ccd_cache/components.cif` or run: 
+python scripts/gen_ccd_cache.py -c release_data/ccd_cache/ -n [num_cpu]
+
+# for PDB
+# download pdb file
+wget https://files.rcsb.org/download/7pzb.pdb
+# run with pdb/cif file, and convert it to json file for inference.
+protenix tojson --input examples/7pzb.pdb --out_dir ./output
+
+# for CIF (same process)
+# download cif file
+wget https://files.rcsb.org/download/7pzb.cif
+# run with pdb/cif file, and convert it to json file for inference.
+protenix tojson --input examples/7pzb.cif --out_dir ./output
+```
+
+### Performance details
 
 **Detailed information on the format of the input JSON file and the output files can be found in [<u> input and output documentation </u>](docs/infer_json_format.md)**.
 
@@ -74,7 +103,6 @@ If your input is pdb or cif file, you can convert it to json file for inference.
 # run with pdb/cif file, and convert it to json file for inference.
 protenix tojson --input examples/7pzb.pdb --out_dir ./output
 ```
-
 
 ### MSA search
 We also provide an independent MSA search function, you can do msa search from json file or fasta file.
