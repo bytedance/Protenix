@@ -33,7 +33,7 @@ RUN pip3 --no-cache-dir install \
     ml_collections \
     tqdm \
     pandas \
-    dm-tree \
+    optree \
     rdkit
 
 # Add openfold dependency
