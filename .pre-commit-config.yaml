@@ -1,3 +1,4 @@
+# originally from: https://github.com/pytorch/torchtune/blob/main/.pre-commit-config.yaml
 exclude: 'build'
 
 default_language_version:
@@ -5,7 +6,7 @@ default_language_version:
 
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: 6306a48f7dae5861702d573c9c247e4e9498e867
+    rev: v5.0.0
     hooks:
     -   id: trailing-whitespace
     -   id: check-ast
@@ -13,21 +14,21 @@ repos:
     -   id: no-commit-to-branch
         args: ['--branch=main']
     -   id: check-added-large-files
-        args: ['--maxkb=500']
+        args: ['--maxkb=1000']
     -   id: end-of-file-fixer
         exclude: '^(.*\.svg)$'
 
 -   repo: https://github.com/Lucas-C/pre-commit-hooks
-    rev: v1.5.4
+    rev: v1.5.5
     hooks:
     -   id: insert-license
-        files: \.py$
+        files: \.py$|\.sh$
         args:
         - --license-filepath
         - assets/license_header.txt
 
 -   repo: https://github.com/pycqa/flake8
-    rev: 34cbf8ef3950f43d09b85e2e45c15ae5717dc37b
+    rev: 7.1.1
     hooks:
     -   id: flake8
         additional_dependencies:
