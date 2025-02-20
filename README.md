@@ -2,19 +2,19 @@
 
 A trainable PyTorch reproduction of [AlphaFold 3](https://www.nature.com/articles/s41586-024-07487-w).
 
-For more information on the model's performance and capabilities, see our technical report ([biorxiv](https://www.biorxiv.org/content/10.1101/2025.01.08.631967v1) | [pdf](Protenix_Technical_Report.pdf)). 
+For more information on the model's performance and capabilities, see our technical report ([biorxiv](https://www.biorxiv.org/content/10.1101/2025.01.08.631967v1) | [pdf](Protenix_Technical_Report.pdf)).
 
 You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversation in the [discord server](https://discord.gg/8ZMWy89aMf).
 
 ![Protenix predictions](assets/protenix_predictions.gif)
 
 ## ⚡ Try it online
-- [Web server link](http://101.126.11.40:8000/) 
+- [Web server link](http://101.126.11.40:8000/)
 
 
 ## 🔥 Feature Update
 * 🚀 The preview version of [constraint feature](./README.md#early-access-to-new-constraint-feature) is released to branch [`constraint_esm`](https://github.com/bytedance/Protenix/tree/constraint_esm).
-* 🪐 The [training data pipeline](./docs/prepare_training_data.md) is released. 
+* 🪐 The [training data pipeline](./docs/prepare_training_data.md) is released.
 * ⚡️  The [MSA pipeline](./docs/msa_pipeline.md) is released.
 * 🛸 Use [local colabfold_search](./docs/colabfold_compatiable_msa.md) to generate protenix-compatible MSA.
 
@@ -30,7 +30,7 @@ pip3 install protenix
 If you're interested in model training, we recommand to [<u> run with docker</u>](docs/docker_installation.md).
 
 ### Local installation (cpu only)
-For development on a CPU-only machine, it is convenient to install with the `--cpu` flag in editable mode: 
+For development on a CPU-only machine, it is convenient to install with the `--cpu` flag in editable mode:
 ```
 python3 setup.py develop --cpu
 ```
@@ -48,7 +48,7 @@ protenix predict --input examples/example.json --out_dir  ./output --seeds 101
 # run with multiple json files, the default seed is 101.
 protenix predict --input ./jsons_dir/ --out_dir  ./output
 
-# if the json do not contain precomputed msa dir, 
+# if the json do not contain precomputed msa dir,
 # add --use_msa_server to search msa and then predict.
 # if mutiple seeds are provided, split them by comma.
 protenix predict --input examples/example_without_msa.json --out_dir ./output --seeds 101,102 --use_msa_server
@@ -59,7 +59,7 @@ protenix predict --input examples/example_without_msa.json --out_dir ./output --
 If your input is pdb or cif file, you can convert it to json file for inference.
 
 ```bash
-# ensure `release_data/ccd_cache/components.cif` or run: 
+# ensure `release_data/ccd_cache/components.cif` or run:
 python scripts/gen_ccd_cache.py -c release_data/ccd_cache/ -n [num_cpu]
 
 # for PDB
@@ -90,8 +90,8 @@ bash inference_demo.sh
 Arguments in this scripts are explained as follows:
 
 * `input_json_path`: path to a JSON file that fully describes the input.
-* `dump_dir`: path to a directory where the results of the inference will be saved. 
-* `dtype`: data type used in inference. Valid options include `"bf16"` and `"fp32"`. 
+* `dump_dir`: path to a directory where the results of the inference will be saved.
+* `dtype`: data type used in inference. Valid options include `"bf16"` and `"fp32"`.
 * `use_msa`: whether to use the MSA feature, the default is true.
 * `use_esm`: whether to use the ESM feature, the default is false.
 
@@ -161,6 +161,13 @@ Implementation of the layernorm operators referred to [OneFlow](https://github.c
 ## Contribution
 
 Please check [Contributing](CONTRIBUTING.md) for more details. If you encounter problems using Protenix, feel free to create an issue! We also welcome pull requests from the community.
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+So new commits will be automatically checked.
 
 ## Code of Conduct
 
