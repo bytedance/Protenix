@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import json
 import logging
 import os
@@ -26,15 +27,16 @@ from Bio import SeqIO
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
-from rdkit import Chem
-from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
-from runner.msa_search import msa_search, update_infer_json
 
 from protenix.config import parse_configs
 from protenix.data.json_maker import cif_to_input_json
 from protenix.data.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
+from rdkit import Chem
+
+from runner.inference import download_infercence_cache, infer_predict, InferenceRunner
+from runner.msa_search import msa_search, update_infer_json
 
 logger = get_logger(__name__)
 
@@ -49,9 +51,7 @@ def init_logging():
     )
 
 
-def generate_infer_jsons(
-    protein_msa_res: dict, ligand_file: str, seeds: List[int] = [101]
-) -> List[str]:
+def generate_infer_jsons(protein_msa_res: dict, ligand_file: str) -> List[str]:
     protein_chains = []
     if len(protein_msa_res) <= 0:
         raise RuntimeError(f"invalid `protein_msa_res` data in {protein_msa_res}")
@@ -135,7 +135,6 @@ def generate_infer_jsons(
         infer_json_files.append(json_file_name)
 
     for smi_ligand_file in smi_ligand_files:
-        one_infer_seq = protein_chains[:]
         with open(smi_ligand_file, "r") as f:
             smile_list = f.readlines()
         one_infer_seq = protein_chains[:]
@@ -161,7 +160,7 @@ def generate_infer_jsons(
     return infer_json_files
 
 
-def get_default_runner(seeds: Optional[list] = None) -> InferenceRunner:
+def get_default_runner(seeds: Optional[tuple] = None) -> InferenceRunner:
     configs_base["use_deepspeed_evo_attention"] = (
         os.environ.get("USE_DEEPSPEED_EVO_ATTTENTION", False) == "true"
     )
@@ -183,7 +182,7 @@ def inference_jsons(
     json_file: str,
     out_dir: str = "./output",
     use_msa_server: bool = False,
-    seeds: list = [101],
+    seeds: tuple = (101,),
 ) -> None:
     """
     infer_json: json file or directory, will run infer with these jsons
@@ -228,7 +227,7 @@ def batch_inference(
     protein_msa_res: dict,
     ligand_file: str,
     out_dir: str = "./output",
-    seeds: List[int] = [101],
+    seeds: tuple[int] = (101,),
 ) -> None:
     """
     ligand_file: ligand file or directory, should be in sdf format or smi with smlies list;
@@ -413,11 +412,11 @@ protenix_cli.add_command(msa)
 def test_batch_inference():
     ligands_dir = "../examples/ligands"
     protein_msa_res = {
-        "MASWSHPQFEKGGTHVAETSAPTRSEPDTRVLTLPGTASAPEFRLIDIDGLLNNRATTDVRDLGSGRLNAWGNSFPAAELPAPGSLITVAGIPFTWANAHARGDNIRCEGQVVDIPPGQYDWIYLLAASERRSEDTIWAHYDDGHADPLRVGISDFLDGTPAFGELSAFRTSRMHYPHHVQEGLPTTMWLTRVGMPRHGVARSLRLPRSVAMHVFALTLRTAAAVRLAEGATT": {
+        "MASWSHPQFEKGGTHVAETSAPTRSEPDTRVLTLPGTASAPEFRLIDIDGLLNNRATTDVRDLGSGRLNAWGNSFPAAELPAPGSLITVAGIPFTWANAHARGDNIRCEGQVVDIPPGQYDWIYLLAASERRSEDTIWAHYDDGHADPLRVGISDFLDGTPAFGELSAFRTSRMHYPHHVQEGLPTTMWLTRVGMPRHGVARSLRLPRSVAMHVFALTLRTAAAVRLAEGATT": {  # noqa: B950
             "precomputed_msa_dir": "../examples/7wux/msa/1",
             "pairing_db": "uniref100",
         },
-        "MGSSHHHHHHSQDPNSTTTAPPVELWTRDLGSCLHGTLATALIRDGHDPVTVLGAPWEFRRRPGAWSSEEYFFFAEPDSLAGRLALYHPFESTWHRSDGDGVDDLREALAAGVLPIAAVDNFHLPFRPAFHDVHAAHLLVVYRITETEVYVSDAQPPAFQGAIPLADFLASWGSLNPPDDADVFFSASPSGRRWLRTRMTGPVPEPDRHWVGRVIRENVARYRQEPPADTQTGLPGLRRYLDELCALTPGTNAASEALSELYVISWNIQAQSGLHAEFLRAHSVKWRIPELAEAAAGVDAVAHGWTGVRMTGAHSRVWQRHRPAELRGHATALVRRLEAALDLLELAADAVS": {
+        "MGSSHHHHHHSQDPNSTTTAPPVELWTRDLGSCLHGTLATALIRDGHDPVTVLGAPWEFRRRPGAWSSEEYFFFAEPDSLAGRLALYHPFESTWHRSDGDGVDDLREALAAGVLPIAAVDNFHLPFRPAFHDVHAAHLLVVYRITETEVYVSDAQPPAFQGAIPLADFLASWGSLNPPDDADVFFSASPSGRRWLRTRMTGPVPEPDRHWVGRVIRENVARYRQEPPADTQTGLPGLRRYLDELCALTPGTNAASEALSELYVISWNIQAQSGLHAEFLRAHSVKWRIPELAEAAAGVDAVAHGWTGVRMTGAHSRVWQRHRPAELRGHATALVRRLEAALDLLELAADAVS": {  # noqa: B950
             "precomputed_msa_dir": "../examples/7wux/msa/2",
             "pairing_db": "uniref100",
         },
