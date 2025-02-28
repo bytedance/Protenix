@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import biotite.structure as struc
@@ -30,7 +31,6 @@ def get_seqs(mmcif_file):
 
     entity_poly = mmcif_parser.get_category_table("entity_poly")
     if entity_poly is None:
-        pdb_id = mmcif_file.name.split(".")[0]
         return pdb_id, None
     entity_poly["mmcif_seq_old"] = entity_poly.pdbx_seq_one_letter_code_can.str.replace(
         "\n", ""
@@ -57,8 +57,15 @@ def get_seqs(mmcif_file):
     if "pdbx_audit_revision_history" in mmcif_parser.cif.block:
         history = mmcif_parser.cif.block["pdbx_audit_revision_history"]
         info_df["release_date"] = history["revision_date"].as_array()[0]
+    else:
+        # Handle non-official mmcif file which transform from pdb file
+        info_df["release_date"] = datetime.now().strftime("%Y-%m-%d")
 
-    info_df["release_date_retrace_obsolete"] = mmcif_parser.release_date
+    if mmcif_parser.release_date:
+        info_df["release_date_retrace_obsolete"] = mmcif_parser.release_date
+    else:   
+        # Handle non-official mmcif file which transform from pdb file
+        info_df["release_date_retrace_obsolete"] = datetime.now().strftime("%Y-%m-%d")
 
     entity_poly_seq = mmcif_parser.get_category_table("entity_poly_seq")
 
@@ -189,8 +196,14 @@ def mapping_seqs_to_integer_identifiers(
 
 
 if __name__ == "__main__":
-    # It's a demo here
-    cif_dir = Path("./scripts/msa/data/mmcif")
+    import argparse
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cif_dir", type=str, default="./scripts/msa/data/mmcif")
+    parser.add_argument("--out_dir", type=str, default="./scripts/msa/data/pdb_seqs")
+    args = parser.parse_args()
+    
+    cif_dir = Path(args.cif_dir)
     cif_files = [x for x in cif_dir.iterdir() if x.is_file()]
 
     info_dfs = []
@@ -208,7 +221,7 @@ if __name__ == "__main__":
     out_df = pd.concat(info_dfs)
     out_df = out_df.sort_values(["pdb_id", "entity_id"])
 
-    out_dir = Path("./scripts/msa/data/pdb_seqs")
+    out_dir = Path(args.out_dir)
     if not out_dir.exists():
         out_dir.mkdir(parents=True)
     # 1. extract pdb sequence info
