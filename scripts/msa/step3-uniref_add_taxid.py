@@ -121,10 +121,9 @@ def process_block_binary(block_info):
                     try:
                         line_str = full_line.decode('utf-8')
                         line_list = line_str.split('\t')
-                        if len(line_list) >= 3:
-                            hit_name = line_list[1]
-                            ncbi_taxid = line_list[2]
-                            local_dict[hit_name] = ncbi_taxid
+                        hit_name = line_list[1]
+                        ncbi_taxid = line_list[2]
+                        local_dict[hit_name] = ncbi_taxid
                     except Exception:
                         # Skip problematic lines
                         continue
