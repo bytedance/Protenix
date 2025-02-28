@@ -302,7 +302,7 @@ def process_files_batched(
         batch_size: Number of files to process in each batch
     """
     if batch_size is None:
-        batch_size = len(file_list) // num_workers
+        batch_size = max(1, len(file_list) // num_workers)
     
     # Split files into batches
     batches = chunk_list(file_list, batch_size)
@@ -371,7 +371,7 @@ def main():
                         help="Number of parallel workers to use (default: half of all CPU cores or 1)")
     parser.add_argument("--batch_size", type=int, default=None,
                         help="Number of files to process in each batch (default: adjusted automatically)")
-    parser.add_argument("--use_shared_memory", action="store_true",
+    parser.add_argument("--shared_memory", action="store_true",
                         help="Use shared memory for dictionaries to reduce memory usage")
     args = parser.parse_args()
 
@@ -384,7 +384,7 @@ def main():
     _, first_pdbid_to_seq, seq_to_pdb_index = load_mapping_data(
         args.seq_to_pdb_id, 
         args.seq_to_pdb_index,
-        use_shared_memory=args.use_shared_memory
+        use_shared_memory=args.shared_memory
     )
     print("Mapping data loaded successfully")
 
@@ -408,7 +408,7 @@ def main():
     )
     
     # Release all shared dictionaries if necessary
-    if args.use_shared_memory:
+    if args.shared_memory:
         for dict_id in get_shared_dict_ids():
             release_shared_dict(dict_id)
 

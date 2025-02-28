@@ -422,6 +422,6 @@ if __name__ == "__main__":
     )
 
     # Release all shared dictionaries if necessary
-    if args.use_shared_memory:
+    if args.shared_memory:
         for dict_id in get_shared_dict_ids():
             release_shared_dict(dict_id)
