@@ -172,7 +172,8 @@ def read_m8(
     Args:
         m8_file (str): the uniref_tax.m8 from output of mmseqs(colabfold search)
         max_workers (Optional[int]): maximum number of worker processes to use (defaults to CPU count - 1)
-        block_size_mb (int): size of each processing block in MB
+        block_size_mb (int): size of each processing block in MB. Do not set too small, otherwise the 
+            overhead of process creation and task management will be too high and unfound bugs will be introduced.
 
     Returns:
         Dict[str, str]: the dict mapping uniref hit_name to NCBI TaxID
@@ -210,11 +211,12 @@ def read_m8(
         if max_workers <= 1:
             use_multiprocessing = False
     
+    uniref_to_ncbi_taxid = {}
+    
     # For multiprocessing approach (large files with sufficient CPU resources)
     if use_multiprocessing:
         print(f"File is large, using multiprocessing with {max_workers} workers for {num_blocks} blocks")
-        result_dict = {}
-        
+
         # Create batches of blocks
         batches = []
         for i in range(0, num_blocks):
@@ -229,19 +231,15 @@ def read_m8(
                     try:
                         batch_dict = future.result()
                         # Merge results
-                        result_dict.update(batch_dict)
+                        uniref_to_ncbi_taxid.update(batch_dict)
                         pbar.update(1)
                     except Exception as e:
                         print(f"Error processing batch: {e}")
                         pbar.update(1)
-        
-        print(f"Processed {len(result_dict):,} unique entries")
-        return result_dict
-    
+
     # Sequential processing approach (for small to medium files)
     else:
         print(f"Using sequential processing for {file_size/(1024*1024):.1f} MB file")
-        uniref_to_ncbi_taxid = {}
         
         # Original single-threaded line-by-line processing
         with open(m8_file, "r") as infile:
@@ -250,9 +248,10 @@ def read_m8(
                 hit_name = line_list[1]
                 ncbi_taxid = line_list[2]
                 uniref_to_ncbi_taxid[hit_name] = ncbi_taxid
-        
-        print(f"Processed {len(uniref_to_ncbi_taxid):,} unique entries")
-        return uniref_to_ncbi_taxid
+
+    print(f"Processed {len(uniref_to_ncbi_taxid):,} unique entries")
+
+    return uniref_to_ncbi_taxid
 
 
 def update_a3m(
@@ -457,13 +456,8 @@ if __name__ == "__main__":
     
     # Release all shared dictionaries if necessary
     if args.shared_memory:
-        try:
-            print("Cleaning up shared memory...")
-            for dict_id in get_shared_dict_ids():
-                try:
-                    release_shared_dict(dict_id)
-                except Exception as e:
-                    print(f"Warning: Failed to release shared dict {dict_id}: {e}")
-            print("Shared memory cleanup complete")
-        except Exception as e:
-            print(f"⚠️ Error during shared memory cleanup: {e}")
+        for dict_id in get_shared_dict_ids():
+            try:
+                release_shared_dict(dict_id)
+            except Exception as e:
+                print(f"Warning: Failed to release shared dict {dict_id}: {e}")
