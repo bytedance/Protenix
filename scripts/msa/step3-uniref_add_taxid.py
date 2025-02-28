@@ -258,16 +258,13 @@ def update_a3m(
     a3m_path: str,
     uniref_to_ncbi_taxid: Dict[str, str],
     save_root: str,
-) -> str:
+) -> None:
     """add NCBI TaxID to header if "UniRef" in header
 
     Args:
         a3m_path (str): the original a3m path returned by mmseqs(colabfold search)
         uniref_to_ncbi_taxid (Dict): the dict mapping uniref hit_name to NCBI TaxID
         save_root (str): the updated a3m
-        
-    Returns:
-        str: The path of the processed a3m file
     """
     heads, seqs, uniref_index = read_a3m(a3m_path)
     fname = a3m_path.split("/")[-1]
@@ -284,10 +281,9 @@ def update_a3m(
                 else:
                     head = head.replace(uniref_id, f"{uniref_id}_{ncbi_taxid}/")
             ofile.write(f"{head}{seq}")
-    return out_a3m_path
 
 
-def update_a3m_batch(batch_paths: List[str], uniref_to_ncbi_taxid: Dict[str, str], save_root: str) -> List[str]:
+def update_a3m_batch(batch_paths: List[str], uniref_to_ncbi_taxid: Dict[str, str], save_root: str) -> int:
     """Process a batch of a3m files.
     
     Args:
@@ -296,17 +292,15 @@ def update_a3m_batch(batch_paths: List[str], uniref_to_ncbi_taxid: Dict[str, str
         save_root (str): Directory to save processed files
         
     Returns:
-        List[str]: List of processed file paths
+        int: Number of files processed
     """
-    results = []
     for a3m_path in batch_paths:
-        result = update_a3m(
+        update_a3m(
             a3m_path=a3m_path,
             uniref_to_ncbi_taxid=uniref_to_ncbi_taxid,
             save_root=save_root
         )
-        results.append(result)
-    return results
+    return len(batch_paths)
 
 
 def process_files(
@@ -343,25 +337,17 @@ def process_files(
         batch_size = max(1, math.ceil(total_files / (num_workers * target_batches_per_worker)))
     
     # Create batches
-    batches = []
-    for i in range(0, len(a3m_paths), batch_size):
-        batch = a3m_paths[i:i + batch_size]
-        batches.append(batch)
+    batches = [a3m_paths[i:i + batch_size] for i in range(0, len(a3m_paths), batch_size)]
     
     # Process in single-threaded mode if we have very few files or only one worker
     if total_files < 10 or num_workers == 1:
-        with tqdm(total=total_files, desc="Processing a3m files") as pbar:
-            for a3m_path in a3m_paths:
-                update_a3m(
-                    a3m_path=a3m_path,
-                    uniref_to_ncbi_taxid=uniref_to_ncbi_taxid,
-                    save_root=output_msa_dir,
-                )
-                pbar.update(1)
-        return
-    
-    start_time = time.time()
-    
+        for a3m_path in tqdm(a3m_paths, desc="Processing a3m files"):
+            update_a3m(
+                a3m_path=a3m_path,
+                uniref_to_ncbi_taxid=uniref_to_ncbi_taxid,
+                save_root=output_msa_dir,
+            )
+        return    
     # Use ProcessPoolExecutor for parallel processing
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
         # Submit batch tasks instead of individual files
@@ -376,24 +362,17 @@ def process_files(
             futures.append(future)
         
         # Track progress across all batches
-        completed_files = 0
         with tqdm(total=total_files, desc="Processing a3m files") as pbar:
             for future in concurrent.futures.as_completed(futures):
                 try:
                     # Each result is a list of file paths processed in the batch
-                    result = future.result()
-                    batch_size = len(result)
-                    completed_files += batch_size
+                    batch_size = future.result()
                     pbar.update(batch_size)
                 except Exception as e:
                     print(f"Error processing batch: {e}")
                     # Estimate how many files might have been in this failed batch
                     avg_batch_size = total_files / len(batches)
                     pbar.update(int(avg_batch_size))
-    
-    end_time = time.time()
-    elapsed = end_time - start_time
-    print(f"Processing complete ({elapsed:.1f} seconds)")
 
 
 if __name__ == "__main__":
@@ -461,3 +440,5 @@ if __name__ == "__main__":
                 release_shared_dict(dict_id)
             except Exception as e:
                 print(f"Warning: Failed to release shared dict {dict_id}: {e}")
+
+    print("Processing complete")

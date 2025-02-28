@@ -25,12 +25,13 @@ import fcntl  # For file locking
 
 from utils import (
     convert_to_shared_dict,  # To create new shared dictionaries
+    SharedDict,              # To handle type annotation
     release_shared_dict,     # To manually release dictionaries
     get_shared_dict_ids      # To list available dictionaries
 )
 
 # Type alias for dictionary-like objects (regular dict or Manager.dict)
-DictLike = Union[Dict[str, Any], Mapping[str, Any]]
+DictLike = Union[Dict[str, Any], Mapping[str, Any], SharedDict]
 
 
 def load_mapping_data(seq_to_pdb_id_path: str, seq_to_pdb_index_path: str, use_shared_memory: bool = False) -> Tuple[Dict[str, Any], DictLike, DictLike]:
@@ -47,7 +48,7 @@ def load_mapping_data(seq_to_pdb_id_path: str, seq_to_pdb_index_path: str, use_s
     """
     # Load sequence to PDB ID mapping
     with open(seq_to_pdb_id_path, "r") as f:
-        seq_to_pdbid = json.load(f)
+        seq_to_pdbid: Dict[str, Any] = json.load(f)
     
     # Create reverse mapping for easy lookup
     first_pdbid_to_seq_data = {"_".join(v[0]): k for k, v in seq_to_pdbid.items()}
@@ -349,15 +350,11 @@ def process_files_batched(
                     )
                 except Exception as e:
                     print(f"Error processing batch: {e}")
-    
-    # Print final statistics
-    total_time = time.time() - start_time
-    print(f"Processed {total_processed} files in {total_time:.2f} seconds")
-    print(f"Average processing speed: {total_processed / total_time:.2f} files/second")
 
 
-def main():
-    """Main function to run the script with command line arguments."""
+if __name__ == "__main__":
+    # Set start method to spawn to ensure compatibility with shared memory
+    multiprocessing.set_start_method('spawn', force=True)
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -412,8 +409,4 @@ def main():
         for dict_id in get_shared_dict_ids():
             release_shared_dict(dict_id)
 
-
-if __name__ == "__main__":
-    # Set start method to spawn to ensure compatibility with shared memory
-    multiprocessing.set_start_method('spawn', force=True)
-    main()
+    print("Processing complete")
