@@ -243,9 +243,9 @@ def read_m8(
         print(f"Using sequential processing for {file_size/(1024*1024):.1f} MB file")
         uniref_to_ncbi_taxid = {}
         
-        # Use line-by-line processing which is more memory efficient
-        with open(m8_file, "r") as f:
-            for line in tqdm(f, desc="Reading m8 file", unit="lines"):
+        # Original single-threaded line-by-line processing
+        with open(m8_file, "r") as infile:
+            for line in tqdm(infile, desc="Reading m8 file", unit="lines"):
                 line_list = line.rstrip().split("\t")
                 hit_name = line_list[1]
                 ncbi_taxid = line_list[2]
