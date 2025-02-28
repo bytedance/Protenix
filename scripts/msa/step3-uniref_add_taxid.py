@@ -247,10 +247,9 @@ def read_m8(
         with open(m8_file, "r") as f:
             for line in tqdm(f, desc="Reading m8 file", unit="lines"):
                 line_list = line.rstrip().split("\t")
-                if len(line_list) >= 3:
-                    hit_name = line_list[1]
-                    ncbi_taxid = line_list[2]
-                    uniref_to_ncbi_taxid[hit_name] = ncbi_taxid
+                hit_name = line_list[1]
+                ncbi_taxid = line_list[2]
+                uniref_to_ncbi_taxid[hit_name] = ncbi_taxid
         
         print(f"Processed {len(uniref_to_ncbi_taxid):,} unique entries")
         return uniref_to_ncbi_taxid
