@@ -17,7 +17,6 @@ from os.path import join as opjoin
 from typing import Dict, List, Tuple, Optional, Union, Any
 import concurrent.futures
 import multiprocessing
-import time
 import math
 
 from tqdm import tqdm
