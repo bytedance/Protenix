@@ -29,7 +29,7 @@ inference_configs = {
     "sorted_by_ranking_score": True,
     "input_json_path": RequiredValue(str),
     "load_checkpoint_path": os.path.join(
-        code_directory, "./release_data/checkpoint/model_v0.2.0.pt"
+        code_directory, "./release_data/checkpoint/model_beta1_v0.2.0.pt"
     ),
     "num_workers": 16,
     "use_msa": True,
