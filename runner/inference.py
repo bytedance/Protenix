@@ -75,7 +75,7 @@ class InferenceRunner(object):
             self.print(f"env: {env}")
             assert (
                 env is not None
-            ), "if use ds4sci, set `CUTLASS_PATH` env as https://www.deepspeed.ai/tutorials/ds4sci_evoformerattention/"
+            ), "if use ds4sci, set `CUTLASS_PATH` environment variable according to the instructions at https://www.deepspeed.ai/tutorials/ds4sci_evoformerattention/"
             if env is not None:
                 logging.info(
                     "The kernels will be compiled when DS4Sci_EvoformerAttention is called for the first time."
