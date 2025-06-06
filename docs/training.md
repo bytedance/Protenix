@@ -1,5 +1,5 @@
 ### Preparing the datasets
-To download the [wwPDB dataset](https://www.wwpdb.org/) and proprecessed training data, you need at least 1T disk space.
+To download the [wwPDB dataset](https://www.wwpdb.org/) and preprocessed training data, you need at least 1T disk space.
 
 Use the following command to download the preprocessed wwpdb training databases:
 
