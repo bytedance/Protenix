@@ -562,7 +562,7 @@ def load_and_process_msa(
         if handle_empty == "return_self":
             msa_data["dummy"] = make_dummy_msa_obj(input_sequence)
         elif handle_empty == "raise_error":
-            ValueError(f"No valid {msa_type} MSA for {pdb_name}")
+            raise ValueError(f"No valid {msa_type} MSA for {pdb_name}")
         else:
             raise NotImplementedError(
                 f"Unimplemented empty-handling method: {handle_empty}"
