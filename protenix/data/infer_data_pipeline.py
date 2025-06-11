@@ -31,7 +31,7 @@ from protenix.data.json_to_feature import SampleDictToFeatures
 from protenix.data.msa_featurizer import InferenceMSAFeaturizer
 from protenix.data.utils import data_type_transform, make_dummy_feature
 from protenix.utils.distributed import DIST_WRAPPER
-from protenix.utils.torch_utils import dict_to_tensor
+from protenix.utils.torch_utils import collate_fn_identity, dict_to_tensor
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def get_inference_dataloader(configs: Any) -> DataLoader:
         dataset=inference_dataset,
         batch_size=1,
         sampler=sampler,
-        collate_fn=lambda batch: batch,
+        collate_fn=collate_fn_identity,
         num_workers=configs.num_workers,
     )
     return dataloader

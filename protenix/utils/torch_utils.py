@@ -152,3 +152,11 @@ def dict_to_tensor(feature_dict: dict) -> dict:
                 feature_dict[k] = feature_dict[k].to(torch.float32)
 
     return feature_dict
+
+
+def collate_fn_identity(x):
+    return x
+
+
+def collate_fn_first(x):
+    return x[0]

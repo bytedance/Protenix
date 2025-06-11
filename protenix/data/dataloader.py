@@ -22,6 +22,7 @@ from torch.utils.data import DataLoader, DistributedSampler, Sampler
 
 from protenix.data.dataset import Dataset, get_datasets
 from protenix.utils.logger import get_logger
+from protenix.utils.torch_utils import collate_fn_first
 
 logger = get_logger(__name__)
 
@@ -329,7 +330,7 @@ def get_dataloaders(
             batch_size=1,
             shuffle=False,
             num_workers=configs.data.num_dl_workers,
-            collate_fn=lambda batch: batch[0],
+            collate_fn=collate_fn_first,
             sampler=train_sampler,
         )
     else:
@@ -345,7 +346,7 @@ def get_dataloaders(
             batch_size=1,
             shuffle=False,
             num_workers=configs.data.num_dl_workers,
-            collate_fn=lambda batch: batch[0],
+            collate_fn=collate_fn_first,
             sampler=train_sampler,
         )
 
@@ -364,7 +365,7 @@ def get_dataloaders(
             shuffle=False,
             num_workers=configs.data.num_dl_workers,
             sampler=test_sampler,
-            collate_fn=lambda batch: batch[0],
+            collate_fn=collate_fn_first,
         )
     logger.info(
         f"train data size: {len(train_dataset)}, test size: {test_dataset_sizes}"
