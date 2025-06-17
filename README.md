@@ -22,10 +22,11 @@ You can follow our [twitter](https://x.com/ai4s_protenix) or join the conversati
 
 ## Installation
 
-### Run with PyPI (recommended):
+### Install from source code:
 
 ```bash
-pip3 install protenix
+git checkout -b constraint_esm origin/constraint_esm
+pip3 install .
 ```
 ### Run with Docker:
 
@@ -137,7 +138,7 @@ If you're interested in model training, see [<u> training documentation </u>](do
 
 > **Tips:** Our online service already supports the new features, so feel free to try it now! Due to the preview version, the constraint support is only applicable in the branch `constraint_esm`. If you want to run inference via the command line, please check out to this branch first.
 
-And you can run local with the fllowing command (you must install protenix by yourself from source):
+And you can run protenix locally with the following commands:
 ```
 # run esm inference with msa
 protenix predict --input examples/example.json --out_dir  ./output_msa --seeds 101 --use_esm --use_msa_server
