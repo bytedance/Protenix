@@ -335,7 +335,7 @@ class MSAPairWeightedAveraging(nn.Module):
 
         Args:
             c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
-            c (int, optional): hidden [for MSAPairWeightedAveraging] dim. Defaults to 32.
+            c (int, optional): hidden dim [for MSAPairWeightedAveraging]. Defaults to 32.
             c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
             n_heads (int, optional): number of heads [for MSAPairWeightedAveraging]. Defaults to 8.
         """
