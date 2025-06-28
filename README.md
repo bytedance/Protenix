@@ -34,7 +34,7 @@ Protenix is built for high-accuracy structure prediction. It serves as an initia
 - 2025-01-16: The preview version of [constraint feature](./README.md#early-access-to-new-constraint-feature) is released to branch [`constraint_esm`](https://github.com/bytedance/Protenix/tree/constraint_esm).
 - 2025-01-16: The [training data pipeline](./docs/prepare_training_data.md) is released.
 - 2025-01-16: The [MSA pipeline](./docs/msa_pipeline.md) is released.
-- 2025-01-16: Use [local colabfold_search](./docs/colabfold_compatiable_msa.md) to generate protenix-compatible MSA.
+- 2025-01-16: Use [local colabfold_search](./docs/colabfold_compatible_msa.md) to generate protenix-compatible MSA.
 
 ### 📊 Benchmark
 We benchmarked the performance of Protenix-v0.5.0 against [Boltz-1](https://github.com/jwohlwend/boltz/releases/tag/v0.4.1) and [Chai-1](https://github.com/chaidiscovery/chai-lab/releases/tag/v0.6.1) across multiple datasets, including [PoseBusters v2](https://arxiv.org/abs/2308.05777), [AF3 Nucleic Acid Complexes](https://www.nature.com/articles/s41586-024-07487-w), [AF3 Antibody Set](https://github.com/google-deepmind/alphafold3/blob/20ad0a21eb49febcaad4a6f5d71aa6b701512e5b/docs/metadata_antibody_antigen.csv), and our curated Recent PDB set.
