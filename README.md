@@ -1,6 +1,13 @@
 # Protenix: Protein + X
 
 
+> 📣📣📣 **We're hiring!** \
+> Positions in **_Beijing, China_** and **_Seattle, US_** ! \
+> Interested in machine learning, computational chemistry/biology, structural biology, or drug discovery?  \
+> 👉 [**Join us »**](#join-us)
+
+
+
 <div align="center" style="margin: 20px 0;">
   <span style="margin: 0 10px;">⚡ <a href="https://protenix-server.com">Protenix Web Server</a></span>
   &bull; <span style="margin: 0 10px;">📄 <a href="https://www.biorxiv.org/content/10.1101/2025.01.08.631967v1">Technical Report</a></span>
@@ -175,15 +182,53 @@ For details on memory usage and runtime during training and inference, refer to 
 If you use Protenix in your research, please cite the following:
 
 ```
-@article{chen2025protenix,
+@article{bytedance2025protenix,
   title={Protenix - Advancing Structure Prediction Through a Comprehensive AlphaFold3 Reproduction},
-  author={Chen, Xinshi and Zhang, Yuxuan and Lu, Chan and Ma, Wenzhi and Guan, Jiaqi and Gong, Chengyue and Yang, Jincai and Zhang, Hanyu and Zhang, Ke and Wu, Shenghao and Zhou, Kuangqi and Yang, Yanping and Liu, Zhenyu and Wang, Lan and Shi, Bo and Shi, Shaochen and Xiao, Wenzhi},
+  author={ByteDance AML AI4Science Team and Chen, Xinshi and Zhang, Yuxuan and Lu, Chan and Ma, Wenzhi and Guan, Jiaqi and Gong, Chengyue and Yang, Jincai and Zhang, Hanyu and Zhang, Ke and Wu, Shenghao and Zhou, Kuangqi and Yang, Yanping and Liu, Zhenyu and Wang, Lan and Shi, Bo and Shi, Shaochen and Xiao, Wenzhi},
   year={2025},
-  doi = {10.1101/2025.01.08.631967},
-  journal = {bioRxiv}
+  journal={bioRxiv},
+  publisher={Cold Spring Harbor Laboratory},
+  doi={10.1101/2025.01.08.631967},
+  URL={https://www.biorxiv.org/content/early/2025/01/11/2025.01.08.631967},
+  elocation-id={2025.01.08.631967},
+  eprint={https://www.biorxiv.org/content/early/2025/01/11/2025.01.08.631967.full.pdf},
 }
 ```
 
+### 📚 Citing Related Work
+Protenix is built upon and inspired by several influential projects. If you use Protenix in your research, we also encourage citing the following foundational works where appropriate:
+```
+@article{abramson2024accurate,
+  title={Accurate structure prediction of biomolecular interactions with AlphaFold 3},
+  author={Abramson, Josh and Adler, Jonas and Dunger, Jack and Evans, Richard and Green, Tim and Pritzel, Alexander and Ronneberger, Olaf and Willmore, Lindsay and Ballard, Andrew J and Bambrick, Joshua and others},
+  journal={Nature},
+  volume={630},
+  number={8016},
+  pages={493--500},
+  year={2024},
+  publisher={Nature Publishing Group UK London}
+}
+@article{ahdritz2024openfold,
+  title={OpenFold: Retraining AlphaFold2 yields new insights into its learning mechanisms and capacity for generalization},
+  author={Ahdritz, Gustaf and Bouatta, Nazim and Floristean, Christina and Kadyan, Sachin and Xia, Qinghui and Gerecke, William and O’Donnell, Timothy J and Berenberg, Daniel and Fisk, Ian and Zanichelli, Niccol{\`o} and others},
+  journal={Nature Methods},
+  volume={21},
+  number={8},
+  pages={1514--1524},
+  year={2024},
+  publisher={Nature Publishing Group US New York}
+}
+@article{mirdita2022colabfold,
+  title={ColabFold: making protein folding accessible to all},
+  author={Mirdita, Milot and Sch{\"u}tze, Konstantin and Moriwaki, Yoshitaka and Heo, Lim and Ovchinnikov, Sergey and Steinegger, Martin},
+  journal={Nature methods},
+  volume={19},
+  number={6},
+  pages={679--682},
+  year={2022},
+  publisher={Nature Publishing Group US New York}
+}
+```
 
 ## Contributing to Protenix
 
@@ -231,3 +276,27 @@ The Protenix project including both code and model parameters is released under 
 
 We welcome inquiries and collaboration opportunities for advanced applications of our model, such as developing new features, fine-tuning for specific use cases, and more. Please feel free to contact us at ai4s-bio@bytedance.com.
 
+## Join Us
+
+We're expanding the **Protenix team** at ByteDance Seed-AI for Science! \
+We’re looking for talented individuals in **machine learning** and **computational biology/chemistry**. Opportunities are available in both **Beijing** and **Seattle**, across internships, new grad roles, and experienced full-time positions. \
+*“Computational Biology/Chemistry” covers structural biology, computational biology, computational chemistry, drug discovery, and more.*
+
+
+### 📍 Beijing, China
+| Type       | Expertise                          | Apply Link |
+|------------|------------------------------------|------------|
+| Full-Time  | Computational Biology / Chemistry       | [Experienced & New Grad](https://jobs.bytedance.com/society/position/detail/7505998274429421842) |
+| Full-Time  | Machine Learning                   | [Experienced & New Grad](https://jobs.bytedance.com/society/position/detail/7505999453133015314) |
+| Internship | Computational Biology / Chemistry       | [Internship](https://jobs.bytedance.com/campus/position/7509005072577546504/detail) |
+| Internship | Machine Learning                   | [Internship](https://jobs.bytedance.com/campus/position/7509005074018961672/detail) |
+
+
+### 📍 Seattle, US
+
+| Type       | Expertise                          | Apply Link |
+|------------|------------------------------------|------------|
+| Full-Time  | Computational Biology / Chemistry       | [Experienced](https://jobs.bytedance.com/en/position/7270666468370614585/detail), [New Grad](https://jobs.bytedance.com/en/position/7515465250054211847/detail) |
+| Full-Time  | Machine Learning                   | [Experienced](https://jobs.bytedance.com/en/position/7270665658072926521/detail), [New Grad](https://jobs.bytedance.com/en/position/7515908698011601159/detail) |
+| Internship | Computational Biology / Chemistry       | Internship (opening ~August) |
+| Internship | Machine Learning                   | Internship (opening ~August) |
