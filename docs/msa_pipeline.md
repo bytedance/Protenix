@@ -98,4 +98,4 @@ In `uniref100_hits.a3m`(training stage) or `pairing.a3m`(inference stage), the h
 >UniRef100_{hitname}_{taxonomyid}/
 ```
 
-we also provide a pipeline of local Colabfold_search to Generate Protenix-Compatible MSAs in [colabfold_compatiable_msa.md](./colabfold_compatiable_msa.md).
+we also provide a pipeline of local Colabfold_search to Generate Protenix-Compatible MSAs in [colabfold_compatible_msa.md](./colabfold_compatible_msa.md).
