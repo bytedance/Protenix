@@ -36,7 +36,7 @@ def download_ccd_cif(output_path: Path):
     Args:
         output_path (Path): The output path for saving the downloaded CCD CIF file.
     """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
 
     logging.info("Downloading CCD CIF file from rcsb.org ...")
 
