@@ -155,8 +155,8 @@ def _get_component_rdkit_mol_processing(
         mol.ref_mask[:] = True
     except Exception:
         logging.warning(
-            "Warning: fail to generate conf for %s, use idea conf", ccd_code
-        )  # sanitization issue here
+            "Warning: fail to generate new conformation for %s, use the original ideal conformation.", ccd_code
+        )
     return mol
 
 
