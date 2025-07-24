@@ -722,9 +722,8 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
         new_chain_starts.append(c_start)
         hetero_diff = np.where(atom_array.hetero[c_start:(c_stop-1)] != atom_array.hetero[(c_start+1):c_stop])
         if hetero_diff[0].shape[0] > 0:
-            for index in hetero_diff[0]:
-                new_chain_start = c_start + index + 1
-                new_chain_starts.append(new_chain_start)
+            new_chain_starts_002 = c_start + hetero_diff[0] + 1
+            new_chain_starts.extend(new_chain_starts_002.tolist())
 
     new_chain_starts.append(chain_starts[-1])
 
