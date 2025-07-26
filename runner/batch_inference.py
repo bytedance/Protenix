@@ -410,7 +410,7 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
         else:
             raise RuntimeError(f"can not read a special ligand_file: {input_file}")
         output_jsons.append(output_json)
-    logger.info(f"{len(output_jsons)} generated jsons have been save to {out_dir}.")
+    logger.info(f"{len(output_jsons)} generated jsons have been saved to {out_dir}.")
     return output_jsons
 
 

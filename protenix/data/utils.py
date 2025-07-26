@@ -346,12 +346,12 @@ class CIFWriter:
     Write AtomArray to cif.
     """
 
-    def __init__(self, atom_array: AtomArray, entity_poly_type: dict[str, str] = None):
+    def __init__(self, atom_array: AtomArray, entity_poly_type: dict[int, str] = None):
         """
         Args:
             atom_array (AtomArray): Biotite AtomArray object.
-            entity_poly_type (dict[str, str], optional): A dict of label_entity_id to entity_poly_type. Defaults to None.
-                                                         If None, "the entity_poly" and "entity_poly_seq" will not be written to the cif.
+            entity_poly_type (dict[int, str], optional): A dict of label_entity_id to entity polymer type. Defaults to None.
+                                                         If None, the "entity_poly" and "entity_poly_seq" will not be written to the cif.
         """
         self.atom_array = atom_array
         self.entity_poly_type = entity_poly_type
@@ -417,6 +417,7 @@ class CIFWriter:
 
             entity_poly_seq["entity_id"].extend(asym_chain_entity_id)
             entity_poly_seq["hetero"].extend(asym_chain_hetero)
+            # mon_id: short for "monomer ID"
             entity_poly_seq["mon_id"].extend(asym_chain_res_name)
             entity_poly_seq["num"].extend(asym_chain_res_id)
 
@@ -436,7 +437,7 @@ class CIFWriter:
             output_path (str): Output path of cif file.
             entry_id (str, optional): The value of "_entry.id" in cif. Defaults to None.
                                       If None, the entry_id will be the basename of output_path (without ".cif" extension).
-            include_bonds (bool, optional): Whether to include  bonds in the cif. Defaults to False.
+            include_bonds (bool, optional): Whether to include bonds in the cif. Defaults to False.
                                             If set to True and `array` has associated ``bonds`` , the
                                             intra-residue bonds will be written into the ``chem_comp_bond``
                                             category.
@@ -746,11 +747,11 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
     chain_starts = new_chain_starts2 + [chain_starts[-1]]
 
-    label_entity_id = np.zeros(len(atom_array), dtype=np.int32)
+    label_entity_id = np.empty(len(atom_array), dtype=np.int32)
     atom_index = np.arange(len(atom_array), dtype=np.int32)
-    res_id = copy.deepcopy(atom_array.res_id)
-
-    chain_id = copy.deepcopy(atom_array.chain_id)
+    res_id = np.empty(len(atom_array), dtype=np.int32)
+    chain_id = np.empty(len(atom_array), dtype='str')
+    
     chain_count = 0
     for c_start, c_stop in zip(chain_starts[:-1], chain_starts[1:]):
         chain_count += 1
@@ -783,6 +784,7 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
     # add label entity id
     atom_array.set_annotation("label_entity_id", label_entity_id)
+    
     entity_poly_type = {}
     for seq, entity_id in seq_to_entity_id.items():
         resname_seq = seq.split("_")
@@ -822,7 +824,7 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
     w = CIFWriter(atom_array=atom_array, entity_poly_type=entity_poly_type)
     w.save_to_cif(
         output_fname,
-        entry_id=entry_id or os.path.basename(output_fname),
+        entry_id=entry_id,
         include_bonds=True,
     )
 
