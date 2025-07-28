@@ -346,11 +346,11 @@ class CIFWriter:
     Write AtomArray to cif.
     """
 
-    def __init__(self, atom_array: AtomArray, entity_poly_type: dict[int, str] = None):
+    def __init__(self, atom_array: AtomArray, entity_poly_type: dict[str, str] = None):
         """
         Args:
             atom_array (AtomArray): Biotite AtomArray object.
-            entity_poly_type (dict[int, str], optional): A dict of label_entity_id to entity polymer type. Defaults to None.
+            entity_poly_type (dict[str, str], optional): A dict of label_entity_id to entity polymer type. Defaults to None.
                                                          If None, the "entity_poly" and "entity_poly_seq" will not be written to the cif.
         """
         self.atom_array = atom_array
@@ -749,8 +749,8 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
     label_entity_id = np.empty(len(atom_array), dtype=np.int32)
     atom_index = np.arange(len(atom_array), dtype=np.int32)
-    res_id = np.empty(len(atom_array), dtype=np.int32)
-    chain_id = np.empty(len(atom_array), dtype='str')
+    res_id = np.empty(len(atom_array), dtype=atom_array.res_id.dtype)
+    chain_id = np.empty(len(atom_array), dtype=atom_array.chain_id.dtype)
     
     chain_count = 0
     for c_start, c_stop in zip(chain_starts[:-1], chain_starts[1:]):
