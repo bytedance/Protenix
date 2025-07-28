@@ -747,7 +747,7 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
     chain_starts = new_chain_starts2 + [chain_starts[-1]]
 
-    label_entity_id = np.empty(len(atom_array), dtype=np.int32)
+    label_entity_id = np.empty(len(atom_array), dtype='<U4')
     atom_index = np.arange(len(atom_array), dtype=np.int32)
     res_id = np.empty(len(atom_array), dtype=atom_array.res_id.dtype)
     chain_id = np.empty(len(atom_array), dtype=atom_array.chain_id.dtype)
@@ -772,7 +772,7 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
         if resname_str not in seq_to_entity_id:
             cnt += 1
-            seq_to_entity_id[resname_str] = cnt
+            seq_to_entity_id[resname_str] = str(cnt)
         label_entity_id[c_start:c_stop] = seq_to_entity_id[resname_str]
 
         res_cnt = 1
