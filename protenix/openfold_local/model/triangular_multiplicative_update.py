@@ -33,6 +33,12 @@ from protenix.openfold_local.model.primitives import LayerNorm, Linear
 from protenix.openfold_local.utils.precision_utils import is_fp16_enabled
 from protenix.openfold_local.utils.tensor_utils import permute_final_dims
 
+from protenix.model.triangle.triangle_multiplicative_update import triangle_multiplicative_update as kernel_triangular_multiplicative_update
+from protenix.model.triangle.fused_layer_norm import layer_norm_transpose
+from protenix.model.triangle.gated_gemm import (
+    fused_sigmoid_gated_dual_gemm,
+    fused_sigmoid_gated_dual_gemm_dual_x,
+)
 
 class BaseTriangleMultiplicativeUpdate(nn.Module, ABC):
     """
@@ -131,6 +137,229 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         self.linear_a_g = Linear(self.c_z, self.c_hidden, bias=False, init="gating")
         self.linear_b_p = Linear(self.c_z, self.c_hidden, bias=False)
         self.linear_b_g = Linear(self.c_z, self.c_hidden, bias=False, init="gating")
+
+    def _fused_inference_forward(
+        self,
+        z: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        inplace_chunk_size: Optional[int] = None,
+        with_add: bool = True,
+    ):
+        def compute_projection_helper(pair, mask, a=True):
+            if a:
+                linear_g = self.linear_a_g
+                linear_p = self.linear_a_p
+            else:
+                linear_g = self.linear_b_g
+                linear_p = self.linear_b_p
+
+            pair = self.layer_norm_in(pair)
+            p = fused_sigmoid_gated_dual_gemm(
+                pair, linear_g.weight, linear_p.weight, mask, transpose_out=False
+            )
+            p = permute_final_dims(p, (2, 0, 1))
+            return p
+
+        def compute_projection(pair, mask, a=True, chunked=True):
+            need_transpose = self._outgoing ^ a
+            if not chunked:
+                p = compute_projection_helper(pair, mask, a)
+                if need_transpose:
+                    p = p.transpose(-1, -2)
+            else:
+                # This computation is chunked so as not to exceed our 2.5x
+                # budget with a large intermediate tensor
+                linear_g = self.linear_a_g if a else self.linear_b_g
+                c = linear_g.weight.shape[0]
+                out_shape = pair.shape[:-3] + (c,) + pair.shape[-3:-1]
+                p = pair.new_zeros(out_shape)
+                for i in range(0, pair.shape[-3], inplace_chunk_size):
+                    pair_chunk = compute_projection_helper(
+                        pair[..., i : i + inplace_chunk_size, :, :], # [B, C, N, D]
+                        mask[..., i : i + inplace_chunk_size, :, :],
+                        a,
+                    )
+                    if need_transpose:
+                        pair_chunk = pair_chunk.transpose(-1, -2)
+                        p[..., i : i + inplace_chunk_size] = pair_chunk
+                    else:
+                        p[..., i : i + inplace_chunk_size, :] = pair_chunk
+
+                    del pair_chunk
+
+            return p
+
+        if inplace_chunk_size is not None:
+            if mask is None:
+                mask = z.new_ones(z.shape[:-1])
+
+            mask = mask.unsqueeze(-1)
+            
+            # We start by fully manifesting a. In addition to the input, this
+            # brings total memory consumption to 2x z (disregarding size of chunks)
+            # [*, N, N, c]
+            a = compute_projection(z, mask, True, chunked=True)
+            
+            n = a.shape[-1]
+            half_n = n // 2 + n % 2
+            row_dim = -3
+            col_dim = -2
+            b_chunk_dim = row_dim if self._outgoing else col_dim
+
+            def empty_slicer(t):
+                return [slice(None) for _ in t.shape]
+
+            def slice_tensor(t, start, end, dim):
+                # Slices start:end from the dim dimension of t
+                s = empty_slicer(t)
+                s[dim] = slice(start, end)
+                return t[s]
+
+            def flip_z_cache_(z_cache, z):
+                # "Reorient" the z_cache (see below), filling it with quadrants
+                # 3---recovered from the z_cache---and 4---recovered from z---
+                # of the input tensor z.
+                quadrant_3 = slice_tensor(z_cache, half_n, None, row_dim)
+                z_cache = z_cache.transpose(row_dim, col_dim)
+
+                # If n is odd, we need to shrink the z_cache by one row
+                z_cache = z_cache[..., : (n // 2), :, :]
+
+                # Move the 3rd quadrant of z into the
+                first_half_slicer = empty_slicer(z_cache)
+                first_half_slicer[col_dim] = slice(0, half_n)
+                z_cache[first_half_slicer] = quadrant_3
+
+                # Get the fourth quadrant of z
+                quadrant_4 = slice_tensor(z, half_n, None, row_dim)
+                quadrant_4 = slice_tensor(quadrant_4, half_n, None, col_dim)
+
+                # Insert said quadrant into the rotated z-cache
+                quadrant_3_slicer = empty_slicer(z_cache)
+                quadrant_3_slicer[col_dim] = slice(half_n, None)
+
+                z_cache[quadrant_3_slicer] = quadrant_4
+
+                return z_cache
+
+            # Initialize the z cache to the left half of z.
+            z_cache_shape = list(z.shape)
+            z_cache_shape[col_dim] = half_n
+            z_cache = z.new_zeros(z_cache_shape)
+            z_cache_slicer = empty_slicer(z_cache)
+            z_cache_slicer[col_dim] = slice(0, half_n)
+            z_cache.copy_(z[z_cache_slicer])
+            z_cache_rotated = False
+
+            # We need to reorient the z-cache at the halfway point, and we
+            # don't want a single chunk to straddle that point. We contract one
+            # of the chunks in the middle to address that problem.
+            i_range = list(range(0, half_n, inplace_chunk_size))
+            initial_offsets = [
+                i_2 - i_1 for i_1, i_2 in zip(i_range, i_range[1:] + [half_n])
+            ]
+            after_half = list(range(half_n, n, inplace_chunk_size))
+            after_half_offsets = [inplace_chunk_size for _ in after_half]
+            combined_range_with_offsets = zip(
+                i_range + after_half, initial_offsets + after_half_offsets
+            )
+            for i, offset in combined_range_with_offsets:
+                if not z_cache_rotated and i >= half_n:
+                    z_cache = flip_z_cache_(z_cache, z)
+                    z_cache_rotated = True
+
+                z_chunk_b = slice_tensor(
+                    z,
+                    i,
+                    i + offset,
+                    b_chunk_dim,
+                )
+                mask_chunk = slice_tensor(
+                    mask,
+                    i,
+                    i + offset,
+                    b_chunk_dim,
+                )
+
+                z_chunk_b = z_chunk_b.clone()
+                if b_chunk_dim == col_dim:
+                    z_chunk_b = slice_tensor(z, i, i + offset, col_dim)
+                else:  # b_chunk_dim == row_dim
+                    # In this case, the b-dimension (b_chunk_dim) is partially
+                    # overwritten at the end of each iteration. We need to
+                    # restore the missing component from the z-cache.
+                    if not z_cache_rotated:
+                        z_chunk_slicer = empty_slicer(z_chunk_b)
+                        z_chunk_slicer[col_dim] = slice(0, half_n)
+                        z_chunk_b[z_chunk_slicer] = slice_tensor(
+                            z_cache,
+                            i,
+                            i + offset,
+                            row_dim,
+                        )
+                    else:
+                        z_cache_offset = i - half_n
+                        z_chunk_b = slice_tensor(
+                            z_cache, z_cache_offset, z_cache_offset + offset, row_dim
+                        )
+
+                b_chunk = compute_projection(
+                    z_chunk_b, mask_chunk, a=False, chunked=False
+                )
+                del z_chunk_b
+
+                x_chunk = torch.matmul(
+                    a,
+                    b_chunk,
+                )
+                x_chunk = permute_final_dims(x_chunk, (1, 2, 0))
+                x_chunk = layer_norm_transpose(
+                    x_chunk, self.layer_norm_out.weight, self.layer_norm_out.bias, eps=1e-5, layout="bijd->bijd"
+                )
+
+                # The g dimension (col_dim) is parallel to and ahead of the
+                # overwrites in z. We can extract the g chunk normally.
+                z_chunk_g = slice_tensor(z, i, i + offset, col_dim)
+                
+                x_chunk = fused_sigmoid_gated_dual_gemm_dual_x(
+                    z_chunk_g, x_chunk, self.linear_g.weight, self.linear_z.weight
+                )
+                del z_chunk_g
+
+                # Write the columns into z in-place
+                z_slicer = empty_slicer(z)
+                z_slicer[col_dim] = slice(i, i + offset)
+                if with_add:
+                    z[z_slicer] += x_chunk
+                else:
+                    z[z_slicer] = x_chunk
+        else:
+            x = kernel_triangular_multiplicative_update(
+                x=z,
+                direction="outgoing" if self._outgoing else "incoming",
+                mask=mask,
+                norm_in_weight=self.layer_norm_in.weight,
+                norm_in_bias=self.layer_norm_in.bias,
+                p_in_weight=torch.cat([
+                        self.linear_a_p.weight,
+                        self.linear_b_p.weight
+                    ], dim=0),
+                g_in_weight=torch.cat([
+                        self.linear_a_g.weight,
+                        self.linear_b_g.weight
+                    ], dim=0),
+                norm_out_weight=self.layer_norm_out.weight,
+                norm_out_bias=self.layer_norm_out.bias,
+                p_out_weight=self.linear_z.weight,
+                g_out_weight=self.linear_g.weight,
+                eps=1e-5,
+            )
+            if with_add:
+                z += x
+            else:
+                z = x
+
+        return z
 
     def _inference_forward(
         self,
@@ -401,6 +630,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         z: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         inplace_safe: bool = False,
+        use_fused_kernel: bool = False,
         _add_with_inplace: bool = False,
         _inplace_chunk_size: Optional[int] = 256,
     ) -> torch.Tensor:
@@ -413,47 +643,76 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         Returns:
             [*, N_res, N_res, C_z] output tensor
         """
-        if mask is None:
-            mask = z.new_ones(z.shape[:-1])
-
-        mask = mask.unsqueeze(-1)
-        
-        if inplace_safe:
-            x = self._inference_forward(
-                z,
-                mask,
-                inplace_chunk_size=_inplace_chunk_size,
-                with_add=_add_with_inplace,
-            )
-            return x
-
-        z = self.layer_norm_in(z)
-        a = mask
-        a = a * self.sigmoid(self.linear_a_g(z))
-        a = a * self.linear_a_p(z)
-        b = mask
-        b = b * self.sigmoid(self.linear_b_g(z))
-        b = b * self.linear_b_p(z)
-
-        # Prevents overflow of torch.matmul in combine projections in
-        # reduced-precision modes
-        a_std = a.std()
-        b_std = b.std()
-        if is_fp16_enabled() and a_std != 0.0 and b_std != 0.0:
-            a = a / a.std()
-            b = b / b.std()
-
-        if is_fp16_enabled():
-            with torch.cuda.amp.autocast(enabled=False):
-                x = self._combine_projections(a.float(), b.float())
+        if use_fused_kernel:
+            if inplace_safe:
+                x = self._fused_inference_forward(
+                    z,
+                    mask,
+                    inplace_chunk_size=_inplace_chunk_size,
+                    with_add=_add_with_inplace,
+                )
+            else:
+                x = kernel_triangular_multiplicative_update(
+                    x=z,
+                    direction="outgoing" if self._outgoing else "incoming",
+                    mask=mask,
+                    norm_in_weight=self.layer_norm_in.weight,
+                    norm_in_bias=self.layer_norm_in.bias,
+                    p_in_weight=torch.cat([
+                            self.linear_a_p.weight,
+                            self.linear_b_p.weight
+                        ], dim=0),
+                    g_in_weight=torch.cat([
+                            self.linear_a_g.weight,
+                            self.linear_b_g.weight
+                        ], dim=0),
+                    norm_out_weight=self.layer_norm_out.weight,
+                    norm_out_bias=self.layer_norm_out.bias,
+                    p_out_weight=self.linear_z.weight,
+                    g_out_weight=self.linear_g.weight,
+                    eps=1e-5,
+                )
         else:
-            x = self._combine_projections(a, b)
+            if mask is None:
+                mask = z.new_ones(z.shape[:-1])
 
-        del a, b
-        x = self.layer_norm_out(x)
-        x = self.linear_z(x)
-        g = self.sigmoid(self.linear_g(z))
-        x = x * g
+            mask = mask.unsqueeze(-1)
+            
+            if inplace_safe:
+                x = self._inference_forward(
+                    z,
+                    mask,
+                    inplace_chunk_size=_inplace_chunk_size,
+                    with_add=_add_with_inplace,
+                )
+            else:
+                z = self.layer_norm_in(z)
+                a = mask
+                a = a * self.sigmoid(self.linear_a_g(z))
+                a = a * self.linear_a_p(z)
+                b = mask
+                b = b * self.sigmoid(self.linear_b_g(z))
+                b = b * self.linear_b_p(z)
+
+                # Prevents overflow of torch.matmul in combine projections in
+                # reduced-precision modes
+                a_std = a.std()
+                b_std = b.std()
+                if is_fp16_enabled() and a_std != 0.0 and b_std != 0.0:
+                    a = a / a.std()
+                    b = b / b.std()
+
+                if is_fp16_enabled():
+                    with torch.amp.autocast(device_type=self.device.type, enabled=False):
+                        x = self._combine_projections(a.float(), b.float())
+                else:
+                    x = self._combine_projections(a, b)
+
+                del a, b
+                x = self.layer_norm_out(x)
+                x = self.linear_z(x)
+                g = self.sigmoid(self.linear_g(z))
+                x = x * g
 
         return x
 
