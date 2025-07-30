@@ -233,8 +233,6 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 out_shape = pair.shape[:-3] + (c,) + pair.shape[-3:-1]
                 p = pair.new_zeros(out_shape)
                 for i in range(0, pair.shape[-3], inplace_chunk_size):
-                    pair_chunk = pair[..., i : i + inplace_chunk_size, :, :]
-                    mask_chunk = mask[..., i : i + inplace_chunk_size, :, :]
                     pair_chunk = compute_projection_helper(
                         pair[..., i : i + inplace_chunk_size, :, :],
                         mask[..., i : i + inplace_chunk_size, :, :],
