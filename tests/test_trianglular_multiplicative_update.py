@@ -12,8 +12,8 @@ from protenix.openfold_local.model.triangular_multiplicative_update import (
 )
 
 
-class TestTriangularMultiplicativeUpdateMemory(unittest.TestCase):
-    """Test cases comparing memory consumption of different implementations"""
+class TestTriangularMultiplicativeUpdate(unittest.TestCase):
+    """Test cases comparing performance of different implementations"""
     
     def setUp(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
