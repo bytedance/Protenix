@@ -472,12 +472,12 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
 
             return p
 
-        # We start by fully manifesting a. In addition to the input, this
-        # brings total memory consumption to 2x z (disregarding size of chunks)
-        # [*, N, N, c]
-        a = compute_projection(z, mask, True, chunked=True)
-
         if inplace_chunk_size is not None:
+            # We start by fully manifesting a. In addition to the input, this
+            # brings total memory consumption to 2x z (disregarding size of chunks)
+            # [*, N, N, c]
+            a = compute_projection(z, mask, True, chunked=True)
+            
             n = a.shape[-1]
             half_n = n // 2 + n % 2
             row_dim = -3
@@ -611,6 +611,10 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 else:
                     z[z_slicer] = x_chunk
         else:
+            # Since inplace_chunk_size is None, we can just compute as usual
+            # In fact in this case we are just doing the same thing as the
+            # default forward function, but with extra with_add option to deal with.
+            a = compute_projection(z, mask, True, chunked=False)
             b = compute_projection(z, mask, False, False)
             x = torch.matmul(a, b)
             x = self.layer_norm_out(x)
