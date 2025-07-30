@@ -141,7 +141,6 @@ class ConfidenceHead(nn.Module):
         pair_mask: torch.Tensor,
         x_pred_coords: torch.Tensor,
         use_embedding: bool = True,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -160,7 +159,6 @@ class ConfidenceHead(nn.Module):
                 [..., N_token, N_token]
             x_pred_coords (torch.Tensor): predicted coordinates
                 [..., N_sample, N_atoms, 3]
-            use_memory_efficient_kernel (bool, optional): Whether to use memory-efficient kernel. Defaults to False.
             use_deepspeed_evo_attention (bool, optional): Whether to use DeepSpeed evolutionary attention. Defaults to False.
             use_lma (bool, optional): Whether to use low-memory attention. Defaults to False.
             inplace_safe (bool, optional): Whether to use inplace operations. Defaults to False.
@@ -216,7 +214,6 @@ class ConfidenceHead(nn.Module):
                     z_pair=z_trunk.clone() if inplace_safe else z_trunk,
                     pair_mask=pair_mask,
                     x_pred_rep_coords=x_pred_rep_coords[..., i, :, :],
-                    use_memory_efficient_kernel=use_memory_efficient_kernel,
                     use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                     use_lma=use_lma,
                     inplace_safe=inplace_safe,
@@ -259,7 +256,6 @@ class ConfidenceHead(nn.Module):
         z_pair: torch.Tensor,
         pair_mask: torch.Tensor,
         x_pred_rep_coords: torch.Tensor,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -306,7 +302,6 @@ class ConfidenceHead(nn.Module):
             s_trunk,
             z_pair,
             pair_mask,
-            use_memory_efficient_kernel=use_memory_efficient_kernel,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             use_lma=use_lma,
             inplace_safe=inplace_safe,

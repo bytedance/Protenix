@@ -502,7 +502,6 @@ class Attention(nn.Module):
         q_x: torch.Tensor,
         kv_x: torch.Tensor,
         biases: Optional[List[torch.Tensor]] = None,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         lma_q_chunk_size: int = DEFAULT_LMA_Q_CHUNK_SIZE,
@@ -518,11 +517,6 @@ class Attention(nn.Module):
                 [*, K, C_k] key data
             biases:
                 List of biases that broadcast to [*, H, Q, K]
-            use_memory_efficient_kernel:
-                Whether to use a custom memory-efficient attention kernel.
-                This should be the default choice for most. If none of the
-                "use_<...>" flags are True, a stock PyTorch implementation
-                is used instead
             use_deepspeed_evo_attention:
                 Whether to use DeepSpeed memory-efficient attention kernel.
                 If none of the "use_<...>" flags are True, a stock PyTorch
@@ -551,7 +545,6 @@ class Attention(nn.Module):
             )
 
         attn_options = [
-            use_memory_efficient_kernel,
             use_deepspeed_evo_attention,
             use_lma,
             use_flash,
@@ -565,12 +558,7 @@ class Attention(nn.Module):
         # DeepSpeed attention kernel applies scaling internally
         q, k, v = self._prep_qkv(q_x, kv_x, apply_scale=not use_deepspeed_evo_attention)
 
-        if is_fp16_enabled():
-            use_memory_efficient_kernel = False
-
-        if use_memory_efficient_kernel:
-            raise Exception(f"use_memory_efficient_kernel=True not supported!!!")
-        elif use_deepspeed_evo_attention:
+        if use_deepspeed_evo_attention:
             if len(biases) > 2:
                 raise ValueError(
                     "If use_deepspeed_evo_attention is True, you may only "

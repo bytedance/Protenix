@@ -101,7 +101,6 @@ class PairformerBlock(nn.Module):
         s: Optional[torch.Tensor],
         z: torch.Tensor,
         pair_mask: torch.Tensor,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -117,7 +116,6 @@ class PairformerBlock(nn.Module):
                 [..., N_token, N_token, c_z]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            use_memory_efficient_kernel (bool): Whether to use memory-efficient kernel. Defaults to False.
             use_deepspeed_evo_attention (bool): Whether to use DeepSpeed evolutionary attention. Defaults to False.
             use_lma (bool): Whether to use low-memory attention. Defaults to False.
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
@@ -138,7 +136,6 @@ class PairformerBlock(nn.Module):
             z += self.tri_att_start(
                 z,
                 mask=pair_mask,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
@@ -148,7 +145,6 @@ class PairformerBlock(nn.Module):
             z += self.tri_att_end(
                 z,
                 mask=pair_mask.transpose(-1, -2) if pair_mask is not None else None,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
@@ -171,7 +167,6 @@ class PairformerBlock(nn.Module):
                 self.tri_att_start(
                     z,
                     mask=pair_mask,
-                    use_memory_efficient_kernel=use_memory_efficient_kernel,
                     use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                     use_lma=use_lma,
                     inplace_safe=inplace_safe,
@@ -183,7 +178,6 @@ class PairformerBlock(nn.Module):
                 self.tri_att_end(
                     z,
                     mask=pair_mask.transpose(-1, -2) if pair_mask is not None else None,
-                    use_memory_efficient_kernel=use_memory_efficient_kernel,
                     use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                     use_lma=use_lma,
                     inplace_safe=inplace_safe,
@@ -242,7 +236,6 @@ class PairformerStack(nn.Module):
     def _prep_blocks(
         self,
         pair_mask: Optional[torch.Tensor],
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -253,7 +246,6 @@ class PairformerStack(nn.Module):
             partial(
                 b,
                 pair_mask=pair_mask,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
@@ -275,7 +267,6 @@ class PairformerStack(nn.Module):
         s: torch.Tensor,
         z: torch.Tensor,
         pair_mask: torch.Tensor,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -289,7 +280,6 @@ class PairformerStack(nn.Module):
                 [..., N_token, N_token, c_z]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            use_memory_efficient_kernel (bool): Whether to use memory-efficient kernel. Defaults to False.
             use_deepspeed_evo_attention (bool): Whether to use DeepSpeed evolutionary attention. Defaults to False.
             use_lma (bool): Whether to use low-memory attention. Defaults to False.
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
@@ -306,7 +296,6 @@ class PairformerStack(nn.Module):
             clear_cache_between_blocks = False
         blocks = self._prep_blocks(
             pair_mask=pair_mask,
-            use_memory_efficient_kernel=use_memory_efficient_kernel,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             use_lma=use_lma,
             inplace_safe=inplace_safe,
@@ -606,7 +595,6 @@ class MSABlock(nn.Module):
         m: torch.Tensor,
         z: torch.Tensor,
         pair_mask,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -620,7 +608,6 @@ class MSABlock(nn.Module):
                 [...,n_token, n_token, c_z]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            use_memory_efficient_kernel (bool): Whether to use memory-efficient kernel. Defaults to False.
             use_deepspeed_evo_attention (bool): Whether to use DeepSpeed evolutionary attention. Defaults to False.
             use_lma (bool): Whether to use low-memory attention. Defaults to False.
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
@@ -647,7 +634,6 @@ class MSABlock(nn.Module):
             s=None,
             z=z,
             pair_mask=pair_mask,
-            use_memory_efficient_kernel=use_memory_efficient_kernel,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             use_lma=use_lma,
             inplace_safe=inplace_safe,
@@ -750,7 +736,6 @@ class MSAModule(nn.Module):
     def _prep_blocks(
         self,
         pair_mask: Optional[torch.Tensor],
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -761,7 +746,6 @@ class MSAModule(nn.Module):
             partial(
                 b,
                 pair_mask=pair_mask,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
@@ -805,7 +789,6 @@ class MSAModule(nn.Module):
         z: torch.Tensor,
         s_inputs: torch.Tensor,
         pair_mask: torch.Tensor,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -821,7 +804,6 @@ class MSAModule(nn.Module):
                 [..., N_token, c_s_inputs]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            use_memory_efficient_kernel (bool): Whether to use memory-efficient kernel. Defaults to False.
             use_deepspeed_evo_attention (bool): Whether to use DeepSpeed evolutionary attention. Defaults to False.
             use_lma (bool): Whether to use low-memory attention. Defaults to False.
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
@@ -895,7 +877,6 @@ class MSAModule(nn.Module):
             clear_cache_between_blocks = False
         blocks = self._prep_blocks(
             pair_mask=pair_mask,
-            use_memory_efficient_kernel=use_memory_efficient_kernel,
             use_deepspeed_evo_attention=use_deepspeed_evo_attention,
             use_lma=use_lma,
             inplace_safe=inplace_safe,
@@ -979,7 +960,6 @@ class TemplateEmbedder(nn.Module):
         input_feature_dict: dict[str, Any],
         z: torch.Tensor,  # pylint: disable=W0613
         pair_mask: torch.Tensor = None,  # pylint: disable=W0613
-        use_memory_efficient_kernel: bool = False,  # pylint: disable=W0613
         use_deepspeed_evo_attention: bool = False,  # pylint: disable=W0613
         use_lma: bool = False,  # pylint: disable=W0613
         inplace_safe: bool = False,  # pylint: disable=W0613

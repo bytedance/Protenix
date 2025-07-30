@@ -263,6 +263,7 @@ def _attention(
             key=k,
             value=v,
             attn_mask=attn_bias,
+            scale=1.0,
         )
         return attn_output
 

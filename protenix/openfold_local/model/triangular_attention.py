@@ -57,7 +57,6 @@ class TriangleAttention(nn.Module):
         x: torch.Tensor,
         biases: List[torch.Tensor],
         chunk_size: int,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -72,7 +71,6 @@ class TriangleAttention(nn.Module):
         return chunk_layer(
             partial(
                 self.mha,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
             ),
@@ -87,7 +85,6 @@ class TriangleAttention(nn.Module):
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         chunk_size: Optional[int] = None,
-        use_memory_efficient_kernel: bool = False,
         use_deepspeed_evo_attention: bool = False,
         use_lma: bool = False,
         inplace_safe: bool = False,
@@ -128,7 +125,6 @@ class TriangleAttention(nn.Module):
                 x,
                 biases,
                 chunk_size,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
                 inplace_safe=inplace_safe,
@@ -138,7 +134,6 @@ class TriangleAttention(nn.Module):
                 q_x=x,
                 kv_x=x,
                 biases=biases,
-                use_memory_efficient_kernel=use_memory_efficient_kernel,
                 use_deepspeed_evo_attention=use_deepspeed_evo_attention,
                 use_lma=use_lma,
             )

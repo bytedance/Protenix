@@ -230,6 +230,7 @@ class DiffusionModule(nn.Module):
         drop_path_rate: float = 0.0,
         blocks_per_ckpt: Optional[int] = None,
         use_fine_grained_checkpoint: bool = False,
+        use_efficient_implementation: bool = False,
     ) -> None:
         """
         Args:
@@ -248,6 +249,22 @@ class DiffusionModule(nn.Module):
                 checkpoints, and trades memory for speed. If None, no checkpointing is performed.
             use_fine_grained_checkpoint: whether use fine-gained checkpoint for finetuning stage 2
                 only effective if blocks_per_ckpt is not None.
+
+            use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
+
+        Notes:
+            if use_efficient_implementation == True, torch.nn.functional.scaled_dot_product_attention will
+            be used to compute attention efficiently
+            There are currently three supported implementations of scaled dot product attention:
+                1. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness
+
+                2. Memory-Efficient Attention
+
+                3. A PyTorch implementation defined in C++ matching the above formulation
+
+            The function may call optimized kernels for improved performance when using the CUDA backend.
+            For all other backends, the PyTorch implementation will be used.All implementations are enabled by default.
+            Scaled dot product attention attempts to automatically select the most optimal implementation based on the inputs.
         """
 
         super(DiffusionModule, self).__init__()
@@ -275,6 +292,7 @@ class DiffusionModule(nn.Module):
             c_s=c_s,
             c_z=c_z,
             blocks_per_ckpt=blocks_per_ckpt,
+            use_efficient_implementation=use_efficient_implementation,
         )
         # Alg20: line4
         self.layernorm_s = LayerNorm(c_s, create_offset=False)
@@ -290,6 +308,7 @@ class DiffusionModule(nn.Module):
             c_s=c_s,
             c_z=c_z,
             blocks_per_ckpt=blocks_per_ckpt,
+            use_efficient_implementation=use_efficient_implementation,
         )
         self.layernorm_a = LayerNorm(c_token, create_offset=False)
         self.atom_attention_decoder = AtomAttentionDecoder(
@@ -298,6 +317,7 @@ class DiffusionModule(nn.Module):
             c_atom=c_atom,
             c_atompair=c_atompair,
             blocks_per_ckpt=blocks_per_ckpt,
+            use_efficient_implementation=use_efficient_implementation,
         )
 
     def f_forward(

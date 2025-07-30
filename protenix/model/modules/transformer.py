@@ -52,6 +52,7 @@ class AttentionPairBias(nn.Module):
         c_z: int = 128,
         biasinit: float = -2.0,
         cross_attention_mode: bool = False,
+        use_efficient_implementation: bool = False,
     ) -> None:
         """
         Args:
@@ -64,6 +65,7 @@ class AttentionPairBias(nn.Module):
             biasinit (float, optional): biasinit for BiasInitLinear. Defaults to -2.0.
             cross_attention_mode (bool, optional): If cross_attention_model = True, the adaptive layernorm will be applied
                 to query and key/value seperately.
+            use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
         """
         super(AttentionPairBias, self).__init__()
         assert c_a % n_heads == 0
@@ -71,6 +73,7 @@ class AttentionPairBias(nn.Module):
         self.has_s = has_s
         self.create_offset_ln_z = create_offset_ln_z
         self.cross_attention_mode = cross_attention_mode
+        self.use_efficient_implementation = use_efficient_implementation
         if has_s:
             # Line2
             self.layernorm_a = AdaptiveLayerNorm(c_a=c_a, c_s=c_s)
@@ -92,6 +95,7 @@ class AttentionPairBias(nn.Module):
             gating=True,
             q_linear_bias=True,
             local_attention_method=self.local_attention_method,
+            use_efficient_implementation=self.use_efficient_implementation,
             zero_init=not self.has_s,  # Adaptive zero init
         )
         self.layernorm_z = LayerNorm(c_z, create_offset=self.create_offset_ln_z)
@@ -257,6 +261,7 @@ class DiffusionTransformerBlock(nn.Module):
         biasinit: float = -2.0,
         drop_path_rate: float = 0.0,
         cross_attention_mode: bool = False,
+        use_efficient_implementation: bool = False,
     ) -> None:
         """
         Args:
@@ -279,6 +284,7 @@ class DiffusionTransformerBlock(nn.Module):
             c_z=c_z,
             biasinit=biasinit,
             cross_attention_mode=cross_attention_mode,
+            use_efficient_implementation=use_efficient_implementation,
         )
         self.conditioned_transition_block = ConditionedTransitionBlock(
             n=2, c_a=c_a, c_s=c_s, biasinit=biasinit
@@ -350,6 +356,7 @@ class DiffusionTransformer(nn.Module):
         cross_attention_mode: bool = False,
         drop_path_rate: float = 0.0,  # drop skip connection path
         blocks_per_ckpt: Optional[int] = None,
+        use_efficient_implementation: bool = False,
     ) -> None:
         """
         Args:
@@ -381,6 +388,7 @@ class DiffusionTransformer(nn.Module):
                 c_z=c_z,
                 cross_attention_mode=cross_attention_mode,
                 drop_path_rate=drop_path_rates[i],
+                use_efficient_implementation=use_efficient_implementation,
             )
             self.blocks.append(block)
 
@@ -471,6 +479,7 @@ class AtomTransformer(nn.Module):
         n_queries: int = 32,
         n_keys: int = 128,
         blocks_per_ckpt: Optional[int] = None,
+        use_efficient_implementation: bool = False,
     ) -> None:
         """Performs local transformer among atom embeddings, with bias predicted from atom pair embeddings
 
@@ -501,6 +510,7 @@ class AtomTransformer(nn.Module):
             c_z=c_atompair,
             cross_attention_mode=True,
             blocks_per_ckpt=blocks_per_ckpt,
+            use_efficient_implementation=use_efficient_implementation,
         )
 
     def forward(
@@ -604,6 +614,7 @@ class AtomAttentionEncoder(nn.Module):
         n_queries: int = 32,
         n_keys: int = 128,
         blocks_per_ckpt: Optional[int] = None,
+        use_efficient_implementation: bool = False,
     ) -> None:
         """
         Args:
@@ -714,6 +725,7 @@ class AtomAttentionEncoder(nn.Module):
             n_queries=n_queries,
             n_keys=n_keys,
             blocks_per_ckpt=blocks_per_ckpt,
+            use_efficient_implementation=use_efficient_implementation,
         )
         self.linear_no_bias_q = LinearNoBias(
             in_features=self.c_atom, out_features=self.c_token
@@ -933,6 +945,7 @@ class AtomAttentionDecoder(nn.Module):
         n_queries: int = 32,
         n_keys: int = 128,
         blocks_per_ckpt: Optional[int] = None,
+        use_efficient_implementation: bool = False,
     ) -> None:
         """
         Args:
@@ -967,6 +980,7 @@ class AtomAttentionDecoder(nn.Module):
             n_queries=n_queries,
             n_keys=n_keys,
             blocks_per_ckpt=blocks_per_ckpt,
+            use_efficient_implementation=use_efficient_implementation,
         )
 
     def forward(

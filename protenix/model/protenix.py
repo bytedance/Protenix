@@ -74,7 +74,9 @@ class Protenix(nn.Module):
 
         # Model
         esm_configs = configs.get("esm", {})  # This is used in InputFeatureEmbedder
-        self.input_embedder = InputFeatureEmbedder(**configs.model.input_embedder, esm_configs=esm_configs)
+        self.input_embedder = InputFeatureEmbedder(
+            **configs.model.input_embedder, esm_configs=esm_configs
+        )
         self.relative_position_encoding = RelativePositionEncoding(
             **configs.model.relative_position_encoding
         )
@@ -200,7 +202,6 @@ class Protenix(nn.Module):
                         z += self.template_embedder(
                             input_feature_dict,
                             z,
-                            use_memory_efficient_kernel=self.configs.use_memory_efficient_kernel,
                             use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
                             and deepspeed_evo_attention_condition_satisfy,
                             use_lma=self.configs.use_lma,
@@ -212,7 +213,6 @@ class Protenix(nn.Module):
                         z,
                         s_inputs,
                         pair_mask=None,
-                        use_memory_efficient_kernel=self.configs.use_memory_efficient_kernel,
                         use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
                         and deepspeed_evo_attention_condition_satisfy,
                         use_lma=self.configs.use_lma,
@@ -224,7 +224,6 @@ class Protenix(nn.Module):
                         z = z + self.template_embedder(
                             input_feature_dict,
                             z,
-                            use_memory_efficient_kernel=self.configs.use_memory_efficient_kernel,
                             use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
                             and deepspeed_evo_attention_condition_satisfy,
                             use_lma=self.configs.use_lma,
@@ -236,7 +235,6 @@ class Protenix(nn.Module):
                         z,
                         s_inputs,
                         pair_mask=None,
-                        use_memory_efficient_kernel=self.configs.use_memory_efficient_kernel,
                         use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
                         and deepspeed_evo_attention_condition_satisfy,
                         use_lma=self.configs.use_lma,
@@ -248,7 +246,6 @@ class Protenix(nn.Module):
                     s,
                     z,
                     pair_mask=None,
-                    use_memory_efficient_kernel=self.configs.use_memory_efficient_kernel,
                     use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
                     and deepspeed_evo_attention_condition_satisfy,
                     use_lma=self.configs.use_lma,
@@ -467,7 +464,6 @@ class Protenix(nn.Module):
             z_trunk=z,
             pair_mask=None,
             x_pred_coords=pred_dict["coordinate"],
-            use_memory_efficient_kernel=self.configs.use_memory_efficient_kernel,
             use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
             and deepspeed_evo_attention_condition_satisfy,
             use_lma=self.configs.use_lma,
@@ -615,7 +611,6 @@ class Protenix(nn.Module):
             pair_mask=None,
             x_pred_coords=coordinate_mini,
             use_embedding=not drop_embedding,
-            use_memory_efficient_kernel=self.configs.use_memory_efficient_kernel,
             use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
             and deepspeed_evo_attention_condition_satisfy,
             use_lma=self.configs.use_lma,
