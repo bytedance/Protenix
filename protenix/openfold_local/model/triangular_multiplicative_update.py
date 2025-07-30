@@ -816,6 +816,7 @@ class FusedTriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         z: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         inplace_safe: bool = False,
+        use_fusion_kernel: bool = False,
         _add_with_inplace: bool = False,
         _inplace_chunk_size: Optional[int] = 256,
     ) -> torch.Tensor:
@@ -836,6 +837,22 @@ class FusedTriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 with_add=_add_with_inplace,
             )
             return x
+
+        if use_fusion_kernel:
+            return kernel_triangular_multiplicative_update(
+                x=z,
+                direction="outgoing" if self._outgoing else "incoming",
+                mask=mask,
+                norm_in_weight=self.layer_norm_in.weight,
+                norm_in_bias=self.layer_norm_in.bias,
+                p_in_weight=self.linear_ab_p.weight,
+                g_in_weight=self.linear_ab_g.weight,
+                norm_out_weight=self.layer_norm_out.weight,
+                norm_out_bias=self.layer_norm_out.bias,
+                p_out_weight=self.linear_z.weight,
+                g_out_weight=self.linear_g.weight,
+                eps=1e-5,
+            )
 
         if mask is None:
             mask = z.new_ones(z.shape[:-1])
