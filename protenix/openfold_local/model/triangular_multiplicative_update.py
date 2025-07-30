@@ -322,7 +322,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 z_chunk_g = slice_tensor(z, i, i + offset, col_dim)
                 
                 x_chunk = fused_sigmoid_gated_dual_gemm_dual_x(
-                    z_chunk_g, x_chunk, self.linear_g.weight, self.linear_z.weight
+                    self.layer_norm_in(z_chunk_g), x_chunk, self.linear_g.weight, self.linear_z.weight
                 )
                 del z_chunk_g
 
@@ -615,7 +615,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
             x = torch.matmul(a, b)
             x = self.layer_norm_out(x)
             x = self.linear_z(x)
-            g = self.linear_g(z)
+            g = self.linear_g(self.layer_norm_in(z))
             g.sigmoid_()
             x *= g
             if with_add:
