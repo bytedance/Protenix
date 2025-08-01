@@ -313,9 +313,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                     b_chunk,
                 )
                 x_chunk = permute_final_dims(x_chunk, (1, 2, 0))
-                x_chunk = layer_norm_transpose(
-                    x_chunk, self.layer_norm_out.weight, self.layer_norm_out.bias, eps=1e-5, layout="bijd->bijd"
-                )
+                x_chunk = self.layer_norm_out(x_chunk)
 
                 # The g dimension (col_dim) is parallel to and ahead of the
                 # overwrites in z. We can extract the g chunk normally.
