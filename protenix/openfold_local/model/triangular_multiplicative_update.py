@@ -31,7 +31,7 @@ import torch.nn as nn
 
 from protenix.openfold_local.model.primitives import LayerNorm, Linear
 from protenix.openfold_local.utils.precision_utils import is_fp16_enabled
-from protenix.openfold_local.utils.tensor_utils import add, permute_final_dims
+from protenix.openfold_local.utils.tensor_utils import permute_final_dims
 
 
 class BaseTriangleMultiplicativeUpdate(nn.Module, ABC):
@@ -198,11 +198,6 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         consumption is just 2.5x the size of z, disregarding memory used for
         chunks and other small variables.
         """
-        if mask is None:
-            mask = z.new_ones(z.shape[:-1])
-
-        mask = mask.unsqueeze(-1)
-
         def compute_projection_helper(pair, mask, a=True):
             if a:
                 linear_g = self.linear_a_g
@@ -233,8 +228,6 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 out_shape = pair.shape[:-3] + (c,) + pair.shape[-3:-1]
                 p = pair.new_zeros(out_shape)
                 for i in range(0, pair.shape[-3], inplace_chunk_size):
-                    pair_chunk = pair[..., i : i + inplace_chunk_size, :, :]
-                    mask_chunk = mask[..., i : i + inplace_chunk_size, :, :]
                     pair_chunk = compute_projection_helper(
                         pair[..., i : i + inplace_chunk_size, :, :],
                         mask[..., i : i + inplace_chunk_size, :, :],
@@ -420,6 +413,11 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         Returns:
             [*, N_res, N_res, C_z] output tensor
         """
+        if mask is None:
+            mask = z.new_ones(z.shape[:-1])
+
+        mask = mask.unsqueeze(-1)
+        
         if inplace_safe:
             x = self._inference_forward(
                 z,
@@ -428,11 +426,6 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 with_add=_add_with_inplace,
             )
             return x
-
-        if mask is None:
-            mask = z.new_ones(z.shape[:-1])
-
-        mask = mask.unsqueeze(-1)
 
         z = self.layer_norm_in(z)
         a = mask
