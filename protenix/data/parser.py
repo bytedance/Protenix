@@ -55,8 +55,7 @@ from protenix.data.utils import (
 logger = logging.getLogger(__name__)
 
 # Ignore inter residue metal coordinate bonds in mmcif _struct_conn
-if "metalc" in pdbx_convert.PDBX_COVALENT_TYPES:  # for reload
-    pdbx_convert.PDBX_COVALENT_TYPES.remove("metalc")
+pdbx_convert.PDBX_BOND_TYPE_ID_TO_TYPE.pop("metalc", None)
 
 
 class MMCIFParser:
@@ -531,22 +530,7 @@ class MMCIFParser:
 
         atom_site = block.get("atom_site")
 
-        models = atom_site["pdbx_PDB_model_num"].as_array(np.int32)
-        model_starts = pdbx_convert._get_model_starts(models)
-        model_count = len(model_starts)
-
-        if model == 0:
-            raise ValueError("The model index must not be 0")
-        # Negative models mean model indexing starting from last model
-
-        model = model_count + model + 1 if model < 0 else model
-        if model > model_count:
-            raise ValueError(
-                f"The file has {model_count} models, "
-                f"the given model {model} does not exist"
-            )
-
-        model_atom_site = pdbx_convert._filter_model(atom_site, model_starts, model)
+        model_atom_site = pdbx_convert._filter_model(atom_site, model)
         # Any field of the category would work here to get the length
         model_length = model_atom_site.row_count
         atoms = AtomArray(model_length)
@@ -635,10 +619,10 @@ class MMCIFParser:
             elif assembly_id not in assembly_ids:
                 raise KeyError(f"File has no Assembly ID '{assembly_id}'")
 
-        ### Calculate all possible transformations
+        # Calculate all possible transformations
         transformations = pdbx_convert._get_transformations(struct_oper_category)
 
-        ### Get transformations and apply them to the affected asym IDs
+        # Get transformations and apply them to the affected asym IDs
         assembly = None
         assembly_1_mask = []
         for id, op_expr, asym_id_expr in zip(
@@ -1260,7 +1244,8 @@ class MMCIFParser:
                     old_name = atom_array.atom_name[old_idx]
                     if old_name not in name_to_index_new:
                         # AF3 SI 2.5.4 Filtering
-                        # For residues or small molecules with CCD codes, atoms outside of the CCD code’s defined set of atom names are removed.
+                        # For residues or small molecules with CCD codes,
+                        # atoms outside of the CCD code’s defined set of atom names are removed.
                         res_mismatch_idx.append(old_idx)
                     else:
                         new_idx = name_to_index_new[old_name]
@@ -1693,7 +1678,6 @@ class MMCIFParser:
 
 
 class DistillationMMCIFParser(MMCIFParser):
-
     def get_structure_dict(self) -> dict[str, Any]:
         """
         Get an AtomArray from a CIF file of distillation data.
