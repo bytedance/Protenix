@@ -362,6 +362,21 @@ def build_polymer(entity_info: dict) -> dict:
             "polymer type must be proteinChain, dnaSequence or rnaSequence"
         )
     chain_array = add_reference_features(chain_array)
+    if "crop" in entity_info[poly_type] and entity_info[poly_type]["crop"] is not None:
+        crop = entity_info[poly_type]["crop"]
+        crop.replace(" ", "")
+        crop = crop.split(",")
+        save_list = []
+        for pid in crop:
+            if "-" in pid:
+                s, e = pid.split("-")
+                length = int(e) - int(s) + 1
+                save_num = [i + int(s) for i in range(0, length)]
+                save_list += save_num
+            else:
+                save_list.append(int(pid))
+        crop_mask = np.isin(chain_array.res_id, np.array(save_list))
+        chain_array = chain_array[crop_mask]
     return {"atom_array": chain_array}
 
 

@@ -1022,7 +1022,10 @@ class InferenceMSAFeaturizer(object):
             entity_type = list(entity_info_wrapper.keys())[0]
             entity_info = entity_info_wrapper[entity_type]
 
-            if entity_type == PROT_TYPE_NAME:
+            if (
+                entity_type == PROT_TYPE_NAME
+                and InferenceMSAFeaturizer.sequence_is_valid(entity_info)
+            ):
                 # Update entity_id_to_sequence
                 entity_id_to_sequence[entity_id] = entity_info["sequence"]
 
@@ -1167,3 +1170,19 @@ class InferenceMSAFeaturizer(object):
             if k
             in ["msa", "has_deletion", "deletion_value", "deletion_mean", "profile"]
         }
+
+    @staticmethod
+    def sequence_is_valid(entity_info):
+        if "sequence_prev" in entity_info:
+            seq = entity_info["sequence_prev"]
+        else:
+            seq = entity_info["sequence"]
+        if "j" in seq:
+            logger.info(
+                f"Sequence has [{seq.count('j')}/{len(seq)}] design tokens. Not use MSA."
+            )
+            return False
+        if not entity_info.get("use_msa", True):
+            logger.info(f"use_msa is False for sequence {seq}. Not use MSA.")
+            return False
+        return True
