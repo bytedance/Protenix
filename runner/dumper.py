@@ -165,7 +165,7 @@ class DataDumper:
         for idx, rank in enumerate(sorted_indices):
             output_fpath = os.path.join(
                 prediction_save_dir,
-                f"{sample_name}_seed_{seed}_sample_{rank}.cif",
+                f"{sample_name}_sample_{rank}.cif",
             )
             if b_factor is not None:
                 # b_factor.shape == [N_sample, N_atom]
@@ -214,7 +214,7 @@ class DataDumper:
         for idx, rank in enumerate(sorted_indices):
             output_fpath = os.path.join(
                 prediction_save_dir,
-                f"{sample_name}_seed_{seed}_summary_confidence_sample_{rank}.json",
+                f"{sample_name}_summary_confidence_sample_{rank}.json",
             )
             save_json(data["summary_confidence"][idx], output_fpath, indent=4)
             if self.need_atom_confidence:
