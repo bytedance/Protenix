@@ -1541,8 +1541,6 @@ class ProtenixLoss(nn.Module):
             all_metrics.update(
                 {f"{loss_name}/{key}": val for key, val in metrics.items()}
             )
-            if torch.isnan(loss) or torch.isinf(loss):
-                logging.warning(f"{loss_name} loss is NaN. Skipping...")
             if (
                 (has_valid_resolution is not None)
                 and (has_valid_resolution.sum() == 0)
@@ -1555,7 +1553,11 @@ class ProtenixLoss(nn.Module):
                 all_metrics[loss_name] = loss.detach().clone()
                 all_metrics[f"weighted_{loss_name}"] = weight * loss.detach().clone()
 
-            cum_loss = cum_loss + weight * loss
+            if torch.isnan(loss) or torch.isinf(loss):
+                logging.warning(f"{loss_name} loss is NaN. Skipping...")
+            else:
+                cum_loss = cum_loss + weight * loss
+
         all_metrics["loss"] = cum_loss.detach().clone()
 
         return cum_loss, all_metrics
