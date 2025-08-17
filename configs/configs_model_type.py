@@ -29,7 +29,7 @@ Currently, the model_name support the following models.
 | `protenix_mini_esm_v0.5.0`          |      ✅ / ✅ / ❌         |         135.22       |
 | `protenix_mini_ism_v0.5.0`          |      ✅ / ✅ / ❌         |         135.22       |
 | `protenix_mini_default_v0.5.0`      |      ❌ / ✅ / ❌         |         134.06       |
-| `protenix_tiny_detault_v0.5.0`      |      ❌ / ✅ / ❌         |         109.50       |
+| `protenix_tiny_default_v0.5.0`      |      ❌ / ✅ / ❌         |         109.50       |
 """
 model_configs = {
     "protenix_base_default_v0.5.0": {
