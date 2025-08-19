@@ -142,13 +142,6 @@ class Protenix(nn.Module):
         Returns:
             Tuple[torch.Tensor, ...]: s_inputs, s, z
         """
-        N_token = input_feature_dict["residue_index"].shape[-1]
-        if N_token <= 16:
-            # Deepspeed_evo_attention do not support token <= 16
-            deepspeed_evo_attention_condition_satisfy = False
-        else:
-            deepspeed_evo_attention_condition_satisfy = True
-
         if self.train_confidence_only:
             self.input_embedder.eval()
             self.template_embedder.eval()
@@ -172,14 +165,26 @@ class Protenix(nn.Module):
             + self.linear_no_bias_zinit2(s_init)[..., None, :, :]
         )  #  [..., N_token, N_token, c_z]
         if inplace_safe:
-            z_init += self.relative_position_encoding(input_feature_dict)
+            z_init += self.relative_position_encoding(
+                input_feature_dict["asym_id"],
+                input_feature_dict["residue_index"],
+                input_feature_dict["entity_id"],
+                input_feature_dict["token_index"],
+                input_feature_dict["sym_id"],
+            )
             z_init += self.linear_no_bias_token_bond(
                 input_feature_dict["token_bonds"].unsqueeze(dim=-1)
             )
             if z_constraint is not None:
                 z_init += z_constraint
         else:
-            z_init = z_init + self.relative_position_encoding(input_feature_dict)
+            z_init = z_init + self.relative_position_encoding(
+                input_feature_dict["asym_id"],
+                input_feature_dict["residue_index"],
+                input_feature_dict["entity_id"],
+                input_feature_dict["token_index"],
+                input_feature_dict["sym_id"],
+            )
             z_init = z_init + self.linear_no_bias_token_bond(
                 input_feature_dict["token_bonds"].unsqueeze(dim=-1)
             )
@@ -202,9 +207,8 @@ class Protenix(nn.Module):
                         z += self.template_embedder(
                             input_feature_dict,
                             z,
-                            use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
-                            and deepspeed_evo_attention_condition_satisfy,
-                            use_lma=self.configs.use_lma,
+                            triangle_multiplicative=self.configs.triangle_multiplicative,
+                            triangle_attention=self.configs.triangle_attention,
                             inplace_safe=inplace_safe,
                             chunk_size=chunk_size,
                         )
@@ -213,9 +217,8 @@ class Protenix(nn.Module):
                         z,
                         s_inputs,
                         pair_mask=None,
-                        use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
-                        and deepspeed_evo_attention_condition_satisfy,
-                        use_lma=self.configs.use_lma,
+                        triangle_multiplicative=self.configs.triangle_multiplicative,
+                        triangle_attention=self.configs.triangle_attention,
                         inplace_safe=inplace_safe,
                         chunk_size=chunk_size,
                     )
@@ -224,9 +227,8 @@ class Protenix(nn.Module):
                         z = z + self.template_embedder(
                             input_feature_dict,
                             z,
-                            use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
-                            and deepspeed_evo_attention_condition_satisfy,
-                            use_lma=self.configs.use_lma,
+                            triangle_multiplicative=self.configs.triangle_multiplicative,
+                            triangle_attention=self.configs.triangle_attention,
                             inplace_safe=inplace_safe,
                             chunk_size=chunk_size,
                         )
@@ -235,9 +237,8 @@ class Protenix(nn.Module):
                         z,
                         s_inputs,
                         pair_mask=None,
-                        use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
-                        and deepspeed_evo_attention_condition_satisfy,
-                        use_lma=self.configs.use_lma,
+                        triangle_multiplicative=self.configs.triangle_multiplicative,
+                        triangle_attention=self.configs.triangle_attention,
                         inplace_safe=inplace_safe,
                         chunk_size=chunk_size,
                     )
@@ -246,9 +247,8 @@ class Protenix(nn.Module):
                     s,
                     z,
                     pair_mask=None,
-                    use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
-                    and deepspeed_evo_attention_condition_satisfy,
-                    use_lma=self.configs.use_lma,
+                    triangle_multiplicative=self.configs.triangle_multiplicative,
+                    triangle_attention=self.configs.triangle_attention,
                     inplace_safe=inplace_safe,
                     chunk_size=chunk_size,
                 )
@@ -387,10 +387,6 @@ class Protenix(nn.Module):
         """
         step_st = time.time()
         N_token = input_feature_dict["residue_index"].shape[-1]
-        if N_token <= 16:
-            deepspeed_evo_attention_condition_satisfy = False
-        else:
-            deepspeed_evo_attention_condition_satisfy = True
 
         log_dict = {}
         pred_dict = {}
@@ -464,9 +460,8 @@ class Protenix(nn.Module):
             z_trunk=z,
             pair_mask=None,
             x_pred_coords=pred_dict["coordinate"],
-            use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
-            and deepspeed_evo_attention_condition_satisfy,
-            use_lma=self.configs.use_lma,
+            triangle_multiplicative=self.configs.triangle_multiplicative,
+            triangle_attention=self.configs.triangle_attention,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
         )
@@ -611,9 +606,8 @@ class Protenix(nn.Module):
             pair_mask=None,
             x_pred_coords=coordinate_mini,
             use_embedding=not drop_embedding,
-            use_deepspeed_evo_attention=self.configs.use_deepspeed_evo_attention
-            and deepspeed_evo_attention_condition_satisfy,
-            use_lma=self.configs.use_lma,
+            triangle_multiplicative=self.configs.triangle_multiplicative,
+            triangle_attention=self.configs.triangle_attention,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
         )

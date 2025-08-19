@@ -37,7 +37,7 @@ def compile(name, sources, extra_include_paths, build_directory):
             "-DVERSION_GE_1_3",
             "-DVERSION_GE_1_5",
             "-std=c++17",
-            "-maxrregcount=50",
+            "-maxrregcount=32",
             "-U__CUDA_NO_HALF_OPERATORS__",
             "-U__CUDA_NO_HALF_CONVERSIONS__",
             "--expt-relaxed-constexpr",

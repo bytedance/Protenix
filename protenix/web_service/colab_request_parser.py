@@ -395,7 +395,6 @@ class RequestParser(object):
             f"--use_msa {self.request['use_msa']}",
             "--num_workers 0",
             "--dtype bf16",
-            "--use_deepspeed_evo_attention True",
             "--sample_diffusion.step_scale_eta 1.5",
         ]
 

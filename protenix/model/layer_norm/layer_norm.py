@@ -24,13 +24,13 @@ from torch.nn.parameter import Parameter
 sys.path.append(os.path.dirname(__file__))
 
 try:
-    fastfold_layer_norm_cuda = importlib.import_module("fastfold_layer_norm_cuda")
+    fast_layer_norm_cuda_v2 = importlib.import_module("fast_layer_norm_cuda_v2")
 except ImportError:
     from protenix.model.layer_norm.torch_ext_compile import compile
 
     current_dir = os.path.dirname(__file__)
-    fastfold_layer_norm_cuda = compile(
-        name="fastfold_layer_norm_cuda",
+    fast_layer_norm_cuda_v2 = compile(
+        name="fast_layer_norm_cuda_v2",
         sources=[
             os.path.join(f"{current_dir}/kernel", file)
             for file in ["layer_norm_cuda.cpp", "layer_norm_cuda_kernel.cu"]
@@ -52,27 +52,27 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
 
         if weight is None:
             if bias is None:
-                output, mean, invvar = fastfold_layer_norm_cuda.forward_none_affine(
+                output, mean, invvar = fast_layer_norm_cuda_v2.forward_none_affine(
                     input_, ctx.normalized_shape, ctx.eps
                 )
             else:
-                output, mean, invvar = (
-                    fastfold_layer_norm_cuda.forward_with_bias_affine(
-                        input_, ctx.normalized_shape, bias.to(d), ctx.eps
-                    )
+                output, mean, invvar = fast_layer_norm_cuda_v2.forward_with_bias_affine(
+                    input_, ctx.normalized_shape, bias.to(d), ctx.eps
                 )
         else:
             if bias is None:
                 output, mean, invvar = (
-                    fastfold_layer_norm_cuda.forward_with_weight_affine(
+                    fast_layer_norm_cuda_v2.forward_with_weight_affine(
                         input_, ctx.normalized_shape, weight.to(d), ctx.eps
                     )
                 )
             else:
-                output, mean, invvar = (
-                    fastfold_layer_norm_cuda.forward_with_both_affine(
-                        input_, ctx.normalized_shape, weight.to(d), bias.to(d), ctx.eps
-                    )
+                output, mean, invvar = fast_layer_norm_cuda_v2.forward_with_both_affine(
+                    input_,
+                    ctx.normalized_shape,
+                    weight.to(d),
+                    bias.to(d),
+                    ctx.eps,
                 )
         ctx.save_for_backward(input_, weight, bias, mean, invvar)
         return output
@@ -86,7 +86,7 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
         if weight_ is None:
             if bias_ is None:
                 grad_input, grad_weight, grad_bias = (
-                    fastfold_layer_norm_cuda.backward_none_affine(
+                    fast_layer_norm_cuda_v2.backward_none_affine(
                         grad_output.contiguous(),
                         mean,
                         invvar,
@@ -97,7 +97,7 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
                 )
             else:
                 grad_input, grad_weight, grad_bias = (
-                    fastfold_layer_norm_cuda.backward_with_bias_affine(
+                    fast_layer_norm_cuda_v2.backward_with_bias_affine(
                         grad_output.contiguous(),
                         mean,
                         invvar,
@@ -110,7 +110,7 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
         else:
             if bias_ is None:
                 grad_input, grad_weight, grad_bias = (
-                    fastfold_layer_norm_cuda.backward_with_weight_affine(
+                    fast_layer_norm_cuda_v2.backward_with_weight_affine(
                         grad_output.contiguous(),
                         mean,
                         invvar,
@@ -122,7 +122,7 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
                 )
             else:
                 grad_input, grad_weight, grad_bias = (
-                    fastfold_layer_norm_cuda.backward_with_both_affine(
+                    fast_layer_norm_cuda_v2.backward_with_both_affine(
                         grad_output.contiguous(),
                         mean,
                         invvar,
@@ -139,17 +139,14 @@ class FusedLayerNormAffineFunction(torch.autograd.Function):
             None if bias_ is None else grad_bias,
             None,
             None,
+            None,
         )
 
 
 class FusedLayerNorm(torch.nn.Module):
 
     def __init__(
-        self,
-        normalized_shape,
-        create_scale=True,
-        create_offset=True,
-        eps=1e-5,
+        self, normalized_shape, create_scale=True, create_offset=True, eps=1e-5
     ):
         """
         Args:

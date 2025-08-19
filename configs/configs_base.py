@@ -123,11 +123,8 @@ model_configs = {
         1
     ),  # NOTE: Number of blocks in each activation checkpoint, if None, no checkpointing is performed.
     # switch of kernels
-    "use_memory_efficient_kernel": False,  # whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
-    "use_deepspeed_evo_attention": True,
-    "use_flash": False,
-    "use_lma": False,
-    "use_xformer": False,
+    "triangle_multiplicative": "cuequivariance",  # cuequivariance, torch
+    "triangle_attention": "triattention",  # triattention, cuequivariance, deepspeed, torch
     "find_unused_parameters": False,
     "dtype": "bf16",  # default training dtype: bf16
     "loss_metrics_sparse_enable": True,  # the swicth for both sparse lddt metrics and sparse bond/smooth lddt loss
@@ -239,9 +236,6 @@ model_configs = {
         },
         "diffusion_module": {
             "use_fine_grained_checkpoint": True,
-            "use_efficient_implementation": GlobalConfigValue(
-                "use_memory_efficient_kernel"
-            ),
             "sigma_data": GlobalConfigValue("sigma_data"),
             "c_token": 768,
             "c_atom": GlobalConfigValue("c_atom"),

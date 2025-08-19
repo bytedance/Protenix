@@ -12,7 +12,7 @@
         
 2. Pull the Docker image, which was built based on this [Dockerfile](../Dockerfile)
     ```bash
-    docker pull ai4s-cn-beijing.cr.volces.com/infra/protenix:v0.0.3
+    docker pull ai4s-cn-beijing.cr.volces.com/infra/protenix:v0.0.6
     ```
 
 3. Clone this repository and `cd` into it
@@ -24,7 +24,7 @@
 
 4. Run Docker with an interactive shell
     ```bash
-    docker run --gpus all -it -v $(pwd):/workspace -v /dev/shm:/dev/shm ai4s-cn-beijing.cr.volces.com/infra/protenix:v0.0.3 /bin/bash
+    docker run --gpus all -it -v $(pwd):/workspace -v /dev/shm:/dev/shm ai4s-cn-beijing.cr.volces.com/infra/protenix:v0.0.6 /bin/bash
     ```
   
   After running above commands, you’ll be inside the container’s environment and can execute commands as you would on a normal Linux terminal.

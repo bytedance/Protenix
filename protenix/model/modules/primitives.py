@@ -79,7 +79,7 @@ class Linear(nn.Linear):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.precision is not None:
             input_dtype = input.dtype
-            with torch.cuda.amp.autocast(enabled=False):
+            with torch.amp.autocast("cuda", enabled=False):
                 bias = (
                     self.bias.to(dtype=self.precision)
                     if self.bias is not None
@@ -267,7 +267,7 @@ def _attention(
         )
         return attn_output
 
-    with torch.cuda.amp.autocast(enabled=False):
+    with torch.amp.autocast("cuda", enabled=False):
         # [..., n_kv, d] -> [..., d, n_kv]
         k = k.transpose(-1, -2)
 

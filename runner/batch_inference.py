@@ -168,6 +168,8 @@ def get_default_runner(
     n_sample: int = 5,
     model_name: str = "protenix_base_default_v0.5.0",
     use_msa: bool = True,
+    trimul_kernel="cuequivariance",
+    triatt_kernel="triattention",
 ) -> InferenceRunner:
     inference_configs["model_name"] = model_name
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
@@ -186,13 +188,12 @@ def get_default_runner(
     # update model specific configs
     configs.update(model_specfics_configs)
     # the user input configs has the highest priority
-    configs.use_deepspeed_evo_attention = (
-        os.environ.get("USE_DEEPSPEED_EVO_ATTENTION", False) == "true"
-    )
     configs.model.N_cycle = n_cycle
     configs.sample_diffusion.N_sample = n_sample
     configs.sample_diffusion.N_step = n_step
     configs.use_msa = use_msa
+    configs.triangle_multiplicative = trimul_kernel
+    configs.triangle_attention = triatt_kernel
 
     download_infercence_cache(configs)
     return InferenceRunner(configs)
@@ -207,6 +208,8 @@ def inference_jsons(
     n_step: int = 200,
     n_sample: int = 5,
     model_name: str = "protenix_base_default_v0.5.0",
+    trimul_kernel="cuequivariance",
+    triatt_kernel="triattention",
 ) -> None:
     """
     infer_json: json file or directory, will run infer with these jsons
@@ -233,7 +236,16 @@ def inference_jsons(
     infer_errors = {}
     inference_configs["dump_dir"] = out_dir
     inference_configs["input_json_path"] = infer_jsons[0]
-    runner = get_default_runner(seeds, n_cycle, n_step, n_sample, model_name, use_msa)
+    runner = get_default_runner(
+        seeds,
+        n_cycle,
+        n_step,
+        n_sample,
+        model_name,
+        use_msa,
+        trimul_kernel,
+        triatt_kernel,
+    )
     configs = runner.configs
     for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
         try:
@@ -276,6 +288,18 @@ def protenix_cli():
 @click.option(
     "--use_default_params", type=bool, default=True, help="use the default params"
 )
+@click.option(
+    "--trimul_kernel",
+    type=str,
+    default="cuequivariance",
+    help="Kernel to use for triangle multiplicative update. Options: 'cuequivariance', 'torch'.",
+)
+@click.option(
+    "--triatt_kernel",
+    type=str,
+    default="triattention",
+    help="Kernel to use for triangle attention. Options: 'triattention', 'cuequivariance', 'deepspeed', 'torch'.",
+)
 def predict(
     input,
     out_dir,
@@ -286,10 +310,12 @@ def predict(
     model_name,
     use_msa,
     use_default_params,
+    trimul_kernel,
+    triatt_kernel,
 ):
     """
     predict: Run predictions with protenix.
-    :param input, out_dir, seeds, cycle, step, sample, model_name, use_msa, use_default_params
+    :param input, out_dir, seeds, cycle, step, sample, model_name, use_msa, use_default_params, trimul_kernel, triatt_kernel
     :return:
     """
     init_logging()
@@ -321,6 +347,19 @@ def predict(
     logger.info(
         f"Using the default params for inference for model {model_name}: cycle={cycle}, step={step}, use_msa={use_msa}"
     )
+    assert trimul_kernel in [
+        "cuequivariance",
+        "torch",
+    ], "Kernel to use for triangle multiplicative update. Options: 'cuequivariance', 'torch'."
+    assert triatt_kernel in [
+        "triattention",
+        "cuequivariance",
+        "deepspeed",
+        "torch",
+    ], "Kernel to use for triangle attention. Options: 'triattention', 'cuequivariance', 'deepspeed', 'torch'."
+    logger.info(
+        f"Triangle_multiplicative kernel: {trimul_kernel}, Triangle_attention kernel: {triatt_kernel}"
+    )
     seeds = list(map(int, seeds.split(",")))
     inference_jsons(
         input,
@@ -331,6 +370,8 @@ def predict(
         n_step=step,
         n_sample=sample,
         model_name=model_name,
+        trimul_kernel=trimul_kernel,
+        triatt_kernel=triatt_kernel,
     )
 
 

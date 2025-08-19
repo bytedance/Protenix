@@ -133,10 +133,16 @@ class RelativePositionEncoding(nn.Module):
             "token_index": 1,
         }
 
-    def forward(self, input_feature_dict: dict[str, Any]) -> torch.Tensor:
+    def forward(
+        self,
+        asym_id: torch.Tensor,
+        residue_index: torch.Tensor,
+        entity_id: torch.Tensor,
+        token_index: torch.Tensor,
+        sym_id: torch.Tensor,
+    ) -> torch.Tensor:
         """
         Args:
-            input_feature_dict (Dict[str, Any]): input meta feature dict.
             asym_id / residue_index / entity_id / sym_id / token_index
                 [..., N_tokens]
         Returns:
@@ -144,20 +150,17 @@ class RelativePositionEncoding(nn.Module):
                 [..., N_token, N_token, c_z]
         """
         b_same_chain = (
-            input_feature_dict["asym_id"][..., :, None]
-            == input_feature_dict["asym_id"][..., None, :]
+            asym_id[..., :, None] == asym_id[..., None, :]
         ).long()  # [..., N_token, N_token]
         b_same_residue = (
-            input_feature_dict["residue_index"][..., :, None]
-            == input_feature_dict["residue_index"][..., None, :]
+            residue_index[..., :, None] == residue_index[..., None, :]
         ).long()  # [..., N_token, N_token]
         b_same_entity = (
-            input_feature_dict["entity_id"][..., :, None]
-            == input_feature_dict["entity_id"][..., None, :]
+            entity_id[..., :, None] == entity_id[..., None, :]
         ).long()  # [..., N_token, N_token]
         d_residue = torch.clip(
-            input=input_feature_dict["residue_index"][..., :, None]
-            - input_feature_dict["residue_index"][..., None, :]
+            input=residue_index[..., :, None]
+            - residue_index[..., None, :]
             + self.r_max,
             min=0,
             max=2 * self.r_max,
@@ -166,9 +169,7 @@ class RelativePositionEncoding(nn.Module):
         )  # [..., N_token, N_token]
         a_rel_pos = F.one_hot(d_residue, 2 * (self.r_max + 1))
         d_token = torch.clip(
-            input=input_feature_dict["token_index"][..., :, None]
-            - input_feature_dict["token_index"][..., None, :]
-            + self.r_max,
+            input=token_index[..., :, None] - token_index[..., None, :] + self.r_max,
             min=0,
             max=2 * self.r_max,
         ) * b_same_chain * b_same_residue + (1 - b_same_chain * b_same_residue) * (
@@ -176,9 +177,7 @@ class RelativePositionEncoding(nn.Module):
         )  # [..., N_token, N_token]
         a_rel_token = F.one_hot(d_token, 2 * (self.r_max + 1))
         d_chain = torch.clip(
-            input=input_feature_dict["sym_id"][..., :, None]
-            - input_feature_dict["sym_id"][..., None, :]
-            + self.s_max,
+            input=sym_id[..., :, None] - sym_id[..., None, :] + self.s_max,
             min=0,
             max=2 * self.s_max,
         ) * b_same_entity + (1 - b_same_entity) * (
