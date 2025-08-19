@@ -37,7 +37,7 @@ if "--cpu" in sys.argv:
 
 setup(
     name="protenix",
-    python_requires=">=3.10",
+    python_requires=">=3.11",
     version="0.6.0",
     description="A trainable PyTorch reproduction of AlphaFold 3.",
     long_description=long_description,
