@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-export LAYERNORM_TYPE=fast_layernorm
-export USE_DEEPSPEED_EVO_ATTENTION=true
+export LAYERNORM_TYPE=fast_layernorm # fast_layernorm, torch
+# Kernel options:
+# - triangle_attention: supports 'triattention', 'cuequivariance', 'deepspeed', 'torch'
+# - triangle_multiplicative: supports 'cuequivariance'(default), 'torch'
 
 N_sample=5
 N_step=200
@@ -31,7 +33,9 @@ python3 runner/inference.py \
 --input_json_path ${input_json_path} \
 --model.N_cycle ${N_cycle} \
 --sample_diffusion.N_sample ${N_sample} \
---sample_diffusion.N_step ${N_step}
+--sample_diffusion.N_step ${N_step} \
+--triangle_attention "triattention" \
+--triangle_multiplicative "cuequivariance"
 
 # The following is a demo to use DDP for inference
 # torchrun \

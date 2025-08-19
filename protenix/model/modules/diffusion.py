@@ -88,7 +88,11 @@ class DiffusionConditioning(nn.Module):
     def forward(
         self,
         t_hat_noise_level: torch.Tensor,
-        input_feature_dict: dict[str, Union[torch.Tensor, int, float, dict]],
+        asym_id: torch.Tensor,
+        residue_index: torch.Tensor,
+        entity_id: torch.Tensor,
+        token_index: torch.Tensor,
+        sym_id: torch.Tensor,
         s_inputs: torch.Tensor,
         s_trunk: torch.Tensor,
         z_trunk: torch.Tensor,
@@ -99,7 +103,11 @@ class DiffusionConditioning(nn.Module):
         Args:
             t_hat_noise_level (torch.Tensor): the noise level
                 [..., N_sample]
-            input_feature_dict (dict[str, Union[torch.Tensor, int, float, dict]]): input meta feature dict
+            asym_id (torch.Tensor): asym_id
+            residue_index (torch.Tensor): residue_index
+            entity_id (torch.Tensor): entity_id
+            token_index (torch.Tensor): token_index
+            sym_id (torch.Tensor): sym_id
             s_inputs (torch.Tensor): single embedding from InputFeatureEmbedder
                 [..., N_tokens, c_s_inputs]
             s_trunk (torch.Tensor): single feature embedding from PairFormer (Alg17)
@@ -123,7 +131,11 @@ class DiffusionConditioning(nn.Module):
 
         # Pair conditioning
         pair_z = torch.cat(
-            tensors=[z_trunk, self.relpe(input_feature_dict)], dim=-1
+            tensors=[
+                z_trunk,
+                self.relpe(asym_id, residue_index, entity_id, token_index, sym_id),
+            ],
+            dim=-1,
         )  # [..., N_tokens, N_tokens, 2*c_z]
         pair_z = self.linear_no_bias_z(self.layernorm_z(pair_z))
         if inplace_safe:
@@ -370,7 +382,11 @@ class DiffusionModule(nn.Module):
             s_single, z_pair = checkpoint_fn(
                 self.diffusion_conditioning,
                 t_hat_noise_level,
-                input_feature_dict,
+                input_feature_dict["asym_id"],
+                input_feature_dict["residue_index"],
+                input_feature_dict["entity_id"],
+                input_feature_dict["token_index"],
+                input_feature_dict["sym_id"],
                 s_inputs,
                 s_trunk,
                 z_trunk,
@@ -378,9 +394,17 @@ class DiffusionModule(nn.Module):
                 use_conditioning,
             )
         else:
+            # We unpack the input_feature_dict here and use only the required components,
+            # because starting from PyTorch 2.4, torch.utils.checkpoint.checkpoint performs
+            # recursive type checking on the inputs. Passing the entire input_feature_dict
+            # directly would significantly slow down training.
             s_single, z_pair = self.diffusion_conditioning(
-                t_hat_noise_level=t_hat_noise_level,
-                input_feature_dict=input_feature_dict,
+                t_hat_noise_level,
+                input_feature_dict["asym_id"],
+                input_feature_dict["residue_index"],
+                input_feature_dict["entity_id"],
+                input_feature_dict["token_index"],
+                input_feature_dict["sym_id"],
                 s_inputs=s_inputs,
                 s_trunk=s_trunk,
                 z_trunk=z_trunk,

@@ -72,7 +72,7 @@ class InferenceRunner(object):
             self.device = torch.device("cpu")
         if DIST_WRAPPER.world_size > 1:
             dist.init_process_group(backend="nccl")
-        if self.configs.use_deepspeed_evo_attention:
+        if self.configs.triangle_attention == "deepspeed":
             env = os.getenv("CUTLASS_PATH", None)
             self.print(f"env: {env}")
             assert (
@@ -271,6 +271,14 @@ def update_inference_configs(configs: Any, N_token: int):
     else:
         configs.skip_amp.confidence_head = True
         configs.skip_amp.sample_diffusion = True
+
+    if N_token > 2560 and configs.triangle_multiplicative == "cuequivariance":
+        configs.triangle_multiplicative = "torch"
+        # https://github.com/NVIDIA/cuEquivariance/issues/144
+        logger.warning(
+            "Sequence length exceeds 2560; falling back to PyTorch native implementation to prevent potential illegal memory access. "
+            "This fallback may be removed in the future if cuEquivariance is upgraded."
+        )
     return configs
 
 
@@ -348,9 +356,7 @@ def run() -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
     )
-    configs_base["use_deepspeed_evo_attention"] = (
-        os.environ.get("USE_DEEPSPEED_EVO_ATTENTION", False) == "true"
-    )
+
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
     configs = parse_configs(
         configs=configs,
@@ -365,6 +371,9 @@ def run() -> None:
     model_specfics_configs = ConfigDict(model_configs[model_name])
     # update model specific configs
     configs.update(model_specfics_configs)
+    logger.info(
+        f"Triangle_multiplicative kernel: {configs.triangle_multiplicative}, Triangle_attention kernel: {configs.triangle_attention}"
+    )
     download_infercence_cache(configs)
     main(configs)
 

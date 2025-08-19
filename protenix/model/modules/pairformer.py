@@ -101,8 +101,8 @@ class PairformerBlock(nn.Module):
         s: Optional[torch.Tensor],
         z: torch.Tensor,
         pair_mask: torch.Tensor,
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
     ) -> tuple[Optional[torch.Tensor], torch.Tensor]:
@@ -116,8 +116,13 @@ class PairformerBlock(nn.Module):
                 [..., N_token, N_token, c_z]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            use_deepspeed_evo_attention (bool): Whether to use DeepSpeed evolutionary attention. Defaults to False.
-            use_lma (bool): Whether to use low-memory attention. Defaults to False.
+            triangle_multiplicative: Triangle multiplicative implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "cuequivariance": Cuequivariance implementation
+            triangle_attention: Triangle attention implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "triattention": Optimized tri-attention module
+                - "deepspeed": DeepSpeed's fused attention kernel
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
 
@@ -128,16 +133,23 @@ class PairformerBlock(nn.Module):
         """
         if inplace_safe:
             z = self.tri_mul_out(
-                z, mask=pair_mask, inplace_safe=inplace_safe, _add_with_inplace=True
+                z,
+                mask=pair_mask,
+                inplace_safe=inplace_safe,
+                _add_with_inplace=True,
+                triangle_multiplicative=triangle_multiplicative,
             )
             z = self.tri_mul_in(
-                z, mask=pair_mask, inplace_safe=inplace_safe, _add_with_inplace=True
+                z,
+                mask=pair_mask,
+                inplace_safe=inplace_safe,
+                _add_with_inplace=True,
+                triangle_multiplicative=triangle_multiplicative,
             )
             z += self.tri_att_start(
                 z,
                 mask=pair_mask,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
+                triangle_attention=triangle_attention,
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
@@ -145,8 +157,7 @@ class PairformerBlock(nn.Module):
             z += self.tri_att_end(
                 z,
                 mask=pair_mask.transpose(-1, -2) if pair_mask is not None else None,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
+                triangle_attention=triangle_attention,
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
@@ -154,12 +165,20 @@ class PairformerBlock(nn.Module):
             z += self.pair_transition(z)
         else:
             tmu_update = self.tri_mul_out(
-                z, mask=pair_mask, inplace_safe=inplace_safe, _add_with_inplace=False
+                z,
+                mask=pair_mask,
+                inplace_safe=inplace_safe,
+                _add_with_inplace=False,
+                triangle_multiplicative=triangle_multiplicative,
             )
             z = z + self.dropout_row(tmu_update)
             del tmu_update
             tmu_update = self.tri_mul_in(
-                z, mask=pair_mask, inplace_safe=inplace_safe, _add_with_inplace=False
+                z,
+                mask=pair_mask,
+                inplace_safe=inplace_safe,
+                _add_with_inplace=False,
+                triangle_multiplicative=triangle_multiplicative,
             )
             z = z + self.dropout_row(tmu_update)
             del tmu_update
@@ -167,8 +186,7 @@ class PairformerBlock(nn.Module):
                 self.tri_att_start(
                     z,
                     mask=pair_mask,
-                    use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                    use_lma=use_lma,
+                    triangle_attention=triangle_attention,
                     inplace_safe=inplace_safe,
                     chunk_size=chunk_size,
                 )
@@ -178,8 +196,7 @@ class PairformerBlock(nn.Module):
                 self.tri_att_end(
                     z,
                     mask=pair_mask.transpose(-1, -2) if pair_mask is not None else None,
-                    use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                    use_lma=use_lma,
+                    triangle_attention=triangle_attention,
                     inplace_safe=inplace_safe,
                     chunk_size=chunk_size,
                 )
@@ -236,8 +253,8 @@ class PairformerStack(nn.Module):
     def _prep_blocks(
         self,
         pair_mask: Optional[torch.Tensor],
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         clear_cache_between_blocks: bool = False,
@@ -246,8 +263,8 @@ class PairformerStack(nn.Module):
             partial(
                 b,
                 pair_mask=pair_mask,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
+                triangle_multiplicative=triangle_multiplicative,
+                triangle_attention=triangle_attention,
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
@@ -267,8 +284,8 @@ class PairformerStack(nn.Module):
         s: torch.Tensor,
         z: torch.Tensor,
         pair_mask: torch.Tensor,
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -280,8 +297,8 @@ class PairformerStack(nn.Module):
                 [..., N_token, N_token, c_z]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            use_deepspeed_evo_attention (bool): Whether to use DeepSpeed evolutionary attention. Defaults to False.
-            use_lma (bool): Whether to use low-memory attention. Defaults to False.
+            triangle_multiplicative (str): triangle multiplicative. Defaults to "torch".
+            triangle_attention (str): triangle attention. Defaults to "torch".
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
 
@@ -296,8 +313,8 @@ class PairformerStack(nn.Module):
             clear_cache_between_blocks = False
         blocks = self._prep_blocks(
             pair_mask=pair_mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
+            triangle_multiplicative=triangle_multiplicative,
+            triangle_attention=triangle_attention,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
             clear_cache_between_blocks=clear_cache_between_blocks,
@@ -595,8 +612,8 @@ class MSABlock(nn.Module):
         m: torch.Tensor,
         z: torch.Tensor,
         pair_mask,
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -608,8 +625,8 @@ class MSABlock(nn.Module):
                 [...,n_token, n_token, c_z]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            use_deepspeed_evo_attention (bool): Whether to use DeepSpeed evolutionary attention. Defaults to False.
-            use_lma (bool): Whether to use low-memory attention. Defaults to False.
+            triangle_multiplicative (str): triangle multiplicative. Defaults to "torch".
+            triangle_attention (str): triangle attention. Defaults to "torch".
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
 
@@ -634,8 +651,8 @@ class MSABlock(nn.Module):
             s=None,
             z=z,
             pair_mask=pair_mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
+            triangle_multiplicative=triangle_multiplicative,
+            triangle_attention=triangle_attention,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
         )
@@ -736,8 +753,8 @@ class MSAModule(nn.Module):
     def _prep_blocks(
         self,
         pair_mask: Optional[torch.Tensor],
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         clear_cache_between_blocks: bool = False,
@@ -746,8 +763,8 @@ class MSAModule(nn.Module):
             partial(
                 b,
                 pair_mask=pair_mask,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
+                triangle_multiplicative=triangle_multiplicative,
+                triangle_attention=triangle_attention,
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
@@ -789,8 +806,8 @@ class MSAModule(nn.Module):
         z: torch.Tensor,
         s_inputs: torch.Tensor,
         pair_mask: torch.Tensor,
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
     ) -> torch.Tensor:
@@ -804,8 +821,8 @@ class MSAModule(nn.Module):
                 [..., N_token, c_s_inputs]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            use_deepspeed_evo_attention (bool): Whether to use DeepSpeed evolutionary attention. Defaults to False.
-            use_lma (bool): Whether to use low-memory attention. Defaults to False.
+            triangle_multiplicative (str): the multiplicative function for triangle attention. Defaults to "torch".
+            triangle_attention (str): the attention function for triangle attention. Defaults to "torch".
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
 
@@ -877,8 +894,8 @@ class MSAModule(nn.Module):
             clear_cache_between_blocks = False
         blocks = self._prep_blocks(
             pair_mask=pair_mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
+            triangle_multiplicative=triangle_multiplicative,
+            triangle_attention=triangle_attention,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
             clear_cache_between_blocks=clear_cache_between_blocks,
@@ -960,8 +977,8 @@ class TemplateEmbedder(nn.Module):
         input_feature_dict: dict[str, Any],
         z: torch.Tensor,  # pylint: disable=W0613
         pair_mask: torch.Tensor = None,  # pylint: disable=W0613
-        use_deepspeed_evo_attention: bool = False,  # pylint: disable=W0613
-        use_lma: bool = False,  # pylint: disable=W0613
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,  # pylint: disable=W0613
         chunk_size: Optional[int] = None,  # pylint: disable=W0613
     ) -> torch.Tensor:

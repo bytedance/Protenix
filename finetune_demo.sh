@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-export LAYERNORM_TYPE=fast_layernorm
-export USE_DEEPSPEED_EVO_ATTENTION=true
+export LAYERNORM_TYPE=fast_layernorm # fast_layernorm, torch
+# Kernel options:
+# - triangle_attention: supports 'triattention', 'cuequivariance', 'deepspeed', 'torch'
+# - triangle_multiplicative: supports 'cuequivariance', 'torch'
+
 # wget -P /af3-dev/release_model/ https://af3-dev.tos-cn-beijing.volces.com/release_model/protenix_base_default_v0.5.0.pt
 checkpoint_path="/af3-dev/release_model/protenix_base_default_v0.5.0.pt"
 
@@ -35,6 +38,8 @@ python3 ./runner/train.py \
 --warmup_steps 2000 \
 --lr 0.001 \
 --sample_diffusion.N_step 20 \
+--triangle_attention "triattention" \
+--triangle_multiplicative "cuequivariance" \
 --load_checkpoint_path ${checkpoint_path} \
 --load_ema_checkpoint_path ${checkpoint_path} \
 --data.train_sets weightedPDB_before2109_wopb_nometalc_0925 \

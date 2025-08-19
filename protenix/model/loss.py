@@ -1095,7 +1095,7 @@ class MSELoss(nn.Module):
         # Align GT coords to predicted coords
         d = pred_coordinate.dtype
         # Some ops in weighted_rigid_align do not support BFloat16 training
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast("cuda", enabled=False):
             true_coordinate_aligned = weighted_rigid_align(
                 x=true_coordinate.to(torch.float32),  # [..., N_sample, N_atom, 3]
                 x_target=pred_coordinate.to(

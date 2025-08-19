@@ -56,7 +56,7 @@ class Dropout(nn.Module):
                 shape[bd] = 1
         mask = x.new_ones(shape)
         mask = self.dropout(mask)
-        x *= mask
+        x = x * mask
         return x
 
 

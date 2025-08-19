@@ -57,8 +57,7 @@ class TriangleAttention(nn.Module):
         x: torch.Tensor,
         biases: List[torch.Tensor],
         chunk_size: int,
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
     ) -> torch.Tensor:
         "triangle! triangle!"
@@ -71,8 +70,7 @@ class TriangleAttention(nn.Module):
         return chunk_layer(
             partial(
                 self.mha,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
+                triangle_attention=triangle_attention,
             ),
             mha_inputs,
             chunk_size=chunk_size,
@@ -85,8 +83,7 @@ class TriangleAttention(nn.Module):
         x: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         chunk_size: Optional[int] = None,
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
     ) -> torch.Tensor:
         """
@@ -125,8 +122,7 @@ class TriangleAttention(nn.Module):
                 x,
                 biases,
                 chunk_size,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
+                triangle_attention=triangle_attention,
                 inplace_safe=inplace_safe,
             )
         else:
@@ -134,8 +130,7 @@ class TriangleAttention(nn.Module):
                 q_x=x,
                 kv_x=x,
                 biases=biases,
-                use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                use_lma=use_lma,
+                triangle_attention=triangle_attention,
             )
 
         if not self.starting:

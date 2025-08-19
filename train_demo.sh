@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-export LAYERNORM_TYPE=fast_layernorm
-export USE_DEEPSPEED_EVO_ATTENTION=true
+export LAYERNORM_TYPE=fast_layernorm # fast_layernorm, torch
+# Kernel options:
+# - triangle_attention: supports 'triattention', 'cuequivariance', 'deepspeed', 'torch'
+# - triangle_multiplicative: supports 'cuequivariance', 'torch'
 
 python3 ./runner/train.py \
 --run_name protenix_train \
@@ -32,6 +34,8 @@ python3 ./runner/train.py \
 --warmup_steps 2000 \
 --lr 0.001 \
 --sample_diffusion.N_step 20 \
+--triangle_attention "triattention" \
+--triangle_multiplicative "cuequivariance" \
 --data.train_sets weightedPDB_before2109_wopb_nometalc_0925 \
 --data.test_sets recentPDB_1536_sample384_0925,posebusters_0925 \
 --data.posebusters_0925.base_info.max_n_token 768

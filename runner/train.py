@@ -21,11 +21,11 @@ from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
-import wandb
 from ml_collections.config_dict import ConfigDict
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
+import wandb
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_model_type import model_configs
@@ -143,7 +143,7 @@ class AF3Trainer(object):
             deterministic=self.configs.deterministic,
         )  # diff ddp process got diff seeds
 
-        if self.configs.use_deepspeed_evo_attention:
+        if self.configs.triangle_attention == "deepspeed":
             env = os.getenv("CUTLASS_PATH", None)
             print(f"env: {env}")
             assert (
@@ -587,8 +587,11 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
     )
-    configs_base["use_deepspeed_evo_attention"] = (
-        os.environ.get("USE_DEEPSPEED_EVO_ATTENTION", False) == "true"
+    configs_base["triangle_attention"] = os.environ.get(
+        "TRIANGLE_ATTENTION", "triattention"
+    )
+    configs_base["triangle_multiplicative"] = os.environ.get(
+        "TRIANGLE_MULTIPLICATIVE", "cuequivariance"
     )
     configs = {**configs_base, **{"data": data_configs}}
     configs = parse_configs(

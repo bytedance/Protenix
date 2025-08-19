@@ -141,8 +141,8 @@ class ConfidenceHead(nn.Module):
         pair_mask: torch.Tensor,
         x_pred_coords: torch.Tensor,
         use_embedding: bool = True,
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -159,9 +159,13 @@ class ConfidenceHead(nn.Module):
                 [..., N_token, N_token]
             x_pred_coords (torch.Tensor): predicted coordinates
                 [..., N_sample, N_atoms, 3]
-            use_deepspeed_evo_attention (bool, optional): Whether to use DeepSpeed evolutionary attention. Defaults to False.
-            use_lma (bool, optional): Whether to use low-memory attention. Defaults to False.
-            inplace_safe (bool, optional): Whether to use inplace operations. Defaults to False.
+            triangle_attention: Triangle attention implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "triattention": Optimized tri-attention module
+                - "deepspeed": DeepSpeed's fused attention kernel
+            triangle_multiplicative: Triangle multiplicative implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "cuequivariance": Cuequivariance implementation
             chunk_size (Optional[int], optional): Chunk size for memory-efficient operations. Defaults to None.
 
         Returns:
@@ -214,8 +218,8 @@ class ConfidenceHead(nn.Module):
                     z_pair=z_trunk.clone() if inplace_safe else z_trunk,
                     pair_mask=pair_mask,
                     x_pred_rep_coords=x_pred_rep_coords[..., i, :, :],
-                    use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-                    use_lma=use_lma,
+                    triangle_multiplicative=triangle_multiplicative,
+                    triangle_attention=triangle_attention,
                     inplace_safe=inplace_safe,
                     chunk_size=chunk_size,
                 )
@@ -256,8 +260,8 @@ class ConfidenceHead(nn.Module):
         z_pair: torch.Tensor,
         pair_mask: torch.Tensor,
         x_pred_rep_coords: torch.Tensor,
-        use_deepspeed_evo_attention: bool = False,
-        use_lma: bool = False,
+        triangle_multiplicative: str = "torch",
+        triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -268,7 +272,7 @@ class ConfidenceHead(nn.Module):
                 [..., N_atoms, 3] # Note: N_sample = 1 for avoiding CUDA OOM
         """
         # Embed pair distances of representative atoms:
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast("cuda", enabled=False):
             x_pred_rep_coords = x_pred_rep_coords.to(torch.float32)
             distance_pred = torch.cdist(
                 x_pred_rep_coords, x_pred_rep_coords
@@ -302,8 +306,8 @@ class ConfidenceHead(nn.Module):
             s_trunk,
             z_pair,
             pair_mask,
-            use_deepspeed_evo_attention=use_deepspeed_evo_attention,
-            use_lma=use_lma,
+            triangle_multiplicative=triangle_multiplicative,
+            triangle_attention=triangle_attention,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
         )
@@ -318,7 +322,7 @@ class ConfidenceHead(nn.Module):
             "atom_to_tokatom_idx"
         ]  # in range [0, max_atoms_per_token-1] shape: [N_atom] # influenced by crop
 
-        with torch.cuda.amp.autocast(enabled=False):
+        with torch.amp.autocast("cuda", enabled=False):
             pae_pred = self.linear_no_bias_pae(self.pae_ln(z_pair))
             pde_pred = self.linear_no_bias_pde(
                 self.pde_ln(z_pair + z_pair.transpose(-2, -3))
