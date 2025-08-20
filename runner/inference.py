@@ -13,9 +13,9 @@
 # limitations under the License.
 import logging
 import os
-import time
 import traceback
 import urllib.request
+from argparse import Namespace
 from contextlib import nullcontext
 from os.path import exists as opexists
 from os.path import join as opjoin
@@ -39,6 +39,26 @@ from protenix.web_service.dependency_url import URL
 from runner.dumper import DataDumper
 
 logger = logging.getLogger(__name__)
+
+"""
+Due to the fair-esm repository being archived, 
+it can no longer be updated to support newer versions of PyTorch. 
+Starting from PyTorch 2.6, the default value of the weights_only argument 
+in torch.load has been changed from False to True, 
+which enhances security but causes loading ESM models to fail 
+with the following error:
+
+_pickle.UnpicklingError: Weights only load failed. This file can still be loaded...
+This error occurs because the model file contains argparse.Namespace, 
+which is not allowed by default in the secure unpickling process of PyTorch 2.6+.
+
+✅ Solution (Patch)
+Since we cannot modify the fair-esm source code, 
+we can apply a patch before calling load_model_and_alphabet_local 
+by manually adding argparse.Namespace to PyTorch's safe globals list.
+"""
+
+torch.serialization.add_safe_globals([Namespace])
 
 
 class InferenceRunner(object):

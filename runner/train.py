@@ -17,15 +17,16 @@ import hashlib
 import logging
 import os
 import time
+from argparse import Namespace
 from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
+import wandb
 from ml_collections.config_dict import ConfigDict
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
-import wandb
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_model_type import model_configs
@@ -46,6 +47,8 @@ from runner.ema import EMAWrapper
 
 # Disable WANDB's console output capture to reduce unnecessary logging
 os.environ["WANDB_CONSOLE"] = "off"
+
+torch.serialization.add_safe_globals([Namespace])
 
 
 class AF3Trainer(object):
