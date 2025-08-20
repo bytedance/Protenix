@@ -360,7 +360,7 @@ def predict(
     logger.info(
         f"Triangle_multiplicative kernel: {trimul_kernel}, Triangle_attention kernel: {triatt_kernel}"
     )
-    seeds = list(map(int, seeds.split(",")))
+    seeds = tuple(map(int, seeds.split(",")))
     inference_jsons(
         input,
         out_dir,
