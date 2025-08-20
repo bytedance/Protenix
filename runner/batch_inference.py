@@ -162,7 +162,7 @@ def generate_infer_jsons(protein_msa_res: dict, ligand_file: str) -> List[str]:
 
 
 def get_default_runner(
-    seeds: Optional[tuple] = None,
+    seeds: Optional[list] = None,
     n_cycle: int = 10,
     n_step: int = 200,
     n_sample: int = 5,
@@ -203,7 +203,7 @@ def inference_jsons(
     json_file: str,
     out_dir: str = "./output",
     use_msa: bool = True,
-    seeds: tuple = (101,),
+    seeds: list = [101],
     n_cycle: int = 10,
     n_step: int = 200,
     n_sample: int = 5,
@@ -360,7 +360,7 @@ def predict(
     logger.info(
         f"Triangle_multiplicative kernel: {trimul_kernel}, Triangle_attention kernel: {triatt_kernel}"
     )
-    seeds = tuple(map(int, seeds.split(",")))
+    seeds = list(map(int, seeds.split(",")))
     inference_jsons(
         input,
         out_dir,
