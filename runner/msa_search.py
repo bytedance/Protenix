@@ -32,32 +32,36 @@ def need_msa_search(json_data: dict) -> bool:
     return need_msa
 
 
-def msa_search(seqs: Sequence[str], msa_res_dir: str) -> Sequence[str]:
+def msa_search(
+    seqs: Sequence[str], msa_res_dir: str, mode: str = "protenix"
+) -> Sequence[str]:
     """
     do msa search with mmseqs and return result subdirs.
     """
     os.makedirs(msa_res_dir, exist_ok=True)
     tmp_fasta_fpath = os.path.join(msa_res_dir, f"tmp_{uuid.uuid4().hex}.fasta")
-    RequestParser.msa_search(
+    msa_res_subdirs = RequestParser.msa_search(
         seqs_pending_msa=seqs,
         tmp_fasta_fpath=tmp_fasta_fpath,
         msa_res_dir=msa_res_dir,
+        mode=mode,
     )
-    msa_res_subdirs = RequestParser.msa_postprocess(
-        seqs_pending_msa=seqs,
-        msa_res_dir=msa_res_dir,
-    )
+    if mode == "protenix":
+        msa_res_subdirs = RequestParser.msa_postprocess(
+            seqs_pending_msa=seqs,
+            msa_res_dir=msa_res_dir,
+        )
     return msa_res_subdirs
 
 
-def update_seq_msa(infer_seq: dict, msa_res_dir: str) -> dict:
+def update_seq_msa(infer_seq: dict, msa_res_dir: str, mode: str) -> dict:
     protein_seqs = []
     for sequence in infer_seq["sequences"]:
         if "proteinChain" in sequence.keys():
             protein_seqs.append(sequence["proteinChain"]["sequence"])
     if len(protein_seqs) > 0:
         protein_seqs = sorted(protein_seqs)
-        msa_res_subdirs = msa_search(protein_seqs, msa_res_dir)
+        msa_res_subdirs = msa_search(protein_seqs, msa_res_dir, mode=mode)
         assert len(msa_res_subdirs) == len(msa_res_subdirs), "msa search failed"
         protein_msa_res = dict(zip(protein_seqs, msa_res_subdirs))
         for sequence in infer_seq["sequences"]:
@@ -71,7 +75,9 @@ def update_seq_msa(infer_seq: dict, msa_res_dir: str) -> dict:
     return infer_seq
 
 
-def update_infer_json(json_file: str, out_dir: str, use_msa: bool = True) -> str:
+def update_infer_json(
+    json_file: str, out_dir: str, use_msa: bool = True, mode: str = "protenix"
+) -> str:
     """
     update json file for inference.
     for every infer_data, if it needs to inference with msa and
@@ -95,6 +101,7 @@ def update_infer_json(json_file: str, out_dir: str, use_msa: bool = True) -> str
             update_seq_msa(
                 infer_data,
                 os.path.join(out_dir, seq_name, "msa_res" f"msa_seq_{seq_idx}"),
+                mode,
             )
     if actual_updated:
         updated_json = os.path.join(

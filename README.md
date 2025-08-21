@@ -115,6 +115,10 @@ protenix msa --input examples/example_without_msa.json --out_dir ./output
 
 # run msa search with fasta file which only contains protein.
 protenix msa --input examples/prot.fasta --out_dir ./output
+
+# use colabfold-like server
+export MMSEQS_SERVICE_HOST_URL=https://api.colabfold.com # or other in-house host url
+protenix msa --input examples/example_without_msa.json --out_dir ./output --msa_server_mode colabfold
 ```
 
 ### Inference via Command Line

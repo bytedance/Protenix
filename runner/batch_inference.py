@@ -210,6 +210,7 @@ def inference_jsons(
     model_name: str = "protenix_base_default_v0.5.0",
     trimul_kernel="cuequivariance",
     triatt_kernel="triattention",
+    msa_server_mode: str = "protenix",
 ) -> None:
     """
     infer_json: json file or directory, will run infer with these jsons
@@ -250,7 +251,7 @@ def inference_jsons(
     for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
         try:
             configs["input_json_path"] = update_infer_json(
-                infer_json, out_dir=out_dir, use_msa=use_msa
+                infer_json, out_dir=out_dir, use_msa=use_msa, mode=msa_server_mode
             )
             infer_predict(runner, configs)
         except Exception as exc:
@@ -300,6 +301,12 @@ def protenix_cli():
     default="triattention",
     help="Kernel to use for triangle attention. Options: 'triattention', 'cuequivariance', 'deepspeed', 'torch'.",
 )
+@click.option(
+    "--msa_server_mode",
+    type=str,
+    default="protenix",
+    help="msa search mode, protenix or colabfold",
+)
 def predict(
     input,
     out_dir,
@@ -312,6 +319,7 @@ def predict(
     use_default_params,
     trimul_kernel,
     triatt_kernel,
+    msa_server_mode,
 ):
     """
     predict: Run predictions with protenix.
@@ -372,6 +380,7 @@ def predict(
         model_name=model_name,
         trimul_kernel=trimul_kernel,
         triatt_kernel=triatt_kernel,
+        msa_server_mode=msa_server_mode,
     )
 
 
@@ -460,16 +469,24 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     "--input", type=str, help="file to do msa search, support `json` or `fasta` format"
 )
 @click.option("--out_dir", type=str, default="./output", help="dir to save msa results")
-def msa(input, out_dir) -> Union[str, dict]:
+@click.option(
+    "--msa_server_mode",
+    type=str,
+    default="protenix",
+    help="msa search mode, protenix or colabfold",
+)
+def msa(input, out_dir, msa_server_mode) -> Union[str, dict]:
     """
     msa: do msa search by mmseqs. If input is in `fasta`, it should all be proteinChain.
-    :param input, out_dir
+    :param input, out_dir, msa_server_mode
     :return:
     """
     init_logging()
     logger.info(f"run msa with input={input}, out_dir={out_dir}")
     if input.endswith(".json"):
-        msa_input_json = update_infer_json(input, out_dir, use_msa=True)
+        msa_input_json = update_infer_json(
+            input, out_dir, use_msa=True, mode=msa_server_mode
+        )
         logger.info(f"msa results have been update to {msa_input_json}")
         return msa_input_json
     elif input.endswith(".fasta"):
@@ -478,7 +495,7 @@ def msa(input, out_dir) -> Union[str, dict]:
         for seq in records:
             protein_seqs.append(str(seq.seq))
         protein_seqs = sorted(protein_seqs)
-        msa_res_subdirs = msa_search(protein_seqs, out_dir)
+        msa_res_subdirs = msa_search(protein_seqs, out_dir, msa_server_mode)
         assert len(msa_res_subdirs) == len(msa_res_subdirs), "msa search failed"
         fasta_msa_res = dict(zip(protein_seqs, msa_res_subdirs))
         logger.info(
