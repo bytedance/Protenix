@@ -16,7 +16,7 @@ import logging
 import os
 import tarfile
 import time
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -29,6 +29,18 @@ username = "example_user"
 password = "example_password"
 
 
+def parse_fasta_string(fasta_string: str) -> Dict:
+    fasta_dict = {}
+    lines = fasta_string.strip().split("\n")
+    for line in lines:
+        if line.startswith(">"):
+            header = line[1:].strip()
+            fasta_dict[header] = ""
+        else:
+            fasta_dict[header] += line.strip()
+    return fasta_dict
+
+
 def run_mmseqs2_service(
     x,
     prefix,
@@ -37,13 +49,15 @@ def run_mmseqs2_service(
     use_templates=False,
     filter=None,
     use_pairing=False,
-    pairing_strategy="greedy",
+    pairing_strategy="complete",
     host_url="https://api.colabfold.com",
     user_agent: str = "",
     email: str = "",
+    server_mode: str = "protenix",
 ) -> Tuple[List[str], List[str]]:
+    if server_mode == "protenix":
+        assert host_url == "https://protenix-server.com/api/msa"
     submission_endpoint = "ticket/pair" if use_pairing else "ticket/msa"
-
     headers = {}
     if user_agent != "":
         headers["User-Agent"] = user_agent
@@ -247,13 +261,75 @@ def run_mmseqs2_service(
             with tarfile.open(tar_gz_file) as tar_gz:
                 tar_gz.extractall(os.path.dirname(tar_gz_file))
             files = os.listdir(os.path.dirname(tar_gz_file))
-            if (
-                "0.a3m" not in files
-                or "pdb70_220313_db.m8" not in files
-                or "uniref_tax.m8" not in files
-            ):
-                raise FileNotFoundError(
-                    f"Files 0.a3m, pdb70_220313_db.m8, and uniref_tax.m8 not found in the directory."
-                )
-            else:
-                print("Files downloaded and extracted successfully.")
+
+            if server_mode == "protenix":
+                if (
+                    "0.a3m" not in files
+                    or "pdb70_220313_db.m8" not in files
+                    or "uniref_tax.m8" not in files
+                ):
+                    raise FileNotFoundError(
+                        f"Files 0.a3m, pdb70_220313_db.m8, and uniref_tax.m8 not found in the directory."
+                    )
+                else:
+                    print("Files downloaded and extracted successfully.")
+            elif server_mode == "colabfold":
+                if not use_pairing:
+                    env_a3m_fpath = os.path.join(
+                        prefix, "bfd.mgnify30.metaeuk30.smag30.a3m"
+                    )
+                    env_a3m_dict = parse_fasta_string(
+                        open(env_a3m_fpath, "r").read().replace("\x00", "")
+                    )
+                    uniref_a3m_fpath = os.path.join(prefix, "uniref.a3m")
+                    uniref_a3m_dict = parse_fasta_string(
+                        open(uniref_a3m_fpath, "r").read().replace("\x00", "")
+                    )
+                    query_id = str(int(x.split("\n")[0].split("_")[-1]) + 1)
+                    query_seq = x.split("\n")[1]
+                    real_non_pairing_fpath = os.path.join(
+                        prefix.split("msa_resmsa")[0],
+                        "msa",
+                        query_id,
+                        "non_pairing.a3m",
+                    )
+                    output_dir = os.path.dirname(real_non_pairing_fpath)
+                    if not os.path.exists(output_dir):
+                        os.makedirs(output_dir)
+                    with open(real_non_pairing_fpath, "w") as f:
+                        f.write(f">query\n{query_seq}\n")
+                        for k, v in env_a3m_dict.items():
+                            if k.startswith("query_"):
+                                continue
+                            else:
+                                f.write(f">{k}\n{v}\n")
+                        for k, v in uniref_a3m_dict.items():
+                            if k.startswith("query_"):
+                                continue
+                            else:
+                                f.write(f">{k}\n{v}\n")
+                    return os.path.abspath(os.path.dirname(real_non_pairing_fpath))
+                else:
+                    # pairing mode
+                    pair_a3m = os.path.join(prefix, "pair.a3m")
+                    pair_a3m_chunks = open(pair_a3m, "r").read().split("\x00")
+                    for chunk in pair_a3m_chunks[:-1]:
+                        real_pairing_fpath = os.path.join(
+                            prefix.split("msa_resmsa")[0],
+                            "msa",
+                            str(int(chunk.split("\n")[0].split("_")[-1]) + 1),
+                            "pairing.a3m",
+                        )
+                        output_dir = os.path.dirname(real_pairing_fpath)
+                        if not os.path.exists(output_dir):
+                            os.makedirs(output_dir)
+                        chunk_fasta = parse_fasta_string(chunk)
+                        with open(real_pairing_fpath, "w") as f:
+                            for i, (k, v) in enumerate(chunk_fasta.items()):
+                                if k.startswith("query_"):
+                                    f.write(f">query\n{v}\n")
+                                else:
+                                    ks = k.split("\t")
+                                    ks[0] = f"{ks[0]}_{i}/"
+                                    k = "\t".join(ks)
+                                    f.write(f">{k}_{i}\n{v}\n")

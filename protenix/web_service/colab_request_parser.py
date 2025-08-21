@@ -41,6 +41,18 @@ DATA_CACHE_DIR = "/af3-dev/release_data/"
 CHECKPOINT_DIR = "/af3-dev/release_model/"
 
 
+def parse_fasta_string(fasta_string: str) -> Dict:
+    fasta_dict = {}
+    lines = fasta_string.strip().split("\n")
+    for line in lines:
+        if line.startswith(">"):
+            header = line[1:].strip()
+            fasta_dict[header] = ""
+        else:
+            fasta_dict[header] += line.strip()
+    return fasta_dict
+
+
 def download_tos_url(tos_url, local_file_path):
     try:
         response = requests.get(tos_url, stream=True)
@@ -220,6 +232,7 @@ class RequestParser(object):
         tmp_fasta_fpath: str,
         msa_res_dir: str,
         email: str = "",
+        mode: str = ["protenix", "colabfold"],
     ) -> None:
         lines = []
         for idx, seq in enumerate(seqs_pending_msa):
@@ -233,19 +246,68 @@ class RequestParser(object):
 
         with open(tmp_fasta_fpath, "r") as f:
             query_seqs = f.read()
-        try:
-            run_mmseqs2_service(
-                query_seqs,
-                msa_res_dir,
-                True,
-                use_templates=False,
-                host_url=MMSEQS_SERVICE_HOST_URL,
-                user_agent="colabfold/1.5.5",
-                email=email,
-            )
-        except Exception as e:
-            error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
-            print(error_message)
+        if mode == "protenix":
+            try:
+                run_mmseqs2_service(
+                    query_seqs,
+                    msa_res_dir,
+                    True,
+                    use_templates=False,
+                    host_url=MMSEQS_SERVICE_HOST_URL,
+                    user_agent="colabfold/1.5.5",
+                    email=email,
+                    server_mode=mode,
+                )
+            except Exception as e:
+                error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
+                print(error_message)
+
+        elif mode == "colabfold":
+            res_dirs = []
+            fasta_dict = parse_fasta_string(query_seqs)
+            for i, (seq_name, seq) in enumerate(fasta_dict.items()):
+                print(f"Searching MSA for {seq_name} with the sequence itself.")
+                try:
+                    res_dir = run_mmseqs2_service(
+                        f">{seq_name}\n{seq}",
+                        os.path.join(msa_res_dir, str(i)),
+                        use_env=True,
+                        use_filter=True,
+                        use_templates=False,
+                        filter=None,
+                        use_pairing=False,
+                        pairing_strategy="complete",
+                        host_url=MMSEQS_SERVICE_HOST_URL,
+                        user_agent="colabfold/1.5.5",
+                        email=email,
+                        server_mode=mode,
+                    )
+                    res_dirs.append(res_dir)
+                except Exception as e:
+                    error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
+                    print(error_message)
+
+            if len(fasta_dict) > 1:
+                # search paired MSA
+                try:
+                    run_mmseqs2_service(
+                        query_seqs,
+                        os.path.join(msa_res_dir, "complex"),
+                        use_env=True,
+                        use_filter=True,
+                        use_templates=False,
+                        filter=None,
+                        use_pairing=True,
+                        pairing_strategy="complete",
+                        host_url=MMSEQS_SERVICE_HOST_URL,
+                        user_agent="colabfold/1.5.5",
+                        email=email,
+                        server_mode=mode,
+                    )
+                except Exception as e:
+                    error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
+                    print(error_message)
+            return res_dirs
 
     @staticmethod
     def msa_postprocess(seqs_pending_msa: Sequence[str], msa_res_dir: str) -> None:
