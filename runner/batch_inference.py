@@ -344,9 +344,9 @@ def predict(
             raise RuntimeError(
                 f"{model_name} is not supported for inference in our model list"
             )
-    logger.info(
-        f"Using the default params for inference for model {model_name}: cycle={cycle}, step={step}, use_msa={use_msa}"
-    )
+        logger.info(
+            f"Using the default params for inference for model {model_name}: cycle={cycle}, step={step}, use_msa={use_msa}"
+        )
     assert trimul_kernel in [
         "cuequivariance",
         "torch",
