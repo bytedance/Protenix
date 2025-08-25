@@ -277,7 +277,6 @@ class RequestParser(object):
                 except Exception as e:
                     error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
                     print(error_message)
-
             if len(fasta_dict) > 1:
                 # search paired MSA
                 try:
@@ -302,11 +301,11 @@ class RequestParser(object):
                 pairing_msa_fpath = os.path.join(
                     msa_res_dir.split("msa_resmsa")[0],
                     "msa",
-                    "1",
+                    "0",
                     "pairing.a3m",
                 )
                 with open(pairing_msa_fpath, "w") as f:
-                    f.write(query_seqs)
+                    f.write(">query\n" + query_seqs.split("\n")[-1])
             return res_dirs
 
     @staticmethod
