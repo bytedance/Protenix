@@ -29,7 +29,10 @@ import requests
 
 import protenix.data.ccd as ccd
 from protenix.data.json_to_feature import SampleDictToFeatures
-from protenix.web_service.colab_request_utils import run_mmseqs2_service
+from protenix.web_service.colab_request_utils import (
+    run_mmseqs2_service,
+    parse_fasta_string,
+)
 from protenix.web_service.dependency_url import URL
 
 MMSEQS_SERVICE_HOST_URL = os.getenv(
@@ -39,18 +42,6 @@ MAX_ATOM_NUM = 60000
 MAX_TOKEN_NUM = 5000
 DATA_CACHE_DIR = "/af3-dev/release_data/"
 CHECKPOINT_DIR = "/af3-dev/release_model/"
-
-
-def parse_fasta_string(fasta_string: str) -> Dict:
-    fasta_dict = {}
-    lines = fasta_string.strip().split("\n")
-    for line in lines:
-        if line.startswith(">"):
-            header = line[1:].strip()
-            fasta_dict[header] = ""
-        else:
-            fasta_dict[header] += line.strip()
-    return fasta_dict
 
 
 def download_tos_url(tos_url, local_file_path):
@@ -276,7 +267,7 @@ class RequestParser(object):
                         use_templates=False,
                         filter=None,
                         use_pairing=False,
-                        pairing_strategy="complete",
+                        pairing_strategy="greedy",
                         host_url=MMSEQS_SERVICE_HOST_URL,
                         user_agent="colabfold/1.5.5",
                         email=email,
@@ -298,7 +289,7 @@ class RequestParser(object):
                         use_templates=False,
                         filter=None,
                         use_pairing=True,
-                        pairing_strategy="complete",
+                        pairing_strategy="greedy",
                         host_url=MMSEQS_SERVICE_HOST_URL,
                         user_agent="colabfold/1.5.5",
                         email=email,
@@ -307,6 +298,15 @@ class RequestParser(object):
                 except Exception as e:
                     error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
                     print(error_message)
+            else:
+                pairing_msa_fpath = os.path.join(
+                    msa_res_dir.split("msa_resmsa")[0],
+                    "msa",
+                    "1",
+                    "pairing.a3m",
+                )
+                with open(pairing_msa_fpath, "w") as f:
+                    f.write(query_seqs)
             return res_dirs
 
     @staticmethod
