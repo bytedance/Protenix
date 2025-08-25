@@ -285,7 +285,7 @@ def run_mmseqs2_service(
                     uniref_a3m_dict = parse_fasta_string(
                         open(uniref_a3m_fpath, "r").read().replace("\x00", "")
                     )
-                    query_id = str(int(x.split("\n")[0].split("_")[-1]) + 1)
+                    query_id = str(int(x.split("\n")[0].split("_")[-1]))
                     query_seq = x.split("\n")[1]
                     real_non_pairing_fpath = os.path.join(
                         prefix.split("msa_resmsa")[0],
@@ -317,7 +317,7 @@ def run_mmseqs2_service(
                         real_pairing_fpath = os.path.join(
                             prefix.split("msa_resmsa")[0],
                             "msa",
-                            str(int(chunk.split("\n")[0].split("_")[-1]) + 1),
+                            str(int(chunk.split("\n")[0].split("_")[-1])),
                             "pairing.a3m",
                         )
                         output_dir = os.path.dirname(real_pairing_fpath)
