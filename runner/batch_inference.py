@@ -168,8 +168,8 @@ def get_default_runner(
     n_sample: int = 5,
     model_name: str = "protenix_base_default_v0.5.0",
     use_msa: bool = True,
-    trimul_kernel="cuequivariance",
-    triatt_kernel="triattention",
+    trimul_kernel: str = "cuequivariance",
+    triatt_kernel: str = "triattention",
 ) -> InferenceRunner:
     inference_configs["model_name"] = model_name
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
@@ -182,11 +182,11 @@ def get_default_runner(
     model_name = configs.model_name
     _, model_size, model_feature, model_version = model_name.split("_")
     logger.info(
-        f"Inference by Protenix: model_size: {model_size}, with_feature: {model_feature.replace('-', ',')}, model_version: {model_version}"
+        f"Inference by Protenix: model_size: {model_size}, model_feature: {model_feature.replace('-', ',')}, model_version: {model_version}"
     )
-    model_specfics_configs = ConfigDict(model_configs[model_name])
+    model_specific_configs = ConfigDict(model_configs[model_name])
     # update model specific configs
-    configs.update(model_specfics_configs)
+    configs.update(model_specific_configs)
     # the user input configs has the highest priority
     configs.model.N_cycle = n_cycle
     configs.sample_diffusion.N_sample = n_sample
@@ -208,12 +208,12 @@ def inference_jsons(
     n_step: int = 200,
     n_sample: int = 5,
     model_name: str = "protenix_base_default_v0.5.0",
-    trimul_kernel="cuequivariance",
-    triatt_kernel="triattention",
+    trimul_kernel: str = "cuequivariance",
+    triatt_kernel: str = "triattention",
     msa_server_mode: str = "protenix",
 ) -> None:
     """
-    infer_json: json file or directory, will run infer with these jsons
+    json_file: json file or directory that has json files, will run inference with these json files
 
     """
     infer_jsons = []
@@ -223,14 +223,14 @@ def inference_jsons(
         ]
         if len(infer_jsons) == 0:
             raise RuntimeError(
-                f"can not read a valid `sdf` or `smi` ligand_file in {json_file}"
+                f"can not find a valid file in the directory {json_file}"
             )
     elif os.path.isfile(json_file):
         infer_jsons = [json_file]
     else:
-        raise RuntimeError(f"can not read a special ligand_file: {json_file}")
+        raise RuntimeError(f"{json_file} is not a file or directory.")
     infer_jsons = [file for file in infer_jsons if file.endswith(".json")]
-    logger.info(f"will infer with {len(infer_jsons)} jsons")
+    logger.info(f"will infer with {len(infer_jsons)} json files.")
     if len(infer_jsons) == 0:
         return
 
@@ -327,7 +327,7 @@ def predict(
     :return:
     """
     init_logging()
-    logger.info(f"run infer with input={input}, out_dir={out_dir}, sample={sample}")
+    logger.info(f"run inference with input={input}, out_dir={out_dir}, sample={sample}")
     if use_default_params:
         if model_name in [
             "protenix_base_default_v0.5.0",
@@ -352,9 +352,9 @@ def predict(
             raise RuntimeError(
                 f"{model_name} is not supported for inference in our model list"
             )
-    logger.info(
-        f"Using the default params for inference for model {model_name}: cycle={cycle}, step={step}, use_msa={use_msa}"
-    )
+        logger.info(
+            f"Using the default params for inference for model {model_name}: cycle={cycle}, step={step}, use_msa={use_msa}"
+        )
     assert trimul_kernel in [
         "cuequivariance",
         "torch",
@@ -366,7 +366,7 @@ def predict(
         "torch",
     ], "Kernel to use for triangle attention. Options: 'triattention', 'cuequivariance', 'deepspeed', 'torch'."
     logger.info(
-        f"Triangle_multiplicative kernel: {trimul_kernel}, Triangle_attention kernel: {triatt_kernel}"
+        f"Triangle multiplicative kernel: {trimul_kernel}, Triangle attention kernel: {triatt_kernel}"
     )
     seeds = list(map(int, seeds.split(",")))
     inference_jsons(

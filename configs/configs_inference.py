@@ -20,7 +20,7 @@ from protenix.config.extend_types import ListValue, RequiredValue
 current_file_path = os.path.abspath(__file__)
 current_directory = os.path.dirname(current_file_path)
 code_directory = os.path.dirname(current_directory)
-# The model will be download to the following dir if not exists:
+# The model will be downloaded to the following dir if not exists:
 # "./release_data/checkpoint/model_v0.5.0.pt"
 inference_configs = {
     "model_name": "protenix_base_default_v0.5.0",  # inference model selection

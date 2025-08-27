@@ -79,8 +79,8 @@ def update_infer_json(
     json_file: str, out_dir: str, use_msa: bool = True, mode: str = "protenix"
 ) -> str:
     """
-    update json file for inference.
-    for every infer_data, if it needs to inference with msa and
+    Update json file for inference.
+    For every infer_data, if it needs to infer with msa and
     msa is not complete or missing in the json file,
     it will run msa searching if use_msa is True,
     else it will pass.

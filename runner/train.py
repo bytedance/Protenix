@@ -602,9 +602,9 @@ def main():
         parse_sys_args(),
     )
     model_name = configs.model_name
-    model_specfics_configs = ConfigDict(model_configs[model_name])
+    model_specific_configs = ConfigDict(model_configs[model_name])
     # update model specific configs
-    configs.update(model_specfics_configs)
+    configs.update(model_specific_configs)
 
     print(configs.run_name)
     print(configs)

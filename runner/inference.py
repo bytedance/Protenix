@@ -388,9 +388,9 @@ def run() -> None:
     logger.info(
         f"Inference by Protenix: model_size: {model_size}, with_feature: {model_feature.replace('-',', ')}, model_version: {model_version}"
     )
-    model_specfics_configs = ConfigDict(model_configs[model_name])
+    model_specific_configs = ConfigDict(model_configs[model_name])
     # update model specific configs
-    configs.update(model_specfics_configs)
+    configs.update(model_specific_configs)
     logger.info(
         f"Triangle_multiplicative kernel: {configs.triangle_multiplicative}, Triangle_attention kernel: {configs.triangle_attention}"
     )

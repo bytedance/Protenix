@@ -15,7 +15,7 @@
 import argparse
 import copy
 import sys
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Tuple, Dict
 
 import yaml
 from ml_collections.config_dict import ConfigDict
@@ -50,7 +50,7 @@ class ConfigManager(object):
 
     def get_value_info(
         self, value
-    ) -> tuple[Any, Optional[Any], Optional[bool], Optional[bool]]:
+    ) -> Tuple[Any, Optional[Any], Optional[bool], Optional[bool]]:
         """
         Return the type, default value, whether it allows None, and whether it is required for a given value.
 
@@ -82,7 +82,7 @@ class ConfigManager(object):
         else:
             return type(value), value, False, False
 
-    def _get_config_infos(self, config_dict: dict) -> dict:
+    def _get_config_infos(self, config_dict: Dict) -> Tuple[Dict, Dict]:
         """
         Recursively extracts configuration information from a given dictionary.
 
@@ -95,18 +95,18 @@ class ConfigManager(object):
                 - default_configs: A dictionary mapping keys to their default configuration values.
 
         Raises:
-            AssertionError: If a key contains a period (.), which is not allowed.
+            AssertionError: If a key in `config_dict` contains a period (.), an error is raised.
         """
         all_keys = {}
         default_configs = {}
         for key, value in config_dict.items():
             assert "." not in key
-            if isinstance(value, (dict)):
+            if isinstance(value, dict):
                 children_keys, children_configs = self._get_config_infos(value)
                 all_keys.update(
                     {
                         f"{key}.{child_key}": child_value_type
-                        for child_key, child_value_type in children_keys.items()
+                            for child_key, child_value_type in children_keys.items()
                     }
                 )
                 default_configs[key] = children_configs
@@ -206,7 +206,7 @@ class ConfigManager(object):
 
 
 def parse_configs(
-    configs: dict, arg_str: str = None, fill_required_with_null: bool = False
+    configs: dict, arg_str: Optional[str] = None, fill_required_with_null: bool = False
 ) -> ConfigDict:
     """
     Parses and merges configuration settings from a dictionary and command-line arguments.
@@ -229,11 +229,11 @@ def parse_configs(
         allow_none,
         required,
     ) in manager.config_infos.items():
-        # All config use str type, strings will be converted to real dtype later
+        # All configs use str type, strings will be converted to proper dtypes later
         parser.add_argument(
             "--" + key, type=str, default=ArgumentNotSet(), required=required
         )
-    # Merge user commandline pargs with default ones
+    # Merge user command-line args with default ones
     merged_configs = manager.merge_configs(
         vars(parser.parse_args(arg_str.split())) if arg_str else {}
     )
