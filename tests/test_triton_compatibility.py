@@ -1,4 +1,5 @@
-# Copyright 2024 ByteDance and/or its affiliates.
+# Copyright 2025 Shad Nygren, Virtual Hipster Corporation
+# Contributed to the Protenix project under the Apache License 2.0
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
