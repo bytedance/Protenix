@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `test_esm_loading.py` - Tests for ESM weights loading with PyTorch 2.6+ (issue #176)
 - CHANGELOG.md to track project changes (Apache 2.0 compliance)
 
+### Fixed
+- Issue #182: DeepSpeed and Pydantic v2.x compatibility by upgrading to DeepSpeed 0.17.5
+- Issue #185: Triton kernel compatibility with consumer GPUs (RTX 3090/4090)
+  - Added PyTorch fallback when Triton is unavailable or unsupported
+  - Enables Protenix to run on consumer hardware without code changes
+  - Modified `protenix/model/tri_attention/__init__.py` to provide transparent fallback
+
 ### Contributors
 - Shad Nygren, Virtual Hipster Corporation (@ShadNygren)
 
