@@ -21,7 +21,8 @@ pdbeccdutils==0.8.6
 fair-esm==2.0.0
 scikit-learn==1.7.1
 scikit-learn-extra==0.3.0
-deepspeed==0.17.4
+deepspeed==0.17.5  # Updated from 0.17.4 - part of fix for #182
+pydantic>=2.0.0  # Explicitly specify v2.x for DeepSpeed compatibility - part of fix for #182
 triton==3.3.1
 optree==0.17.0
 protobuf==6.31.1
