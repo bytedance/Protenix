@@ -386,7 +386,7 @@ class Protenix(nn.Module):
             tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]: Prediction, log, and time dictionaries.
         """
         step_st = time.time()
-        N_token = input_feature_dict["residue_index"].shape[-1]
+        N_token = input_feature_dict["token_index"].shape[-1]
 
         log_dict = {}
         pred_dict = {}
