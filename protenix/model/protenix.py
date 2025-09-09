@@ -543,11 +543,7 @@ class Protenix(nn.Module):
             tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
                 Prediction, updated label, and log dictionaries.
         """
-        N_token = input_feature_dict["residue_index"].shape[-1]
-        if N_token <= 16:
-            deepspeed_evo_attention_condition_satisfy = False
-        else:
-            deepspeed_evo_attention_condition_satisfy = True
+        N_token = input_feature_dict["token_index"].shape[-1]
 
         s_inputs, s, z = self.get_pairformer_output(
             input_feature_dict=input_feature_dict,
