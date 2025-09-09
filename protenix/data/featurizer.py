@@ -768,8 +768,8 @@ class Featurizer(object):
             )
 
             # Remove the columns related to the position changes of fixed atoms.
-            fiedx_atom_res_perm = atom_res_perm[:, unchanged_columns_mask]
-            fixed_atom_perm_list.extend(fiedx_atom_res_perm.tolist())
+            fixed_atom_res_perm = atom_res_perm[:, unchanged_columns_mask]
+            fixed_atom_perm_list.extend(fixed_atom_res_perm.tolist())
         return fixed_atom_perm_list
 
     @staticmethod
