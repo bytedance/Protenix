@@ -51,7 +51,13 @@ class ESMFeaturizer:
 
     def load_esm_embedding(self, sequence: str):
         x = torch.load(os.path.join(self.embedding_dir, self.seq_to_filename[sequence]))
-        assert x.size(0) == len(sequence)
+        assert x.size(0) == len(sequence), (
+            f"ESM embedding size {x.size(0)} not equal to sequence length {len(sequence)}"
+            + f"The error occurs because embeddings were previously computed for a certain 'name', "
+            + f"and then a different JSON file with the same task name was used, causing ESM to fail loading the existing embeddings."
+            + f"You can resolve this by deleting the local esm_embeddings directory and retrying."
+            + f"We recommend that the 'name' field in the JSON file be unique."
+        )
         return x
 
     def save_error(self, error_sequences, pdb_id):
