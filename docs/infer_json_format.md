@@ -222,33 +222,53 @@ The `contact` constraint allows you to specify residue/atom-residue/atom level p
 
 #### contact constraint
 
-The `contact` field consists of a list of dictionaries, each describing one contact. The residues and atoms involved in the contact are now represented as compact lists, making the format more concise and flexible.
+The contact field is a list of dictionaries, each defining a distance constraint between two residues or specific atoms. The format uses explicit, named keys for clarity and flexibility.
 
 ##### Example:
 
 ```json
 "contact": [
     {
-        "residue1": ["1", 1, 169],
-        "atom2": ["2", 1, 1, "C5"],
+        "entity1": 1,
+        "copy1": 1,
+        "position1": 169,
+        "entity2": 2,
+        "copy2": 1,
+        "position2": 1,
+        "atom2": "C5",
         "max_distance": 6,
         "min_distance": 0
     }, // token-contact
     {
-        "atom1": ["1", 1, 169, "CA"],
-        "residue2": ["2", 1, 1],
+        "entity1": 1,
+        "copy1": 1,
+        "position1": 169,
+        "atom1": "CA",
+        "entity2": 2,
+        "copy2": 1,
+        "position2": 1,
         "max_distance": 6,
         "min_distance": 0
     }, // token-contact
     {
-        "residue1": ["1", 1, 169],
-        "residue2": ["2", 1, 1 ],
+        "entity1": 1,
+        "copy1": 1,
+        "position1": 169,
+        "entity2": 2,
+        "copy2": 1,
+        "position2": 1,
         "max_distance": 6,
         "min_distance": 0
     }, // token-contact
     {
-        "atom1": ["1", 1, 169, "CA"],
-        "atom2": ["2", 1, 1, "C5"],
+        "entity1": 1,
+        "copy1": 1,
+        "position1": 169,
+        "atom1": "CA",
+        "entity2": 2,
+        "copy2": 1,
+        "position2": 1,
+        "atom2": "C5",
         "max_distance": 6,
         "min_distance": 3
     }, // atom-contact
@@ -257,11 +277,17 @@ The `contact` field consists of a list of dictionaries, each describing one cont
 ```
 
 Each contact dictionary includes the following keys:
-* `residue1` or `residue2` (list):
-  Specifies a **residue** in the format:`[entity_number, copy_index, position]`
+* entity1, copy1, position1 (required)
+  Specifies the first residue: entity (entity number), copy (copy index), position (residue index).
 
-* `atom1` or `atom2` (list):
-  Specifies an **atom** (commonly from a ligand or another residue) in the format:`[entity_number, copy_index, position, atom_name]`
+*  atom1 (optional)
+  Name of the specific atom in the first residue (e.g., "CA", "C5"). If omitted, the distance constraint is applied at the token granularity by default, specifically the central atom of the token.
+
+* entity2, copy2, position2 (required)
+  Specifies the second residue.
+
+* atom2 (optional)
+Specific atom in the second residue.
 
 * `max_distance` (float):
   The **expected maximum distance** (in Ångströms) between the specified residues or atoms.
@@ -276,21 +302,29 @@ The `pocket` constraint is defined as a dictionary with three keys: `"binder_cha
 
 ```json
 "pocket": {
-  "binder_chain": ["2", 1], 
+  "binder_chain": 
+    {        
+      "entity": 2,
+      "copy": 1
+    }, 
   "contact_residues": [
-    ["1", 1, 126],
+    {
+      "entity": 1,
+      "copy": 1,
+      "position": 126
+    },
     ...
   ], 
   "max_distance": 6
 }
 ```
 
-* `binder_chain` (list):
-  Specifies the **binder chain** in the format:  `[entity_number, copy_index]`
+* `binder_chain` (dict):
+  Specifies the **binder chain** in the format:  `{ "entity": <int>, "copy": <int> }`
 
-* `contact_residues` (list of lists):
+* `contact_residues` (list of dict):
   A list of residue  that are expected to be in spatial proximity (i.e., in or near the binding pocket). Each residue is specified as:
-  `[entity_number, copy_index, position]`
+  `{ "entity": <int>, "copy": <int>, "position": <int> }`
 
 * `max_distance` (float):
   The **maximum allowed distance** (in Ångströms) between the binder and the specified contact residues.

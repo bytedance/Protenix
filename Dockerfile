@@ -21,8 +21,8 @@ RUN pip3 install --no-cache-dir \
     torchaudio==2.7.1
 
 RUN pip3 install --no-cache-dir \
-    cuequivariance-ops-torch-cu12==0.6.0 \
-    cuequivariance-torch==0.6.0
+    cuequivariance-ops-torch-cu12==0.6.1 \
+    cuequivariance-torch==0.6.1
 
 RUN pip3 --no-cache-dir install \
     scipy==1.16.1 \

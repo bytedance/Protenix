@@ -194,6 +194,7 @@ class RequestParser(object):
                 tmp_fasta_fpath=tmp_fasta_fpath,
                 msa_res_dir=msa_res_dir,
                 email=self.email,
+                mode="protenix",
             )
             msa_res_subdirs = RequestParser.msa_postprocess(
                 seqs_pending_msa=seqs_pending_msa,
@@ -223,7 +224,7 @@ class RequestParser(object):
         tmp_fasta_fpath: str,
         msa_res_dir: str,
         email: str = "",
-        mode: str = ["protenix", "colabfold"],
+        mode: str = "protenix",
     ) -> None:
         lines = []
         for idx, seq in enumerate(seqs_pending_msa):
@@ -457,6 +458,7 @@ class RequestParser(object):
             "--num_workers 0",
             "--dtype bf16",
             "--sample_diffusion.step_scale_eta 1.5",
+            "--triangle_multiplicative torch"
         ]
 
         if "model_seeds" in self.request:

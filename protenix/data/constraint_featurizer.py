@@ -54,23 +54,26 @@ class ConstraintFeatureGenerator:
         _pair = {}
 
         for id_num in ["1", "2"]:
-            res_id = f"residue{id_num}"
-            if (res_info := pair.get(res_id, None)) is not None:
-                assert len(res_info) == 3, "residue contact should have 3 identifiers"
-                res_info.append(None)  # Add None for atom_name
-                _pair[f"id{id_num}"] = res_info
-
-            atom_id = f"atom{id_num}"
-            if (atom_info := pair.get(atom_id, None)) is not None:
-                assert len(atom_info) == 4, "atom contact must have 4 identifiers"
-
-                entity_id, atom_name = atom_info[0], atom_info[3]
-                if isinstance(atom_name, int):
-                    entity_dict = list(sequences[int(entity_id - 1)].values())[0]
-                    assert "atom_map_to_atom_name" in entity_dict
-                    atom_info[3] = entity_dict["atom_map_to_atom_name"][atom_name]
-
-                _pair[f"id{id_num}"] = atom_info
+            res_info = []
+            for key in ["entity", "copy", "position", "atom"]:
+                identifier_value = pair.get(f"{key}{id_num}", None)
+                if identifier_value is None:
+                    assert (
+                        key == "atom"
+                    ), "contact should have at least 3 identifiers('entity', 'copy', 'position')"
+                if key == "atom" and (identifier_value is not None):
+                    if isinstance(identifier_value, int):
+                        entity_dict = list(
+                            sequences[
+                                int(pair.get(f"entity{id_num}", None) - 1)
+                            ].values()
+                        )[0]
+                        assert "atom_map_to_atom_name" in entity_dict
+                        identifier_value = entity_dict["atom_map_to_atom_name"][
+                            identifier_value
+                        ]
+                res_info.append(identifier_value)
+            _pair[f"id{id_num}"] = res_info
 
         if hash(tuple(_pair["id1"][:2])) == hash(tuple(_pair["id2"][:2])):
             raise ValueError("A contact pair can not be specified on the same chain")
@@ -86,9 +89,11 @@ class ConstraintFeatureGenerator:
         return _pair
 
     @staticmethod
-    def _canonicalize_pocket_res_format(binder: list, pocket_pos: list) -> list:
+    def _canonicalize_pocket_res_format(binder: dict, pocket_pos: dict) -> dict:
         assert len(pocket_pos) == 3
-        if hash(tuple(binder[:2])) == hash(tuple(pocket_pos[:2])):
+        if hash(tuple([binder["entity"], binder["copy"]])) == hash(
+            tuple([pocket_pos["entity"], pocket_pos["copy"]])
+        ):
             raise ValueError("Pockets can not be the same chain with the binder")
         return pocket_pos
 
@@ -316,8 +321,8 @@ class ConstraintFeatureGenerator:
 
             atom_mask_binder = get_atom_mask_by_name(
                 atom_array=atom_array,
-                entity_id=binder[0],
-                copy_id=binder[1],
+                entity_id=binder["entity"],
+                copy_id=binder["copy"],
             )
 
             binder_asym_id = torch.tensor(
@@ -340,9 +345,9 @@ class ConstraintFeatureGenerator:
 
                     atom_mask_pocket = get_atom_mask_by_name(
                         atom_array=atom_array,
-                        entity_id=pocket_res[0],
-                        copy_id=pocket_res[1],
-                        position=pocket_res[2],
+                        entity_id=pocket_res["entity"],
+                        copy_id=pocket_res["copy"],
+                        position=pocket_res["position"],
                     )
                     pocket_token_list = atom_to_token_idx[atom_mask_pocket]
 

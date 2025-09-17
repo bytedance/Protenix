@@ -206,7 +206,7 @@ def run_mmseqs2_service(
     [seqs_unique.append(x) for x in seqs if x not in seqs_unique]
     Ms = [N + seqs_unique.index(seq) for seq in seqs]
     # lets do it!
-    logger.error("Msa server is running.")
+    logger.info("Msa server is running.")
     if not os.path.isfile(tar_gz_file):
         TIME_ESTIMATE = 100
         with tqdm(total=TIME_ESTIMATE, bar_format=TQDM_BAR_FORMAT) as pbar:
