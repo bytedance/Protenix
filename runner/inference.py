@@ -292,13 +292,6 @@ def update_inference_configs(configs: Any, N_token: int):
         configs.skip_amp.confidence_head = True
         configs.skip_amp.sample_diffusion = True
 
-    if N_token > 2560 and configs.triangle_multiplicative == "cuequivariance":
-        configs.triangle_multiplicative = "torch"
-        # https://github.com/NVIDIA/cuEquivariance/issues/144
-        logger.warning(
-            "Sequence length exceeds 2560; falling back to PyTorch native implementation to prevent potential illegal memory access. "
-            "This fallback may be removed in the future if cuEquivariance is upgraded."
-        )
     return configs
 
 

@@ -52,16 +52,16 @@
         "name": "7st3_pocket_1_8",
         "constraint": {
             "pocket": {
-                "binder_chain": [
-                    "2",
-                    1
-                ],
+                "binder_chain": {
+                    "entity": 2,
+                    "copy": 1
+                },
                 "contact_residues": [
-                    [
-                        "1",
-                        1,
-                        69
-                    ]
+                    {
+                        "entity": 1,
+                        "copy": 1,
+                        "position": 69
+                    }
                 ],
                 "max_distance": 8
             }
@@ -95,68 +95,75 @@
         "constraint": {
             "contact": [
                 {
-                    "residue1": [
-                        "1",
-                        1,
-                        72
-                    ],
-                    "residue2": [
-                        "2",
-                        1,
-                        103
-                    ],
+                    "entity1": 1,
+                    "copy1": 1,
+                    "position1": 72,
+                    "entity2": 2,
+                    "copy2": 1,
+                    "position2": 103,
                     "max_distance": 15
                 }
             ]
         }
     },
     {
-    "sequences": [
-      {
-        "proteinChain": {
-          "sequence": "MSSPLKNALVTAMLAGGALSSPTKQHVGIPVNASPEVGPGKYSFKQVRNPNYKFNGPLSVKKTYLKYGVPIPAWLEDAVQNSTSGLAERSTGSATTTPIDSLDDAYITPVQIGTPAQTLNLDFDTGSSDLWVFSSETTASEVDGQTIYTPSKSTTAKLLSGATWSISYGDGSSSSGDVYTDTVSVGGLTVTGQAVESAKKVSSSFTEDSTIDGLLGLAFSTLNTVSPTQQKTFFDNAKASLDSPVFTADLGYHAPGTYNFGFIDTTAYTGSITYTAVSTKQGFWEWTSTGYAVGSGTFKSTSIDGIADTGTTLLYLPATVVSAYWAQVSGAKSSSSVGGYVFPCSATLPSFTFGVGSARIVIPGDYIDFGPISTGSSSCFGGIQSSAGIGINIFGDVALKAAFVVFNGATTPTLGFASK", 
-          "count": 1, 
-          "msa": {
-            "precomputed_msa_dir": "./examples/5sak/1/", 
-            "pairing_db": "uniref100"
-          }
-        }
-      }, 
-      {
-        "ligand": {"ligand": "CCD_ZRY", "count": 1}
-      }
-    ], 
-    "modelSeeds": [], 
-    "name": "5sak_base"
-  },
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "MSSPLKNALVTAMLAGGALSSPTKQHVGIPVNASPEVGPGKYSFKQVRNPNYKFNGPLSVKKTYLKYGVPIPAWLEDAVQNSTSGLAERSTGSATTTPIDSLDDAYITPVQIGTPAQTLNLDFDTGSSDLWVFSSETTASEVDGQTIYTPSKSTTAKLLSGATWSISYGDGSSSSGDVYTDTVSVGGLTVTGQAVESAKKVSSSFTEDSTIDGLLGLAFSTLNTVSPTQQKTFFDNAKASLDSPVFTADLGYHAPGTYNFGFIDTTAYTGSITYTAVSTKQGFWEWTSTGYAVGSGTFKSTSIDGIADTGTTLLYLPATVVSAYWAQVSGAKSSSSVGGYVFPCSATLPSFTFGVGSARIVIPGDYIDFGPISTGSSSCFGGIQSSAGIGINIFGDVALKAAFVVFNGATTPTLGFASK",
+                    "count": 1,
+                    "msa": {
+                        "precomputed_msa_dir": "./examples/5sak/1/",
+                        "pairing_db": "uniref100"
+                    }
+                }
+            },
+            {
+                "ligand": {
+                    "ligand": "CCD_ZRY",
+                    "count": 1
+                }
+            }
+        ],
+        "modelSeeds": [],
+        "name": "5sak_base"
+    },
     {
-    "sequences": [
-      {
-        "proteinChain": {
-          "sequence": "MSSPLKNALVTAMLAGGALSSPTKQHVGIPVNASPEVGPGKYSFKQVRNPNYKFNGPLSVKKTYLKYGVPIPAWLEDAVQNSTSGLAERSTGSATTTPIDSLDDAYITPVQIGTPAQTLNLDFDTGSSDLWVFSSETTASEVDGQTIYTPSKSTTAKLLSGATWSISYGDGSSSSGDVYTDTVSVGGLTVTGQAVESAKKVSSSFTEDSTIDGLLGLAFSTLNTVSPTQQKTFFDNAKASLDSPVFTADLGYHAPGTYNFGFIDTTAYTGSITYTAVSTKQGFWEWTSTGYAVGSGTFKSTSIDGIADTGTTLLYLPATVVSAYWAQVSGAKSSSSVGGYVFPCSATLPSFTFGVGSARIVIPGDYIDFGPISTGSSSCFGGIQSSAGIGINIFGDVALKAAFVVFNGATTPTLGFASK", 
-          "count": 1, 
-          "msa": {
-            "precomputed_msa_dir": "./examples/5sak/1/", 
-            "pairing_db": "uniref100"
-          }
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "MSSPLKNALVTAMLAGGALSSPTKQHVGIPVNASPEVGPGKYSFKQVRNPNYKFNGPLSVKKTYLKYGVPIPAWLEDAVQNSTSGLAERSTGSATTTPIDSLDDAYITPVQIGTPAQTLNLDFDTGSSDLWVFSSETTASEVDGQTIYTPSKSTTAKLLSGATWSISYGDGSSSSGDVYTDTVSVGGLTVTGQAVESAKKVSSSFTEDSTIDGLLGLAFSTLNTVSPTQQKTFFDNAKASLDSPVFTADLGYHAPGTYNFGFIDTTAYTGSITYTAVSTKQGFWEWTSTGYAVGSGTFKSTSIDGIADTGTTLLYLPATVVSAYWAQVSGAKSSSSVGGYVFPCSATLPSFTFGVGSARIVIPGDYIDFGPISTGSSSCFGGIQSSAGIGINIFGDVALKAAFVVFNGATTPTLGFASK",
+                    "count": 1,
+                    "msa": {
+                        "precomputed_msa_dir": "./examples/5sak/1/",
+                        "pairing_db": "uniref100"
+                    }
+                }
+            },
+            {
+                "ligand": {
+                    "ligand": "CCD_ZRY",
+                    "count": 1
+                }
+            }
+        ],
+        "modelSeeds": [],
+        "name": "5sak_atom_1_3_5",
+        "constraint": {
+            "contact": [
+                {
+                    "entity1": 1,
+                    "copy1": 1,
+                    "position1": 311,
+                    "atom1": "CG2",
+                    "entity2": 2,
+                    "copy2": 1,
+                    "position2": 1,
+                    "atom2": "C10",
+                    "max_distance": 5,
+                    "min_distance": 3
+                }
+            ]
         }
-      }, 
-      {
-        "ligand": {"ligand": "CCD_ZRY", "count": 1}
-      }
-    ], 
-    "modelSeeds": [], 
-    "name": "5sak_atom_1_3_5", 
-    "constraint": {
-      "contact": [
-        {
-          "atom1": ["1", 1, 311, "CG2"], 
-          "atom2": ["2", 1, 1, "C10"], 
-          "max_distance": 5, 
-          "min_distance": 3
-        }
-      ]
     }
-  }
-
 ]
