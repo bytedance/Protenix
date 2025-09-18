@@ -16,7 +16,7 @@
 <div align="center">
 
 [![Twitter](https://img.shields.io/badge/Twitter-Follow-blue?logo=x)](https://x.com/ai4s_protenix)
-[![Slack](https://img.shields.io/badge/Slack-Join-yellow?logo=slack)](https://join.slack.com/t/protenixworkspace/shared_invite/zt-36j4kx1cy-GyQMWLDrMO4Wd0fjGxtxug)
+[![Slack](https://img.shields.io/badge/Slack-Join-yellow?logo=slack)](https://join.slack.com/t/protenixworkspace/shared_invite/zt-3drypwagk-zRnDF2VtOQhpWJqMrIveMw)
 [![Wechat](https://img.shields.io/badge/Wechat-Join-brightgreen?logo=wechat)](https://github.com/bytedance/Protenix/issues/52)
 [![Email](https://img.shields.io/badge/Email-Contact-lightgrey?logo=gmail)](#contact-us)
 </div>
