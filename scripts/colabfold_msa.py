@@ -227,7 +227,7 @@ def run_colabfold_search(config: LocalColabFoldConfig) -> str:
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="ColabFold search and A3M processing tool",
+        description="ColabFold search and A3M processing tool. This tool expects input as a fasta file containing a single entry. Multimer components should be separated with a colon (:), as per ColabFold conventions.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
