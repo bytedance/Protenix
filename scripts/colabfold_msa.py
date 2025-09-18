@@ -34,6 +34,8 @@ class LocalColabFoldConfig:
     use_env: int = 1
     filter: int = 1
     db_load_mode: int = 0
+    gpu_server: int = 0
+    gpu: int = 0
 
 
 class A3MProcessor:
@@ -207,6 +209,10 @@ def run_colabfold_search(config: LocalColabFoldConfig) -> str:
         cmd.extend(["--filter", str(config.filter)])
     if config.db_load_mode:
         cmd.extend(["--db-load-mode", str(config.db_load_mode)])
+    if config.gpu_server:
+        cmd.extend(["--gpu-server", str(config.gpu_server)])
+    if config.gpu:
+        cmd.extend(["--gpu", str(config.gpu)])
 
     cmd = " ".join(cmd)
     os.system(cmd)
@@ -252,6 +258,13 @@ def parse_args():
     parser.add_argument(
         "--output_split", help="Directory for split A3M files", default=None
     )
+    parser.add_argument(
+        "--gpu_server", help="GPU server ID", type=int, default=0, choices=[0, 1]
+    )
+    parser.add_argument(
+        "--gpu", help="GPU ID", type=int, default=0, choices=[0, 1]
+    )
+
     return parser.parse_args()
 
 
@@ -271,6 +284,8 @@ if __name__ == "__main__":
         use_env=args.use_env,
         filter=args.filter,
         db_load_mode=args.db_load_mode,
+        gpu_server=args.gpu_server,
+        gpu=args.gpu
     )
 
     # Run search
@@ -279,3 +294,4 @@ if __name__ == "__main__":
     processor = A3MProcessor(results_a3m, args.results_dir)
     if len(processor.chain_info) == 2:
         processor.split_sequences()
+
