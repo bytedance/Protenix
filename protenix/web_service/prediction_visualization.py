@@ -69,9 +69,11 @@ class PredictionLoader:
         fpath_full_confidences = [
             fpath for fpath in fpath_all_confidences if "full_data_sample" in fpath
         ]
+        fpath_full_confidences.sort()
         fpath_summary_confidences = [
             fpath for fpath in fpath_all_confidences if "summary_confidence" in fpath
         ]
+        fpath_summary_confidences.sort()
 
         self.summary_confidence_data = [
             self._convert_to_numpy(self._load_json(fpath))
