@@ -378,9 +378,9 @@ def rearrange_qk_to_dense_trunk(
             n + pad_left + pad_right,
             requires_grad=False,
         )
-        pad_mask[..., :n, 0:pad_left] = 0
-        pad_mask[..., :n, pad_left + n : :] = 0
-        pad_mask[..., n::, :] = 0
+        pad_mask[..., :n, :pad_left] = 0
+        pad_mask[..., :n, (pad_left + n):] = 0
+        pad_mask[..., n:, :] = 0
 
         concat_split_data = optimized_concat_split(pad_mask, n_queries)
         pad_mask_trunked = (
