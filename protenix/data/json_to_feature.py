@@ -314,7 +314,9 @@ class SampleDictToFeatures:
             self.input_dict.get("constraint", {}),
         )
 
-        featurizer = Featurizer(token_array, atom_array)
+        featurizer = Featurizer(
+            token_array, atom_array, include_discont_poly_poly_bonds=True
+        )
         feature_dict = featurizer.get_all_input_features()
         feature_dict["constraint_feature"] = constraint_feature
 

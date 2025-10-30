@@ -25,7 +25,11 @@ from biotite.structure import AtomArray, get_chain_starts, get_residue_starts
 from protenix.data.constants import STD_RESIDUES
 from protenix.data.filter import Filter
 from protenix.data.parser import AddAtomArrayAnnot, MMCIFParser
-from protenix.data.utils import get_lig_lig_bonds, get_ligand_polymer_bond_mask
+from protenix.data.utils import (
+    get_lig_lig_bonds,
+    get_ligand_polymer_bond_mask,
+    get_polymer_polymer_bond,
+)
 
 
 def merge_covalent_bonds(
@@ -78,6 +82,7 @@ def atom_array_to_input_json(
     output_json: str = None,
     sample_name: str = None,
     save_entity_and_asym_id: bool = False,
+    include_discont_poly_poly_bonds: bool = True,
 ) -> dict:
     """
     Convert a Biotite AtomArray to a dict that can be used as input to the model.
@@ -90,6 +95,8 @@ def atom_array_to_input_json(
         sample_name (str, optional): The "name" filed in json file. Defaults to None.
         save_entity_and_asym_id (bool, optional): Whether to save entity and asym ids to json.
                                                   Defaults to False.
+        include_discont_poly_poly_bonds (bool, optional): Whether to include discontinuous polymer-polymer bonds.
+                                                          Defaults to True.
 
     Returns:
         dict: Protenix input json dict.
@@ -211,14 +218,21 @@ def atom_array_to_input_json(
     )
     lig_polymer_bonds = get_ligand_polymer_bond_mask(atom_array, lig_include_ions=False)
     lig_lig_bonds = get_lig_lig_bonds(atom_array, lig_include_ions=False)
-    inter_entity_bonds = np.vstack((lig_polymer_bonds, lig_lig_bonds))
+    token_bonds = np.vstack((lig_polymer_bonds, lig_lig_bonds))
 
     lig_indices = np.where(np.isin(atom_array.chain_id, lig_chain_ids))[0]
-    lig_bond_mask = np.any(np.isin(inter_entity_bonds[:, :2], lig_indices), axis=1)
-    inter_entity_bonds = inter_entity_bonds[lig_bond_mask]  # select bonds of ligands
-    if inter_entity_bonds.size != 0:
+    lig_bond_mask = np.any(np.isin(token_bonds[:, :2], lig_indices), axis=1)
+    token_bonds = token_bonds[lig_bond_mask]  # select bonds of ligands
+
+    if include_discont_poly_poly_bonds:
+        polymer_polymer_bond = get_polymer_polymer_bond(
+            atom_array, parser.entity_poly_type
+        )
+        token_bonds = np.vstack((polymer_polymer_bond, token_bonds))
+
+    if token_bonds.size != 0:
         covalent_bonds = []
-        for atoms in inter_entity_bonds[:, :2]:
+        for atoms in token_bonds[:, :2]:
             bond_dict = {}
             for i in range(2):
                 positon = atom_array.res_id[atoms[i]]
@@ -252,6 +266,7 @@ def cif_to_input_json(
     output_json: str = None,
     sample_name: str = None,
     save_entity_and_asym_id: bool = False,
+    include_discont_poly_poly_bonds: bool = True,
 ) -> dict:
     """
     Convert mmcif file to Protenix input json file.
@@ -264,6 +279,8 @@ def cif_to_input_json(
         sample_name (str, optional): The "name" filed in json file. Defaults to None.
         save_entity_and_asym_id (bool, optional): Whether to save entity and asym ids to json.
                                                   Defaults to False.
+        include_discont_poly_poly_bonds (bool, optional): Whether to include discontinuous polymer-polymer bonds.
+                                                          Defaults to True.
 
     Returns:
         dict: Protenix input json dict.
@@ -297,6 +314,7 @@ def cif_to_input_json(
         output_json,
         sample_name,
         save_entity_and_asym_id=save_entity_and_asym_id,
+        include_discont_poly_poly_bonds=include_discont_poly_poly_bonds,
     )
     return json_dict
 
@@ -304,9 +322,10 @@ def cif_to_input_json(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--cif_file", type=str, required=True, help="The cif file to parse"
+        "-c", "--cif_file", type=str, required=True, help="The cif file to parse"
     )
     parser.add_argument(
+        "-j",
         "--json_file",
         type=str,
         required=False,
@@ -314,4 +333,9 @@ if __name__ == "__main__":
         help="The json file path to generate",
     )
     args = parser.parse_args()
-    print(cif_to_input_json(args.cif_file, output_json=args.json_file))
+    print(
+        cif_to_input_json(
+            args.cif_file,
+            output_json=args.json_file,
+        )
+    )

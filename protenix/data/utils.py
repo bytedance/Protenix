@@ -18,17 +18,23 @@ import functools
 import os
 import re
 from collections import defaultdict
-from typing import Mapping, Sequence
+from typing import Mapping, Optional, Sequence
 
 import biotite.structure as struc
 import numpy as np
 import torch
-from biotite.structure import AtomArray
+from biotite.structure import AtomArray, get_residue_starts
 from biotite.structure.io import pdbx
 from biotite.structure.io.pdb import PDBFile
 
 from configs.configs_data import data_configs
-from protenix.data.constants import DNA_STD_RESIDUES, PRO_STD_RESIDUES, RNA_STD_RESIDUES
+from protenix.data.ccd import biotite_load_ccd_cif
+from protenix.data.constants import (
+    DNA_STD_RESIDUES,
+    PRO_STD_RESIDUES,
+    RNA_STD_RESIDUES,
+    STD_RESIDUES,
+)
 
 
 def get_antibody_clusters():
@@ -180,6 +186,41 @@ def atom_select(atom_array: AtomArray, select_dict: dict, as_mask=False) -> np.n
         return mask
     else:
         return np.where(mask)[0]
+
+
+def get_polymer_polymer_bond(atom_array, entity_poly_type):
+    """
+    Get bonds between the bonded polymer and its parent chain.
+
+    Args:
+        atom_array (AtomArray): biotite atom array object.
+
+    Returns:
+        np.ndarray: bond records between the bonded polymer and its parent chain.
+                    e.g. np.array([[atom1, atom2, bond_order]...])
+    """
+    # identify polymer by mol_type (protein, rna, dna, ligand)
+    polymer_entities = []
+    for k, v in entity_poly_type.items():
+        if v in ["polypeptide(L)", "polydeoxyribonucleotide", "polyribonucleotide"]:
+            polymer_entities.append(k)
+
+    poly_arr = atom_array[np.isin(atom_array.label_entity_id, polymer_entities)]
+    bond_arr = poly_arr.bonds.as_array()
+    res_id = poly_arr.res_id
+    chain_id = poly_arr.chain_id
+
+    cid_equil = chain_id[bond_arr[:, 0]] == chain_id[bond_arr[:, 1]]
+    res_id_diff = res_id[bond_arr[:, 0]] - res_id[bond_arr[:, 1]]
+    intra_chain_bond_mask = cid_equil & (np.abs(res_id_diff) > 1)
+    polymer_polymer_bond = bond_arr[(~cid_equil) | intra_chain_bond_mask]
+
+    if polymer_polymer_bond.size == 0:
+        # no polymer-polymer bonds
+        polymer_polymer_bond = np.empty((0, 3)).astype(int)
+
+    # np.array([[atom1, atom2, bond_order]...])
+    return polymer_polymer_bond
 
 
 def get_ligand_polymer_bond_mask(
@@ -346,15 +387,53 @@ class CIFWriter:
     Write AtomArray to cif.
     """
 
-    def __init__(self, atom_array: AtomArray, entity_poly_type: dict[str, str] = None):
+    def __init__(
+        self,
+        atom_array: AtomArray,
+        entity_poly_type: dict[str, str] = None,
+        atom_array_output_mask: Optional[np.ndarray] = None,
+    ):
         """
         Args:
             atom_array (AtomArray): Biotite AtomArray object.
-            entity_poly_type (dict[str, str], optional): A dict of label_entity_id to entity polymer type. Defaults to None.
-                                                         If None, the "entity_poly" and "entity_poly_seq" will not be written to the cif.
+            entity_poly_type (dict[str, str], optional): A dict of label_entity_id to entity_poly_type. Defaults to None.
+                                                         If None, "the entity_poly" and "entity_poly_seq" will not be written to the cif.
+            atom_array_output_mask (np.ndarray, optional): A mask of atom_array. Defaults to None.
+                                                          If None, all atoms will be written to the cif.
         """
-        self.atom_array = atom_array
+        self.atom_array = copy.deepcopy(atom_array)
         self.entity_poly_type = entity_poly_type
+        self.atom_array_output_mask = atom_array_output_mask
+
+    def _get_unresolved_block(self):
+        res_starts = get_residue_starts(self.atom_array, add_exclusive_stop=True)
+        is_res_starts = np.zeros(len(self.atom_array_output_mask), dtype=bool)
+        for start, stop in zip(res_starts[:-1], res_starts[1:]):
+            if not any(self.atom_array.is_resolved[start:stop]):
+                is_res_starts[start] = True
+
+        mask = (~self.atom_array_output_mask) & is_res_starts
+        if not np.any(mask):
+            # No unresolved atoms
+            return
+        polymer_flag_bool = np.isin(
+            self.atom_array.label_entity_id[mask], list(self.entity_poly_type.keys())
+        )
+        polymer_flag = ["Y" if i else "N" for i in polymer_flag_bool]
+
+        unresolved_block = defaultdict(list)
+        unresolved_block["id"] = np.arange(mask.sum()) + 1
+        unresolved_block["PDB_model_num"] = np.ones(mask.sum(), dtype=int)
+        unresolved_block["polymer_flag"] = polymer_flag
+        unresolved_block["occupancy_flag"] = np.ones(mask.sum(), dtype=int)
+        unresolved_block["auth_asym_id"] = self.atom_array.chain_id[mask]
+        unresolved_block["auth_comp_id"] = self.atom_array.res_name[mask]
+        unresolved_block["auth_seq_id"] = self.atom_array.res_id[mask]
+        unresolved_block["PDB_ins_code"] = ["?"] * mask.sum()
+        unresolved_block["label_asym_id"] = self.atom_array.chain_id[mask]
+        unresolved_block["label_comp_id"] = self.atom_array.res_name[mask]
+        unresolved_block["label_seq_id"] = self.atom_array.res_id[mask]
+        return pdbx.CIFCategory(unresolved_block)
 
     def _get_entity_block(self):
         if self.entity_poly_type is None:
@@ -417,7 +496,6 @@ class CIFWriter:
 
             entity_poly_seq["entity_id"].extend(asym_chain_entity_id)
             entity_poly_seq["hetero"].extend(asym_chain_hetero)
-            # mon_id: short for "monomer ID"
             entity_poly_seq["mon_id"].extend(asym_chain_res_name)
             entity_poly_seq["num"].extend(asym_chain_res_id)
 
@@ -426,6 +504,44 @@ class CIFWriter:
             "entity_poly_seq": pdbx.CIFCategory(entity_poly_seq),
         }
         return block_dict
+
+    def _get_chem_comp_block(self):
+        ccd_cif = biotite_load_ccd_cif()
+        all_ccd = np.unique(self.atom_array.res_name)
+        chem_comp = defaultdict(list)
+        chem_comp_field = [
+            "id",
+            "type",
+            "mon_nstd_flag",
+            "name",
+            "pdbx_synonyms",
+            "formula",
+            "formula_weight",
+        ]
+        for ccd in all_ccd:
+            if ccd not in ccd_cif:
+                chem_comp["id"].append(ccd)
+                chem_comp["type"].append("?")
+                chem_comp["name"].append("?")
+                chem_comp["mon_nstd_flag"].append("n")
+                chem_comp["pdbx_synonyms"].append("?")
+                chem_comp["formula"].append("?")
+                chem_comp["formula_weight"].append("?")
+            else:
+                for i in chem_comp_field:
+                    if i == "mon_nstd_flag":
+                        if ccd in STD_RESIDUES and ccd not in ["N", "DN", "UNK"]:
+                            mon_nstd_flag = "y"
+                        elif (
+                            ccd_cif[ccd]["chem_comp"]["type"].as_item() == "non-polymer"
+                        ):
+                            mon_nstd_flag = "."
+                        else:
+                            mon_nstd_flag = "n"
+                        chem_comp[i].append(mon_nstd_flag)
+                    else:
+                        chem_comp[i].append(ccd_cif[ccd]["chem_comp"][i].as_item())
+        return pdbx.CIFCategory(chem_comp)
 
     def save_to_cif(
         self, output_path: str, entry_id: str = None, include_bonds: bool = False
@@ -437,7 +553,7 @@ class CIFWriter:
             output_path (str): Output path of cif file.
             entry_id (str, optional): The value of "_entry.id" in cif. Defaults to None.
                                       If None, the entry_id will be the basename of output_path (without ".cif" extension).
-            include_bonds (bool, optional): Whether to include bonds in the cif. Defaults to False.
+            include_bonds (bool, optional): Whether to include  bonds in the cif. Defaults to False.
                                             If set to True and `array` has associated ``bonds`` , the
                                             intra-residue bonds will be written into the ``chem_comp_bond``
                                             category.
@@ -449,9 +565,16 @@ class CIFWriter:
             entry_id = os.path.basename(output_path).replace(".cif", "")
 
         block_dict = {"entry": pdbx.CIFCategory({"id": entry_id})}
+        block_dict["chem_comp"] = self._get_chem_comp_block()
+
         if self.entity_poly_type:
             block_dict["entity"] = self._get_entity_block()
             block_dict.update(self._get_entity_poly_and_entity_poly_seq_block())
+
+        if self.atom_array_output_mask is not None:
+            unresolved_block = self._get_unresolved_block()
+            if unresolved_block is not None:
+                block_dict["pdbx_unobs_or_zero_occ_residues"] = unresolved_block
 
         block = pdbx.CIFBlock(block_dict)
         cif = pdbx.CIFFile(
@@ -460,15 +583,33 @@ class CIFWriter:
                 + "_predicted_by_protenix": block
             }
         )
-        pdbx.set_structure(cif, self.atom_array, include_bonds=include_bonds)
+
+        if self.atom_array_output_mask is not None:
+            atom_array = self.atom_array[self.atom_array_output_mask]
+        else:
+            atom_array = self.atom_array
+
+        if not include_bonds:
+            # https://github.com/biotite-dev/biotite/pull/804
+            inter_bonds = pdbx.convert._filter_bonds(atom_array, "inter")
+            atom_array.bonds._bonds = inter_bonds
+
+        pdbx.set_structure(cif, atom_array, include_bonds=include_bonds)
         block = cif.block
         atom_site = block.get("atom_site")
 
         occ = atom_site.get("occupancy")
         if occ is None:
-            atom_site["occupancy"] = np.ones(len(self.atom_array), dtype=float)
+            atom_site["occupancy"] = np.ones(len(atom_array), dtype=float)
 
-        atom_site["label_entity_id"] = self.atom_array.label_entity_id
+        b_factor = atom_site.get("B_iso_or_equiv")
+        if b_factor is None:
+            atom_site["B_iso_or_equiv"] = np.round(
+                np.zeros(len(atom_array), dtype=float), 2
+            ).astype(str)
+
+        if "label_entity_id" in atom_array.get_annotation_categories():
+            atom_site["label_entity_id"] = atom_array.label_entity_id
         cif.write(output_path)
 
 
@@ -721,7 +862,10 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
     new_chain_starts = []
     for c_start, c_stop in zip(chain_starts[:-1], chain_starts[1:]):
         new_chain_starts.append(c_start)
-        hetero_diff = np.where(atom_array.hetero[c_start:(c_stop-1)] != atom_array.hetero[(c_start+1):c_stop])
+        hetero_diff = np.where(
+            atom_array.hetero[c_start : (c_stop - 1)]
+            != atom_array.hetero[(c_start + 1) : c_stop]
+        )
         if hetero_diff[0].shape[0] > 0:
             new_chain_starts_002 = c_start + hetero_diff[0] + 1
             new_chain_starts.extend(new_chain_starts_002.tolist())
@@ -747,11 +891,11 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
     chain_starts = new_chain_starts2 + [chain_starts[-1]]
 
-    label_entity_id = np.empty(len(atom_array), dtype='<U4')
+    label_entity_id = np.empty(len(atom_array), dtype="<U4")
     atom_index = np.arange(len(atom_array), dtype=np.int32)
     res_id = np.empty(len(atom_array), dtype=atom_array.res_id.dtype)
     chain_id = np.empty(len(atom_array), dtype=atom_array.chain_id.dtype)
-    
+
     chain_count = 0
     for c_start, c_stop in zip(chain_starts[:-1], chain_starts[1:]):
         chain_count += 1
@@ -784,7 +928,7 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
     # add label entity id
     atom_array.set_annotation("label_entity_id", label_entity_id)
-    
+
     entity_poly_type = {}
     for seq, entity_id in seq_to_entity_id.items():
         resname_seq = seq.split("_")
