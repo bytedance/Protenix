@@ -34,6 +34,7 @@ class Featurizer(object):
         cropped_atom_array: AtomArray,
         ref_pos_augment: bool = True,
         lig_atom_rename: bool = False,
+        include_discont_poly_poly_bonds: bool = False,
     ) -> None:
         """
         Args:
@@ -41,12 +42,15 @@ class Featurizer(object):
             cropped_atom_array (AtomArray): AtomArray object after cropping
             ref_pos_augment (bool): Boolean indicating whether apply random rotation and translation on ref_pos
             lig_atom_rename (bool): Boolean indicating whether rename atom name for ligand atoms
+            include_discont_poly_poly_bonds (bool): Boolean indicating whether
+                                            include discontinuous polymer-polymer bonds
         """
         self.cropped_token_array = cropped_token_array
 
         self.cropped_atom_array = cropped_atom_array
         self.ref_pos_augment = ref_pos_augment
         self.lig_atom_rename = lig_atom_rename
+        self.include_discont_poly_poly_bonds = include_discont_poly_poly_bonds
 
     @staticmethod
     def encoder(
@@ -474,9 +478,19 @@ class Featurizer(object):
         inter_unstd_bond_mask = (
             unstd_res_mask[bond_atom_i] & unstd_res_mask[bond_atom_j]
         ) & (ref_space_uid[bond_atom_i] != ref_space_uid[bond_atom_j])
-        kept_bonds = bond_array[
-            ~(std_std_bond_mask | std_unstd_bond_mask | inter_unstd_bond_mask)
-        ]
+
+        kept_mask = ~(std_std_bond_mask | std_unstd_bond_mask | inter_unstd_bond_mask)
+        if self.include_discont_poly_poly_bonds:
+            # include discontinuous polymer-polymer bonds
+            res_id_i = self.cropped_atom_array.res_id[bond_atom_i]
+            res_id_j = self.cropped_atom_array.res_id[bond_atom_j]
+            chain_i = self.cropped_atom_array.chain_id[bond_atom_i]
+            chain_j = self.cropped_atom_array.chain_id[bond_atom_j]
+            is_discont = (np.abs(res_id_i - res_id_j) > 1) | (chain_i != chain_j)
+            kept_mask |= is_discont
+
+        kept_bonds = bond_array[kept_mask]
+
         # -1 means the atom is not in any token
         atom_idx_to_token_idx = np.zeros(len(self.cropped_atom_array), dtype=int) - 1
         for idx, token in enumerate(self.cropped_token_array.tokens):

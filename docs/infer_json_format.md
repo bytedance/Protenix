@@ -193,6 +193,14 @@ the DNA chemical modifications:
 ```
 
 The `covalent_bonds` section specifies covalent bonds between a polymer and a ligand, or between two ligands.
+
+Covalent bonds between two polymer residues (regardless of whether they belong to the same or different polymers) are generally not supported.
+Exceptions are made for cyclic peptides, where covalent bonds can be used to define:
+- A head-to-tail amide bond connecting the N- and C-terminal residues, or
+- A disulfide bond between cysteine residues.
+
+Other types of polymer–polymer covalent bonds can still be specified in the input, but they are not reliably handled by the current model. In such cases, the specified residues may tend to be positioned in close proximity, though typically not close enough to form a covalent bond.
+
 To define a covalent bond, two atoms involved in the bond must be identified. The following fields are used:
 
 * `entity1`, `entity2`: The entity numbers for the two atoms involved in the bond. 
@@ -206,9 +214,9 @@ The position value starts at 1 and can vary based on the type of entity:
     
 * `atom1`, `atom2` - The atom names (or atom indices) of the atoms to be bonded.
   * If the entity is a polymer or described by a CCD code, the atom names are consistent with those defined in the CCD.
-  * If the entity is a ligand defined by SMILES or a FILE, atoms can be specified by their atom index. The atom index corresponds to the position of the atom in the file or in the SMILES string, starting from 0.
+  * If the entity is a ligand defined by SMILES or a FILE, atoms can be specified by their atom index. The atom index corresponds to the position of the atom in the file or in the SMILES string, starting from 0. Alternatively, atom names can also be specified using the element symbol followed by its occurrence index in the SMILES or file (e.g., C3, N2), starting from 1.
 
-Deprecation Notice: The previous fields such as old `left_entity`, `right_entity`, and other fields starting with `left`/`right` have been updated to use `1` and `2` to denote the two atoms forming a bond. The current code still supports the old field names, but they may be deprecated in the future, leaving only the new field names. An alternative approach is to write the element name of the specified atom in the SMILES/file, along with its sequential number for that element, e.g., "C2" indicates it is the second carbon.
+Deprecation Notice: The previous fields such as old `left_entity`, `right_entity`, and other fields starting with `left`/`right` have been updated to use `1` and `2` to denote the two atoms forming a bond. The current code still supports the old field names, but they may be deprecated in the future, leaving only the new field names. 
 
 Here is a revised user guide compatible with **Version 2** of the `constraint` format for the Complex Structure Predictor:
 
