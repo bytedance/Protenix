@@ -83,7 +83,15 @@ class InputFeatureEmbedder(nn.Module):
         """
         # Embed per-atom features.
         a, _, _, _ = self.atom_attention_encoder(
-            input_feature_dict=input_feature_dict,
+            input_feature_dict["atom_to_token_idx"],
+            input_feature_dict["ref_pos"],
+            input_feature_dict["ref_charge"],
+            input_feature_dict["ref_mask"],
+            input_feature_dict["ref_atom_name_chars"],
+            input_feature_dict["ref_element"],
+            input_feature_dict["d_lm"],
+            input_feature_dict["v_lm"],
+            input_feature_dict["pad_info"],
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
         )  # [..., N_token, c_token]
@@ -133,14 +141,61 @@ class RelativePositionEncoding(nn.Module):
             "token_index": 1,
         }
 
-    def forward(
-        self,
-        asym_id: torch.Tensor,
-        residue_index: torch.Tensor,
-        entity_id: torch.Tensor,
-        token_index: torch.Tensor,
-        sym_id: torch.Tensor,
-    ) -> torch.Tensor:
+    def generate_relp(self, input_feature_dict: dict[str, Any]) -> dict[str, Any]:
+        """asym_id, residue_index, entity_id, token_index, sym_id"""
+        with torch.no_grad():
+            asym_id = input_feature_dict["asym_id"]
+            residue_index = input_feature_dict["residue_index"]
+            entity_id = input_feature_dict["entity_id"]
+            token_index = input_feature_dict["token_index"]
+            sym_id = input_feature_dict["sym_id"]
+
+            b_same_chain = (
+                asym_id[..., :, None] == asym_id[..., None, :]
+            ).long()  # [..., N_token, N_token]
+            b_same_residue = (
+                residue_index[..., :, None] == residue_index[..., None, :]
+            ).long()  # [..., N_token, N_token]
+            b_same_entity = (
+                entity_id[..., :, None] == entity_id[..., None, :]
+            ).long()  # [..., N_token, N_token]
+            d_residue = torch.clip(
+                input=residue_index[..., :, None]
+                - residue_index[..., None, :]
+                + self.r_max,
+                min=0,
+                max=2 * self.r_max,
+            ) * b_same_chain + (1 - b_same_chain) * (
+                2 * self.r_max + 1
+            )  # [..., N_token, N_token]
+            a_rel_pos = F.one_hot(d_residue, 2 * (self.r_max + 1))
+            d_token = torch.clip(
+                input=token_index[..., :, None]
+                - token_index[..., None, :]
+                + self.r_max,
+                min=0,
+                max=2 * self.r_max,
+            ) * b_same_chain * b_same_residue + (1 - b_same_chain * b_same_residue) * (
+                2 * self.r_max + 1
+            )  # [..., N_token, N_token]
+            a_rel_token = F.one_hot(d_token, 2 * (self.r_max + 1))
+            d_chain = torch.clip(
+                input=sym_id[..., :, None] - sym_id[..., None, :] + self.s_max,
+                min=0,
+                max=2 * self.s_max,
+            ) * b_same_entity + (1 - b_same_entity) * (
+                2 * self.s_max + 1
+            )  # [..., N_token, N_token]
+            a_rel_chain = F.one_hot(d_chain, 2 * (self.s_max + 1))
+
+            relp = torch.cat(
+                [a_rel_pos, a_rel_token, b_same_entity[..., None], a_rel_chain],
+                dim=-1,
+            ).float()
+            input_feature_dict["relp"] = relp
+        return input_feature_dict
+
+    def forward(self, relp_feature) -> torch.Tensor:
         """
         Args:
             asym_id / residue_index / entity_id / sym_id / token_index
@@ -149,94 +204,7 @@ class RelativePositionEncoding(nn.Module):
             torch.Tensor: relative position encoding
                 [..., N_token, N_token, c_z]
         """
-        b_same_chain = (
-            asym_id[..., :, None] == asym_id[..., None, :]
-        ).long()  # [..., N_token, N_token]
-        b_same_residue = (
-            residue_index[..., :, None] == residue_index[..., None, :]
-        ).long()  # [..., N_token, N_token]
-        b_same_entity = (
-            entity_id[..., :, None] == entity_id[..., None, :]
-        ).long()  # [..., N_token, N_token]
-        d_residue = torch.clip(
-            input=residue_index[..., :, None]
-            - residue_index[..., None, :]
-            + self.r_max,
-            min=0,
-            max=2 * self.r_max,
-        ) * b_same_chain + (1 - b_same_chain) * (
-            2 * self.r_max + 1
-        )  # [..., N_token, N_token]
-        a_rel_pos = F.one_hot(d_residue, 2 * (self.r_max + 1))
-        d_token = torch.clip(
-            input=token_index[..., :, None] - token_index[..., None, :] + self.r_max,
-            min=0,
-            max=2 * self.r_max,
-        ) * b_same_chain * b_same_residue + (1 - b_same_chain * b_same_residue) * (
-            2 * self.r_max + 1
-        )  # [..., N_token, N_token]
-        a_rel_token = F.one_hot(d_token, 2 * (self.r_max + 1))
-        d_chain = torch.clip(
-            input=sym_id[..., :, None] - sym_id[..., None, :] + self.s_max,
-            min=0,
-            max=2 * self.s_max,
-        ) * b_same_entity + (1 - b_same_entity) * (
-            2 * self.s_max + 1
-        )  # [..., N_token, N_token]
-        a_rel_chain = F.one_hot(d_chain, 2 * (self.s_max + 1))
-
-        if self.training:
-            p = self.linear_no_bias(
-                torch.cat(
-                    [a_rel_pos, a_rel_token, b_same_entity[..., None], a_rel_chain],
-                    dim=-1,
-                ).float()
-            )  # [..., N_token, N_token, 2 * (self.r_max + 1)+ 2 * (self.r_max + 1)+ 1 + 2 * (self.s_max + 1)] -> [..., N_token, N_token, c_z]
-            return p
-        else:
-            del d_chain, d_token, d_residue, b_same_chain, b_same_residue
-            origin_shape = a_rel_pos.shape[:-1]
-            Ntoken = a_rel_pos.shape[-2]
-            a_rel_pos = a_rel_pos.reshape(-1, a_rel_pos.shape[-1])
-            chunk_num = 1 if Ntoken < 3200 else 8
-            a_rel_pos_chunks = torch.chunk(
-                a_rel_pos.reshape(-1, a_rel_pos.shape[-1]), chunk_num, dim=-2
-            )
-            a_rel_token_chunks = torch.chunk(
-                a_rel_token.reshape(-1, a_rel_token.shape[-1]), chunk_num, dim=-2
-            )
-            b_same_entity_chunks = torch.chunk(
-                b_same_entity.reshape(-1, 1), chunk_num, dim=-2
-            )
-            a_rel_chain_chunks = torch.chunk(
-                a_rel_chain.reshape(-1, a_rel_chain.shape[-1]), chunk_num, dim=-2
-            )
-            start = 0
-            p = None
-            for i in range(len(a_rel_pos_chunks)):
-                data = torch.cat(
-                    [
-                        a_rel_pos_chunks[i],
-                        a_rel_token_chunks[i],
-                        b_same_entity_chunks[i],
-                        a_rel_chain_chunks[i],
-                    ],
-                    dim=-1,
-                ).float()
-                result = self.linear_no_bias(data)
-                del data
-                if p is None:
-                    p = torch.empty(
-                        (a_rel_pos.shape[-2], self.c_z),
-                        device=a_rel_pos.device,
-                        dtype=result.dtype,
-                    )
-                p[start : start + result.shape[0]] = result
-                start += result.shape[0]
-                del result
-            del a_rel_pos, a_rel_token, b_same_entity, a_rel_chain
-            p = p.reshape(*origin_shape, -1)
-            return p
+        return self.linear_no_bias(relp_feature)
 
 
 class FourierEmbedding(nn.Module):

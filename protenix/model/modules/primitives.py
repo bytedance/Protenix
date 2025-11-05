@@ -804,23 +804,13 @@ class Attention(nn.Module):
         q, k, v = self._prep_qkv(q_x=q_x, kv_x=kv_x, apply_scale=True)
 
         if attn_bias is not None:
-            if len(attn_bias.shape) == len(q.shape):
-                assert attn_bias.shape[:-2] == q.shape[:-2]
-            else:
-                assert len(attn_bias.shape) == len(q.shape) - 1
-                assert attn_bias.shape[:-2] == q.shape[:-3]
+            if len(attn_bias.shape) != len(q.shape):
                 # Expand at head dim, got shape [..., 1, Q, K]
                 attn_bias = attn_bias.unsqueeze(dim=-3)
 
         if trunked_attn_bias is not None:
             # NOTE: trunked_attn_bias can only be used with "local_cross_attention" method
-            assert n_queries and n_keys
-            assert self.local_attention_method == "local_cross_attention"
-
-            if len(trunked_attn_bias.shape) == len(q.shape) + 1:
-                assert trunked_attn_bias.shape[:-3] == q.shape[:-2]
-            else:
-                assert len(trunked_attn_bias.shape) == len(q.shape)
+            if len(trunked_attn_bias.shape) != len(q.shape) + 1:
                 # Expand at head dim, got shape [..., 1, n_trunks, n_queries, n_keys]
                 trunked_attn_bias = trunked_attn_bias.unsqueeze(dim=-4)
 

@@ -125,6 +125,9 @@ model_configs = {
     # switch of kernels
     "triangle_multiplicative": "cuequivariance",  # cuequivariance, torch
     "triangle_attention": "triattention",  # triattention, cuequivariance, deepspeed, torch
+    "enable_diffusion_shared_vars_cache": False,
+    "enable_efficient_fusion": False,
+    "enable_tf32": False,
     "find_unused_parameters": False,
     "dtype": "bf16",  # default training dtype: bf16
     "loss_metrics_sparse_enable": True,  # the swicth for both sparse lddt metrics and sparse bond/smooth lddt loss
@@ -136,10 +139,10 @@ model_configs = {
     },
     "infer_setting": {
         "chunk_size": ValueMaybeNone(
-            64
+            256
         ),  # should set to null for normal training and small dataset eval [for efficiency]
         "sample_diffusion_chunk_size": ValueMaybeNone(
-            1
+            5
         ),  # should set to null for normal training and small dataset eval [for efficiency]
         "lddt_metrics_sparse_enable": GlobalConfigValue("loss_metrics_sparse_enable"),
         "lddt_metrics_chunk_size": ValueMaybeNone(

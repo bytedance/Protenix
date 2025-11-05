@@ -257,7 +257,6 @@ class PairformerStack(nn.Module):
         triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
-        clear_cache_between_blocks: bool = False,
     ):
         blocks = [
             partial(
@@ -270,13 +269,6 @@ class PairformerStack(nn.Module):
             )
             for b in self.blocks
         ]
-
-        def clear_cache(b, *args, **kwargs):
-            torch.cuda.empty_cache()
-            return b(*args, **kwargs)
-
-        if clear_cache_between_blocks:
-            blocks = [partial(clear_cache, b) for b in blocks]
         return blocks
 
     def forward(
@@ -307,17 +299,12 @@ class PairformerStack(nn.Module):
                 [..., N_token, c_s]
                 [..., N_token, N_token, c_z]
         """
-        if z.shape[-2] > 2000 and (not self.training):
-            clear_cache_between_blocks = True
-        else:
-            clear_cache_between_blocks = False
         blocks = self._prep_blocks(
             pair_mask=pair_mask,
             triangle_multiplicative=triangle_multiplicative,
             triangle_attention=triangle_attention,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
-            clear_cache_between_blocks=clear_cache_between_blocks,
         )
 
         blocks_per_ckpt = self.blocks_per_ckpt
@@ -410,7 +397,6 @@ class MSAPairWeightedAveraging(nn.Module):
         m = self.linear_no_bias_out(o)  # [...,n_msa_sampled, n_token, c_m]
         if (not self.training) and m.shape[-3] > 5120:
             del v, b, g, w, wv, o
-            torch.cuda.empty_cache()
         return m
 
 
@@ -476,7 +462,6 @@ class MSAStack(nn.Module):
             m = m + m_transition[: m.shape[-3], :, :]
             if (not self.training) and (z.shape[-2] > 2000 or m.shape[-3] > 5120):
                 del msa_pair_weighted, m_transition
-                torch.cuda.empty_cache()
         else:
             m = self.inference_forward(m, z, chunk_size)
         return m
@@ -526,12 +511,10 @@ class MSAStack(nn.Module):
             processed_chunks = [checkpoint_fn(module, chunk) for chunk in m_chunks]
         if (not self.training) and m.shape[-3] > 5120:
             del m_chunks
-            torch.cuda.empty_cache()
         # Concatenate the processed chunks back together
         m = torch.cat(processed_chunks, dim=0)
         if (not self.training) and m.shape[-3] > 5120:
             del processed_chunks
-            torch.cuda.empty_cache()
         return m
 
     def inference_forward(
@@ -636,13 +619,9 @@ class MSABlock(nn.Module):
                 [...,n_token, n_token, c_z]
         """
         # Communication
-        if (not self.training) and z.shape[-2] > 2000:
-            torch.cuda.empty_cache()
         z = z + self.outer_product_mean_msa(
             m, inplace_safe=inplace_safe, chunk_size=chunk_size
         )
-        if (not self.training) and z.shape[-2] > 2000:
-            torch.cuda.empty_cache()
         if not self.is_last_block:
             # MSA stack
             m = self.msa_stack(m, z)
@@ -656,8 +635,6 @@ class MSABlock(nn.Module):
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
         )
-        if (not self.training) and (z.shape[-2] > 2000 or m.shape[-3] > 5120):
-            torch.cuda.empty_cache()
         if not self.is_last_block:
             return m, z
         else:
@@ -757,7 +734,6 @@ class MSAModule(nn.Module):
         triangle_attention: str = "torch",
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
-        clear_cache_between_blocks: bool = False,
     ):
         blocks = [
             partial(
@@ -770,13 +746,6 @@ class MSAModule(nn.Module):
             )
             for b in self.blocks
         ]
-
-        def clear_cache(b, *args, **kwargs):
-            torch.cuda.empty_cache()
-            return b(*args, **kwargs)
-
-        if clear_cache_between_blocks:
-            blocks = [partial(clear_cache, b) for b in blocks]
         return blocks
 
     def one_hot_fp32(
@@ -882,23 +851,17 @@ class MSAModule(nn.Module):
         # need to clear cache to avoid OOM
         if not self.training:
             del msa_feat
-            torch.cuda.empty_cache()
         # Line2
         msa_sample = self.linear_no_bias_m(msa_sample)
 
         # Auto broadcast [...,n_msa_sampled, n_token, c_m]
         msa_sample = msa_sample + self.linear_no_bias_s(s_inputs)
-        if z.shape[-2] > 2000 and (not self.training):
-            clear_cache_between_blocks = True
-        else:
-            clear_cache_between_blocks = False
         blocks = self._prep_blocks(
             pair_mask=pair_mask,
             triangle_multiplicative=triangle_multiplicative,
             triangle_attention=triangle_attention,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
-            clear_cache_between_blocks=clear_cache_between_blocks,
         )
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():
@@ -908,8 +871,6 @@ class MSAModule(nn.Module):
             args=(msa_sample, z),
             blocks_per_ckpt=blocks_per_ckpt,
         )
-        if z.shape[-2] > 2000:
-            torch.cuda.empty_cache()
         return z
 
 

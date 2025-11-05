@@ -32,4 +32,7 @@ inference_configs = {
     "load_checkpoint_dir": os.path.join(code_directory, "./release_data/checkpoint/"),
     "num_workers": 16,
     "use_msa": True,
+    "enable_tf32": True,
+    "enable_efficient_fusion": True,
+    "enable_diffusion_shared_vars_cache": True,
 }

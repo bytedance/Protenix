@@ -25,12 +25,11 @@ Below are reference examples of cuda memory usage (G).
 
 | Ntoken | Natom | Memory(G) | Inference time(s) |
 |--------|-------|-------|------------------|
-| 500    | 5000  | 5.2   | 72   |
-| 1000   | 10000 | 11.5  | 229  |
-| 2000   | 20000 | 42.8  | 933  |
-| 3000   | 30000 | 73.9  | 2295 |
-| 3500   | 35000 | 69.5  | 3329 |
-| 4000   | 40000 | 67.5  | 4483 |
+| 500    | 5000  | 6.1   | 17   |
+| 1000   | 10000 | 18.2  | 59  |
+| 2000   | 20000 | 66.6  | 226  |
+| 3000   | 30000 | 60.8  | 935 |
+| 4000   | 40000 | 78.1  | 1424 |
 
 The script in [runner/inference.py](../runner/inference.py) will automatically change the default precision to compute `SampleDiffusion`,`ConfidenceHead` to avoid OOM as follows:
 ```python
