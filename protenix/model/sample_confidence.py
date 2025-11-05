@@ -197,7 +197,6 @@ def _compute_full_data_and_summary(
     summary_confidence = break_down_to_per_sample_dict(
         summary_confidence, shared_keys=["num_recycles"]
     )
-    torch.cuda.empty_cache()
     if return_full_data:
         # save extra inputs that are used for computing summary_confidence
         full_data["token_has_frame"] = token_has_frame.clone()

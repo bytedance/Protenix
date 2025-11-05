@@ -458,7 +458,12 @@ class RequestParser(object):
             "--num_workers 0",
             "--dtype bf16",
             "--sample_diffusion.step_scale_eta 1.5",
-            "--triangle_multiplicative torch"
+            "--enable_tf32 True",
+            "--enable_efficient_fusion True",
+            "--enable_diffusion_shared_vars_cache True",
+            "--infer_setting.sample_diffusion_chunk_size 5",
+            "--infer_setting.chunk_size 256",
+            "--triangle_multiplicative torch",
         ]
 
         if "model_seeds" in self.request:

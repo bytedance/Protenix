@@ -126,6 +126,9 @@ def sample_diffusion(
     s_inputs: torch.Tensor,
     s_trunk: torch.Tensor,
     z_trunk: torch.Tensor,
+    pair_z: torch.Tensor,
+    p_lm: torch.Tensor,
+    c_l: torch.Tensor,
     noise_schedule: torch.Tensor,
     N_sample: int = 1,
     gamma0: float = 0.8,
@@ -135,6 +138,7 @@ def sample_diffusion(
     diffusion_chunk_size: Optional[int] = None,
     inplace_safe: bool = False,
     attn_chunk_size: Optional[int] = None,
+    enable_efficient_fusion: bool = False,
 ) -> torch.Tensor:
     """Implements Algorithm 18 in AF3.
     It performances denoising steps from time 0 to time T.
@@ -211,8 +215,12 @@ def sample_diffusion(
                 s_inputs=s_inputs,
                 s_trunk=s_trunk,
                 z_trunk=z_trunk,
+                pair_z=pair_z,
+                p_lm=p_lm,
+                c_l=c_l,
                 chunk_size=attn_chunk_size,
                 inplace_safe=inplace_safe,
+                enable_efficient_fusion=enable_efficient_fusion,
             )
 
             delta = (x_noisy - x_denoised) / t_hat[
@@ -252,9 +260,13 @@ def sample_diffusion_training(
     s_inputs: torch.Tensor,
     s_trunk: torch.Tensor,
     z_trunk: torch.Tensor,
+    pair_z: torch.Tensor,
+    p_lm: torch.Tensor,
+    c_l: torch.Tensor,
     N_sample: int = 1,
     diffusion_chunk_size: Optional[int] = None,
     use_conditioning: bool = True,
+    enable_efficient_fusion: bool = False,
 ) -> tuple[torch.Tensor, ...]:
     """Implements diffusion training as described in AF3 Appendix at page 23.
     It performances denoising steps from time 0 to time T.
@@ -306,7 +318,11 @@ def sample_diffusion_training(
             s_inputs=s_inputs,
             s_trunk=s_trunk,
             z_trunk=z_trunk,
+            pair_z=pair_z,
+            p_lm=p_lm,
+            c_l=c_l,
             use_conditioning=use_conditioning,
+            enable_efficient_fusion=enable_efficient_fusion,
         )
     else:
         x_denoised = []
@@ -327,7 +343,11 @@ def sample_diffusion_training(
                 s_inputs=s_inputs,
                 s_trunk=s_trunk,
                 z_trunk=z_trunk,
+                pair_z=pair_z,
+                p_lm=p_lm,
+                c_l=c_l,
                 use_conditioning=use_conditioning,
+                enable_efficient_fusion=enable_efficient_fusion,
             )
             x_denoised.append(x_denoised_i)
         x_denoised = torch.cat(x_denoised, dim=-3)

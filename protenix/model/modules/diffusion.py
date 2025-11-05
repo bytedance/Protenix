@@ -24,6 +24,7 @@ from protenix.model.modules.transformer import (
     AtomAttentionEncoder,
     DiffusionTransformer,
 )
+from protenix.model.utils import permute_final_dims
 from protenix.model.utils import expand_at_dim
 from protenix.openfold_local.model.primitives import LayerNorm
 from protenix.openfold_local.utils.checkpointing import get_checkpoint_fn
@@ -85,17 +86,37 @@ class DiffusionConditioning(nn.Module):
         self.transition_s2 = Transition(c_in=self.c_s, n=2)
         print(f"Diffusion Module has {self.sigma_data}")
 
+    def prepare_cache(
+        self,
+        relp_feature: torch.Tensor,
+        z_trunk: torch.Tensor,
+        inplace_safe: bool = False,
+    ):
+        # Pair conditioning
+        pair_z = torch.cat(
+            tensors=[
+                z_trunk,
+                self.relpe(relp_feature),
+            ],
+            dim=-1,
+        )  # [..., N_tokens, N_tokens, 2*c_z]
+        pair_z = self.linear_no_bias_z(self.layernorm_z(pair_z))
+        if inplace_safe:
+            pair_z += self.transition_z1(pair_z)
+            pair_z += self.transition_z2(pair_z)
+        else:
+            pair_z = pair_z + self.transition_z1(pair_z)
+            pair_z = pair_z + self.transition_z2(pair_z)
+        return pair_z
+
     def forward(
         self,
         t_hat_noise_level: torch.Tensor,
-        asym_id: torch.Tensor,
-        residue_index: torch.Tensor,
-        entity_id: torch.Tensor,
-        token_index: torch.Tensor,
-        sym_id: torch.Tensor,
+        relp_feature: torch.Tensor,
         s_inputs: torch.Tensor,
         s_trunk: torch.Tensor,
         z_trunk: torch.Tensor,
+        pair_z: torch.Tensor,
         inplace_safe: bool = False,
         use_conditioning: bool = True,
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -121,29 +142,20 @@ class DiffusionConditioning(nn.Module):
                 - s (torch.Tensor): [..., N_sample, N_tokens, c_s]
                 - z (torch.Tensor): [..., N_tokens, N_tokens, c_z]
         """
-        if not use_conditioning:
-            if inplace_safe:
-                s_trunk *= 0
-                z_trunk *= 0
-            else:
-                s_trunk = 0 * s_trunk
-                z_trunk = 0 * z_trunk
-
-        # Pair conditioning
-        pair_z = torch.cat(
-            tensors=[
-                z_trunk,
-                self.relpe(asym_id, residue_index, entity_id, token_index, sym_id),
-            ],
-            dim=-1,
-        )  # [..., N_tokens, N_tokens, 2*c_z]
-        pair_z = self.linear_no_bias_z(self.layernorm_z(pair_z))
-        if inplace_safe:
-            pair_z += self.transition_z1(pair_z)
-            pair_z += self.transition_z2(pair_z)
+        if pair_z is None:
+            if not use_conditioning:
+                if inplace_safe:
+                    s_trunk *= 0
+                    z_trunk *= 0
+                else:
+                    s_trunk = 0 * s_trunk
+                    z_trunk = 0 * z_trunk
+            pair_z = self.prepare_cache(relp_feature, z_trunk, inplace_safe)
         else:
-            pair_z = pair_z + self.transition_z1(pair_z)
-            pair_z = pair_z + self.transition_z2(pair_z)
+            # Pair conditioning
+            if inplace_safe:
+                pair_z_clone = pair_z.clone()
+                pair_z = pair_z_clone
         # Single conditioning
         single_s = torch.cat(
             tensors=[s_trunk, s_inputs], dim=-1
@@ -165,8 +177,6 @@ class DiffusionConditioning(nn.Module):
         else:
             single_s = single_s + self.transition_s1(single_s)
             single_s = single_s + self.transition_s2(single_s)
-        if not self.training and pair_z.shape[-2] > 2000:
-            torch.cuda.empty_cache()
         return single_s, pair_z
 
 
@@ -242,7 +252,6 @@ class DiffusionModule(nn.Module):
         drop_path_rate: float = 0.0,
         blocks_per_ckpt: Optional[int] = None,
         use_fine_grained_checkpoint: bool = False,
-        use_efficient_implementation: bool = False,
     ) -> None:
         """
         Args:
@@ -261,22 +270,6 @@ class DiffusionModule(nn.Module):
                 checkpoints, and trades memory for speed. If None, no checkpointing is performed.
             use_fine_grained_checkpoint: whether use fine-gained checkpoint for finetuning stage 2
                 only effective if blocks_per_ckpt is not None.
-
-            use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
-
-        Notes:
-            if use_efficient_implementation == True, torch.nn.functional.scaled_dot_product_attention will
-            be used to compute attention efficiently
-            There are currently three supported implementations of scaled dot product attention:
-                1. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness
-
-                2. Memory-Efficient Attention
-
-                3. A PyTorch implementation defined in C++ matching the above formulation
-
-            The function may call optimized kernels for improved performance when using the CUDA backend.
-            For all other backends, the PyTorch implementation will be used.All implementations are enabled by default.
-            Scaled dot product attention attempts to automatically select the most optimal implementation based on the inputs.
         """
 
         super(DiffusionModule, self).__init__()
@@ -304,7 +297,6 @@ class DiffusionModule(nn.Module):
             c_s=c_s,
             c_z=c_z,
             blocks_per_ckpt=blocks_per_ckpt,
-            use_efficient_implementation=use_efficient_implementation,
         )
         # Alg20: line4
         self.layernorm_s = LayerNorm(c_s, create_offset=False)
@@ -320,7 +312,6 @@ class DiffusionModule(nn.Module):
             c_s=c_s,
             c_z=c_z,
             blocks_per_ckpt=blocks_per_ckpt,
-            use_efficient_implementation=use_efficient_implementation,
         )
         self.layernorm_a = LayerNorm(c_token, create_offset=False)
         self.atom_attention_decoder = AtomAttentionDecoder(
@@ -329,8 +320,8 @@ class DiffusionModule(nn.Module):
             c_atom=c_atom,
             c_atompair=c_atompair,
             blocks_per_ckpt=blocks_per_ckpt,
-            use_efficient_implementation=use_efficient_implementation,
         )
+        self.normalize = LayerNorm(c_z, create_offset=False, create_scale=False)
 
     def f_forward(
         self,
@@ -340,9 +331,13 @@ class DiffusionModule(nn.Module):
         s_inputs: torch.Tensor,
         s_trunk: torch.Tensor,
         z_trunk: torch.Tensor,
+        pair_z: torch.Tensor,
+        p_lm: torch.Tensor,
+        c_l: torch.Tensor,
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         use_conditioning: bool = True,
+        enable_efficient_fusion: bool = False,
     ) -> torch.Tensor:
         """The raw network to be trained.
         As in EDM equation (7), this is F_theta(c_in * x, c_noise(sigma)).
@@ -382,62 +377,70 @@ class DiffusionModule(nn.Module):
             s_single, z_pair = checkpoint_fn(
                 self.diffusion_conditioning,
                 t_hat_noise_level,
-                input_feature_dict["asym_id"],
-                input_feature_dict["residue_index"],
-                input_feature_dict["entity_id"],
-                input_feature_dict["token_index"],
-                input_feature_dict["sym_id"],
+                input_feature_dict["relp"],
                 s_inputs,
                 s_trunk,
                 z_trunk,
+                pair_z,
                 inplace_safe,
                 use_conditioning,
             )
         else:
-            # We unpack the input_feature_dict here and use only the required components,
-            # because starting from PyTorch 2.4, torch.utils.checkpoint.checkpoint performs
-            # recursive type checking on the inputs. Passing the entire input_feature_dict
-            # directly would significantly slow down training.
             s_single, z_pair = self.diffusion_conditioning(
                 t_hat_noise_level,
-                input_feature_dict["asym_id"],
-                input_feature_dict["residue_index"],
-                input_feature_dict["entity_id"],
-                input_feature_dict["token_index"],
-                input_feature_dict["sym_id"],
+                input_feature_dict["relp"],
                 s_inputs=s_inputs,
                 s_trunk=s_trunk,
                 z_trunk=z_trunk,
+                pair_z=pair_z,
                 inplace_safe=inplace_safe,
                 use_conditioning=use_conditioning,
             )  # [..., N_sample, N_token, c_s], [..., N_token, N_token, c_z]
 
         # Expand embeddings to match N_sample
-        s_trunk = expand_at_dim(
-            s_trunk, dim=-3, n=N_sample
-        )  # [..., N_sample, N_token, c_s]
+        s_trunk = expand_at_dim(s_trunk, dim=-3, n=1)  # [..., N_sample, N_token, c_s]
         z_pair = expand_at_dim(
-            z_pair, dim=-4, n=N_sample
+            z_pair, dim=-4, n=1
         )  # [..., N_sample, N_token, N_token, c_z]
         # Fine-grained checkpoint for finetuning stage 2 (token num: 768) for avoiding OOM
         if blocks_per_ckpt and self.use_fine_grained_checkpoint:
             checkpoint_fn = get_checkpoint_fn()
             a_token, q_skip, c_skip, p_skip = checkpoint_fn(
                 self.atom_attention_encoder,
-                input_feature_dict,
+                input_feature_dict["atom_to_token_idx"],
+                input_feature_dict["ref_pos"],
+                input_feature_dict["ref_charge"],
+                input_feature_dict["ref_mask"],
+                input_feature_dict["ref_atom_name_chars"],
+                input_feature_dict["ref_element"],
+                input_feature_dict["d_lm"],
+                input_feature_dict["v_lm"],
+                input_feature_dict["pad_info"],
                 r_noisy,
                 s_trunk,
                 z_pair,
+                p_lm,
+                c_l,
                 inplace_safe,
                 chunk_size,
             )
         else:
             # Sequence-local Atom Attention and aggregation to coarse-grained tokens
             a_token, q_skip, c_skip, p_skip = self.atom_attention_encoder(
-                input_feature_dict=input_feature_dict,
+                input_feature_dict["atom_to_token_idx"],
+                input_feature_dict["ref_pos"],
+                input_feature_dict["ref_charge"],
+                input_feature_dict["ref_mask"],
+                input_feature_dict["ref_atom_name_chars"],
+                input_feature_dict["ref_element"],
+                input_feature_dict["d_lm"],
+                input_feature_dict["v_lm"],
+                input_feature_dict["pad_info"],
                 r_l=r_noisy,
                 s=s_trunk,
                 z=z_pair,
+                p_lm=p_lm,
+                c_l=c_l,
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
@@ -453,13 +456,18 @@ class DiffusionModule(nn.Module):
             a_token = a_token + self.linear_no_bias_s(
                 self.layernorm_s(s_single)
             )  # [..., N_sample, N_token, c_token]
-
+        if enable_efficient_fusion:
+            z = self.normalize(z_pair.to(dtype=torch.float32))
+            z = permute_final_dims(z, [2, 0, 1]).contiguous()
+        else:
+            z = z_pair.to(dtype=torch.float32)
         a_token = self.diffusion_transformer(
             a=a_token.to(dtype=torch.float32),  # Upcast all inputs
             s=s_single.to(dtype=torch.float32),
-            z=z_pair.to(dtype=torch.float32),
+            z=z,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
+            enable_efficient_fusion=enable_efficient_fusion,
         )
 
         a_token = self.layernorm_a(a_token)
@@ -469,7 +477,7 @@ class DiffusionModule(nn.Module):
             checkpoint_fn = get_checkpoint_fn()
             r_update = checkpoint_fn(
                 self.atom_attention_decoder,
-                input_feature_dict,
+                input_feature_dict["atom_to_token_idx"],
                 a_token,
                 q_skip,
                 c_skip,
@@ -480,7 +488,7 @@ class DiffusionModule(nn.Module):
         else:
             # Broadcast token activations to atoms and run Sequence-local Atom Attention
             r_update = self.atom_attention_decoder(
-                input_feature_dict=input_feature_dict,
+                atom_to_token_idx=input_feature_dict["atom_to_token_idx"],
                 a=a_token,
                 q_skip=q_skip,
                 c_skip=c_skip,
@@ -499,9 +507,13 @@ class DiffusionModule(nn.Module):
         s_inputs: torch.Tensor,
         s_trunk: torch.Tensor,
         z_trunk: torch.Tensor,
+        pair_z: torch.Tensor,
+        p_lm: torch.Tensor,
+        c_l: torch.Tensor,
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         use_conditioning: bool = True,
+        enable_efficient_fusion: bool = False,
     ) -> torch.Tensor:
         """One step denoise: x_noisy, noise_level -> x_denoised
 
@@ -544,9 +556,13 @@ class DiffusionModule(nn.Module):
             s_inputs=s_inputs,
             s_trunk=s_trunk,
             z_trunk=z_trunk,
+            pair_z=pair_z,
+            p_lm=p_lm,
+            c_l=c_l,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
             use_conditioning=use_conditioning,
+            enable_efficient_fusion=enable_efficient_fusion,
         )
 
         # Rescale updates to positions and combine with input positions

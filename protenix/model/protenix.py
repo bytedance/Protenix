@@ -47,17 +47,49 @@ from .modules.primitives import LinearNoBias
 logger = get_logger(__name__)
 
 
+def update_input_feature_dict(input_feature_dict):
+    from protenix.model.modules.transformer import rearrange_qk_to_dense_trunk
+
+    with torch.no_grad():
+        # Prepare tensors in dense trunks for local operations
+        q_trunked_list, k_trunked_list, pad_info = rearrange_qk_to_dense_trunk(
+            q=[input_feature_dict["ref_pos"], input_feature_dict["ref_mask"]],
+            k=[input_feature_dict["ref_pos"], input_feature_dict["ref_mask"]],
+            dim_q=[-2, -1],
+            dim_k=[-2, -1],
+            n_queries=32,
+            n_keys=128,
+            compute_mask=True,
+        )
+        # Compute atom pair feature
+        d_lm = (
+            q_trunked_list[0][..., None, :] - k_trunked_list[0][..., None, :, :]
+        )  # [..., n_blocks, n_queries, n_keys, 3]
+        v_lm = (
+            q_trunked_list[1][..., None].int() == k_trunked_list[1][..., None, :].int()
+        ).unsqueeze(
+            dim=-1
+        )  # [..., n_blocks, n_queries, n_keys, 1]
+        input_feature_dict["d_lm"] = d_lm
+        input_feature_dict["v_lm"] = v_lm
+        input_feature_dict["pad_info"] = pad_info
+        return input_feature_dict
+
+
 class Protenix(nn.Module):
     """
     Implements Algorithm 1 [Main Inference/Train Loop] in AF3
     """
 
     def __init__(self, configs) -> None:
-
         super(Protenix, self).__init__()
         self.configs = configs
-
+        torch.backends.cuda.matmul.allow_tf32 = self.configs.enable_tf32
         # Some constants
+        self.enable_diffusion_shared_vars_cache = (
+            self.configs.enable_diffusion_shared_vars_cache
+        )
+        self.enable_efficient_fusion = self.configs.enable_efficient_fusion
         self.N_cycle = self.configs.model.N_cycle
         self.N_model_seed = self.configs.model.N_model_seed
         self.train_confidence_only = configs.train_confidence_only
@@ -165,13 +197,7 @@ class Protenix(nn.Module):
             + self.linear_no_bias_zinit2(s_init)[..., None, :, :]
         )  #  [..., N_token, N_token, c_z]
         if inplace_safe:
-            z_init += self.relative_position_encoding(
-                input_feature_dict["asym_id"],
-                input_feature_dict["residue_index"],
-                input_feature_dict["entity_id"],
-                input_feature_dict["token_index"],
-                input_feature_dict["sym_id"],
-            )
+            z_init += self.relative_position_encoding(input_feature_dict["relp"])
             z_init += self.linear_no_bias_token_bond(
                 input_feature_dict["token_bonds"].unsqueeze(dim=-1)
             )
@@ -179,11 +205,7 @@ class Protenix(nn.Module):
                 z_init += z_constraint
         else:
             z_init = z_init + self.relative_position_encoding(
-                input_feature_dict["asym_id"],
-                input_feature_dict["residue_index"],
-                input_feature_dict["entity_id"],
-                input_feature_dict["token_index"],
-                input_feature_dict["sym_id"],
+                input_feature_dict["relp"]
             )
             z_init = z_init + self.linear_no_bias_token_bond(
                 input_feature_dict["token_bonds"].unsqueeze(dim=-1)
@@ -413,7 +435,6 @@ class Protenix(nn.Module):
 
             for key in keys_to_delete:
                 del input_feature_dict[key]
-            torch.cuda.empty_cache()
         step_trunk = time.time()
         time_tracker.update({"pairformer": step_trunk - step_st})
         # Sample diffusion
@@ -424,21 +445,49 @@ class Protenix(nn.Module):
         noise_schedule = self.inference_noise_scheduler(
             N_step=N_step, device=s_inputs.device, dtype=s_inputs.dtype
         )
+        cache = dict()
+        if self.enable_diffusion_shared_vars_cache:
+            cache["pair_z"] = autocasting_disable_decorator(
+                self.configs.skip_amp.sample_diffusion
+            )(self.diffusion_module.diffusion_conditioning.prepare_cache)(
+                input_feature_dict["relp"], z, False
+            )
+            cache["p_lm/c_l"] = autocasting_disable_decorator(
+                self.configs.skip_amp.sample_diffusion
+            )(self.diffusion_module.atom_attention_encoder.prepare_cache)(
+                input_feature_dict["ref_pos"],
+                input_feature_dict["ref_charge"],
+                input_feature_dict["ref_mask"],
+                input_feature_dict["ref_element"],
+                input_feature_dict["ref_atom_name_chars"],
+                input_feature_dict["atom_to_token_idx"],
+                input_feature_dict["d_lm"],
+                input_feature_dict["v_lm"],
+                input_feature_dict["pad_info"],
+                "",
+                cache["pair_z"],
+                False,
+            )
+        else:
+            cache["pair_z"] = None
+            cache["p_lm/c_l"] = [None, None]
         pred_dict["coordinate"] = self.sample_diffusion(
             denoise_net=self.diffusion_module,
             input_feature_dict=input_feature_dict,
             s_inputs=s_inputs,
             s_trunk=s,
-            z_trunk=z,
+            z_trunk=None if cache["pair_z"] is not None else z,
+            pair_z=cache["pair_z"],
+            p_lm=cache["p_lm/c_l"][0],
+            c_l=cache["p_lm/c_l"][1],
             N_sample=N_sample,
             noise_schedule=noise_schedule,
             inplace_safe=inplace_safe,
+            enable_efficient_fusion=self.enable_efficient_fusion,
         )
 
         step_diffusion = time.time()
         time_tracker.update({"diffusion": step_diffusion - step_trunk})
-        if mode == "inference" and N_token > 2000:
-            torch.cuda.empty_cache()
         # Distogram logits: log contact_probs only, to reduce the dimension
         pred_dict["contact_probs"] = autocasting_disable_decorator(True)(
             sample_confidence.compute_contact_prob
@@ -555,6 +604,32 @@ class Protenix(nn.Module):
         log_dict = {}
         pred_dict = {}
 
+        cache = dict()
+        if self.enable_diffusion_shared_vars_cache:
+            cache["pair_z"] = autocasting_disable_decorator(
+                self.configs.skip_amp.sample_diffusion
+            )(self.diffusion_module.diffusion_conditioning.prepare_cache)(
+                input_feature_dict["relp"], z, False
+            )
+            cache["p_lm/c_l"] = autocasting_disable_decorator(
+                self.configs.skip_amp.sample_diffusion
+            )(self.diffusion_module.atom_attention_encoder.prepare_cache)(
+                input_feature_dict["ref_pos"],
+                input_feature_dict["ref_charge"],
+                input_feature_dict["ref_mask"],
+                input_feature_dict["ref_element"],
+                input_feature_dict["ref_atom_name_chars"],
+                input_feature_dict["atom_to_token_idx"],
+                input_feature_dict["d_lm"],
+                input_feature_dict["v_lm"],
+                input_feature_dict["pad_info"],
+                "",
+                cache["pair_z"],
+                False,
+            )
+        else:
+            cache["pair_z"] = None
+            cache["p_lm/c_l"] = [None, None]
         # Mini-rollout: used for confidence and label permutation
         with torch.no_grad():
             # [..., 1, N_atom, 3]
@@ -568,13 +643,25 @@ class Protenix(nn.Module):
                 input_feature_dict=input_feature_dict,
                 s_inputs=s_inputs.detach(),
                 s_trunk=s.detach(),
-                z_trunk=z.detach(),
+                z_trunk=None if cache["pair_z"] is not None else z.detach(),
+                pair_z=None if cache["pair_z"] is None else cache["pair_z"].detach(),
+                p_lm=(
+                    None
+                    if cache["p_lm/c_l"][0] is None
+                    else cache["p_lm/c_l"][0].detach()
+                ),
+                c_l=(
+                    None
+                    if cache["p_lm/c_l"][1] is None
+                    else cache["p_lm/c_l"][1].detach()
+                ),
                 N_sample=N_sample_mini_rollout,
                 noise_schedule=self.inference_noise_scheduler(
                     N_step=N_step_mini_rollout,
                     device=s_inputs.device,
                     dtype=s_inputs.dtype,
                 ),
+                enable_efficient_fusion=self.enable_efficient_fusion,
             )
             coordinate_mini.detach_()
             pred_dict["coordinate_mini"] = coordinate_mini
@@ -636,10 +723,14 @@ class Protenix(nn.Module):
             input_feature_dict=input_feature_dict,
             s_inputs=s_inputs,
             s_trunk=s,
-            z_trunk=z,
+            z_trunk=None if cache["pair_z"] is not None else z,
+            pair_z=cache["pair_z"],
+            p_lm=cache["p_lm/c_l"][0],
+            c_l=cache["p_lm/c_l"][1],
             N_sample=N_sample,
             diffusion_chunk_size=self.configs.diffusion_chunk_size,
             use_conditioning=not drop_conditioning,
+            enable_efficient_fusion=self.enable_efficient_fusion,
         )
         pred_dict.update(
             {
@@ -691,6 +782,10 @@ class Protenix(nn.Module):
         assert mode in ["train", "inference", "eval"]
         inplace_safe = not (self.training or torch.is_grad_enabled())
         chunk_size = self.configs.infer_setting.chunk_size if inplace_safe else None
+        input_feature_dict = self.relative_position_encoding.generate_relp(
+            input_feature_dict
+        )
+        input_feature_dict = update_input_feature_dict(input_feature_dict)
 
         if mode == "train":
             nc_rng = np.random.RandomState(current_step)

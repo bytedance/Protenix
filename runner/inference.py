@@ -39,7 +39,6 @@ from protenix.web_service.dependency_url import URL
 from runner.dumper import DataDumper
 
 logger = logging.getLogger(__name__)
-
 """
 Due to the fair-esm repository being archived, 
 it can no longer be updated to support newer versions of PyTorch. 
@@ -386,6 +385,9 @@ def run() -> None:
     configs.update(model_specfics_configs)
     logger.info(
         f"Triangle_multiplicative kernel: {configs.triangle_multiplicative}, Triangle_attention kernel: {configs.triangle_attention}"
+    )
+    logger.info(
+        f"enable_diffusion_shared_vars_cache: {configs.enable_diffusion_shared_vars_cache}, enable_efficient_fusion: {configs.enable_efficient_fusion}, enable_tf32: {configs.enable_tf32}"
     )
     download_infercence_cache(configs)
     main(configs)
