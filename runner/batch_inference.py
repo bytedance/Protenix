@@ -170,6 +170,9 @@ def get_default_runner(
     use_msa: bool = True,
     trimul_kernel="cuequivariance",
     triatt_kernel="triattention",
+    enable_cache=True,
+    enable_fusion=True,
+    enable_tf32=True,
 ) -> InferenceRunner:
     inference_configs["model_name"] = model_name
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
@@ -194,7 +197,14 @@ def get_default_runner(
     configs.use_msa = use_msa
     configs.triangle_multiplicative = trimul_kernel
     configs.triangle_attention = triatt_kernel
+    configs.enable_diffusion_shared_vars_cache = enable_cache
+    configs.enable_efficient_fusion = enable_fusion
+    configs.enable_tf32 = enable_tf32
 
+    logger.info(
+        f"enable_diffusion_shared_vars_cache: {configs.enable_diffusion_shared_vars_cache}, "
+        + f"enable_efficient_fusion: {configs.enable_efficient_fusion}, enable_tf32: {configs.enable_tf32}"
+    )
     download_infercence_cache(configs)
     return InferenceRunner(configs)
 
@@ -210,6 +220,9 @@ def inference_jsons(
     model_name: str = "protenix_base_default_v0.5.0",
     trimul_kernel="cuequivariance",
     triatt_kernel="triattention",
+    enable_cache=True,
+    enable_fusion=True,
+    enable_tf32=True,
     msa_server_mode: str = "protenix",
 ) -> None:
     """
@@ -246,6 +259,9 @@ def inference_jsons(
         use_msa,
         trimul_kernel,
         triatt_kernel,
+        enable_cache,
+        enable_fusion,
+        enable_tf32,
     )
     configs = runner.configs
     for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
@@ -266,15 +282,16 @@ def protenix_cli():
 
 
 @click.command()
-@click.option("--input", type=str, help="json files or dir for inference")
-@click.option("--out_dir", default="./output", type=str, help="infer result dir")
+@click.option("-i", "--input", type=str, help="json files or dir for inference")
+@click.option("-o", "--out_dir", default="./output", type=str, help="infer result dir")
 @click.option(
-    "--seeds", type=str, default="101", help="the inference seed, split by comma"
+    "-s", "--seeds", type=str, default="101", help="the inference seed, split by comma"
 )
-@click.option("--cycle", type=int, default=10, help="pairformer cycle number")
-@click.option("--step", type=int, default=200, help="diffusion step")
-@click.option("--sample", type=int, default=5, help="sample number")
+@click.option("-c", "--cycle", type=int, default=10, help="pairformer cycle number")
+@click.option("-p", "--step", type=int, default=200, help="diffusion step")
+@click.option("-e", "--sample", type=int, default=5, help="sample number")
 @click.option(
+    "-n",
     "--model_name",
     type=str,
     default="protenix_base_default_v0.5.0",
@@ -302,6 +319,24 @@ def protenix_cli():
     help="Kernel to use for triangle attention. Options: 'triattention', 'cuequivariance', 'deepspeed', 'torch'.",
 )
 @click.option(
+    "--enable_cache",
+    type=bool,
+    default=True,
+    help="The diffusion module precomputes and caches pair_z, p_lm, and c_l (which are shareable across the N_sample and N_step dimensions)",
+)
+@click.option(
+    "--enable_fusion",
+    type=bool,
+    default=True,
+    help="The diffusion transformer consists of 24 transformer blocks, and the biases in these blocks can be pre-transformed in terms of dimensionality and normalization",
+)
+@click.option(
+    "--enable_tf32",
+    type=bool,
+    default=True,
+    help="When the diffusion module uses FP32 computation, enabling enable_tf32 reduces the matrix multiplication precision from FP32 to TF32.",
+)
+@click.option(
     "--msa_server_mode",
     type=str,
     default="protenix",
@@ -319,6 +354,9 @@ def predict(
     use_default_params,
     trimul_kernel,
     triatt_kernel,
+    enable_cache,
+    enable_fusion,
+    enable_tf32,
     msa_server_mode,
 ):
     """
@@ -380,6 +418,9 @@ def predict(
         model_name=model_name,
         trimul_kernel=trimul_kernel,
         triatt_kernel=triatt_kernel,
+        enable_cache=enable_cache,
+        enable_fusion=enable_fusion,
+        enable_tf32=enable_tf32,
         msa_server_mode=msa_server_mode,
     )
 

@@ -34,6 +34,7 @@ Protenix is built for high-accuracy structure prediction. It serves as an initia
 - **[Protenix-Dock](https://github.com/bytedance/Protenix-Dock)**: Our implementation of a classical protein-ligand docking framework that leverages empirical scoring functions. Without using deep neural networks, Protenix-Dock delivers competitive performance in rigid docking tasks.
 
 ## 🎉 Updates
+- 2025-11-05: [**Protenix-v0.7.0**](./assets/inference_time_vs_ntoken.png) is now open-sourced, with new options for faster diffusion inference: shared variable caching, efficient bias fusion, and TF32 acceleration.
 - 2025-07-17: **Protenix-Mini released!**: Lightweight model variants with significantly reduced inference cost are now available. Users can choose from multiple configurations to balance speed and accuracy based on deployment needs. See our [paper](https://arxiv.org/abs/2507.11839) and [model configs](./configs/configs_model_type.py) for more information. 
 - 2025-07-17: [***New constraint feature***](docs/infer_json_format.md#constraint) is released! Now supports **atom-level contact** and **pocket** constraints, significantly improving performance in our evaluations.
 - 2025-05-30: **Protenix-v0.5.0** is now available! You may try Protenix-v0.5.0 by accessing the [server](https://protenix-server.com), or upgrade to the latest version using pip.

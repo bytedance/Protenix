@@ -13,6 +13,7 @@
 # limitations under the License.
 import logging
 import os
+import time
 import traceback
 import urllib.request
 from argparse import Namespace
@@ -307,10 +308,13 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         return
 
     num_data = len(dataloader.dataset)
+    t0_start = time.time()
     for seed in configs.seeds:
         seed_everything(seed=seed, deterministic=configs.deterministic)
+        t1_start = time.time()
         for batch in dataloader:
             try:
+                t2_start = time.time()
                 data, atom_array, data_error_message = batch[0]
                 sample_name = data["sample_name"]
 
@@ -338,9 +342,9 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                     atom_array=atom_array,
                     entity_poly_type=data["entity_poly_type"],
                 )
-
+                t2_end = time.time()
                 logger.info(
-                    f"[Rank {DIST_WRAPPER.rank}] {data['sample_name']} succeeded.\n"
+                    f"[Rank {DIST_WRAPPER.rank}] {data['sample_name']} succeeded. Model forward time: {t2_end-t2_start}s.\n"
                     f"Results saved to {configs.dump_dir}"
                 )
                 torch.cuda.empty_cache()
@@ -352,6 +356,14 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                     f.write(error_message)
                 if hasattr(torch.cuda, "empty_cache"):
                     torch.cuda.empty_cache()
+        t1_end = time.time()
+        logger.info(
+            f"[Rank {DIST_WRAPPER.rank}] seed {seed} succeeded. Total task time: {t1_end-t1_start}s.\n"
+        )
+    t0_end = time.time()
+    logger.info(
+        f"[Rank {DIST_WRAPPER.rank}] job succeeded. Total job time: {t0_end-t0_start}s.\n"
+    )
 
 
 def main(configs: Any) -> None:
