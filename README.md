@@ -2,8 +2,9 @@
 
 
 > 📣📣📣 **We're hiring!** \
-> Positions in **_Beijing, China_** and **_Seattle, US_** ! \
-> Interested in machine learning, computational chemistry/biology, structural biology, or drug discovery?  \
+> Positions in **_Beijing_** 🇨🇳 and **_Seattle_** 🇺🇸 \
+> Interested in machine learning, computational chemistry/biology, structural biology, or drug discovery?  Join us to build cutting-edge AI for biology!
+\
 > 👉 [**Join us »**](#join-us)
 
 
@@ -30,6 +31,8 @@ Protenix is built for high-accuracy structure prediction. It serves as an initia
 ![Protenix predictions](assets/protenix_predictions.gif)
 
 ## 🌟 Related Projects
+- **[PXDesign](https://protenix.github.io/pxdesign/)** is a model suite for de novo protein-binder design built on the Protenix foundation model. PXDesign achieves 20–73% experimental success rates across multiple targets — 2–6× higher than prior SOTA methods such as AlphaProteo and RFdiffusion. The framework is freely accessible via the Protenix Server.
+
 - **[PXMeter](https://github.com/bytedance/PXMeter/)** is an open-source toolkit designed for reproducible evaluation of structure prediction models, released with high-quality benchmark dataset that has been manually reviewed to remove experimental artifacts and non-biological interactions. The associated study presents an in-depth comparative analysis of state-of-the-art models, drawing insights from extensive metric data and detailed case studies. The evaluation of Protenix is based on PXMeter.
 - **[Protenix-Dock](https://github.com/bytedance/Protenix-Dock)**: Our implementation of a classical protein-ligand docking framework that leverages empirical scoring functions. Without using deep neural networks, Protenix-Dock delivers competitive performance in rigid docking tasks.
 
@@ -290,25 +293,26 @@ We welcome inquiries and collaboration opportunities for advanced applications o
 
 ## Join Us
 
-We're expanding the **Protenix team** at ByteDance Seed-AI for Science! \
-We’re looking for talented individuals in **machine learning** and **computational biology/chemistry**. Opportunities are available in both **Beijing** and **Seattle**, across internships, new grad roles, and experienced full-time positions. \
-*“Computational Biology/Chemistry” covers structural biology, computational biology, computational chemistry, drug discovery, and more.*
+We're expanding the **Protenix team** at ByteDance Seed-AI for Science! We’re looking for talented individuals in machine learning and computational biology/chemistry (*“Computational Biology/Chemistry” covers structural biology, computational biology, computational chemistry, drug discovery, and more*). Opportunities are available in both **Beijing** and **Seattle**, across internships, new grad roles, and experienced full-time positions. 
+
+Outstanding applicants will be considered for **ByteDance’s Top Seed Talent Program** — with enhanced support.
 
 
 ### 📍 Beijing, China
 | Type       | Expertise                          | Apply Link |
 |------------|------------------------------------|------------|
-| Full-Time  | Computational Biology / Chemistry       | [Experienced & New Grad](https://jobs.bytedance.com/society/position/detail/7505998274429421842) |
-| Full-Time  | Machine Learning                   | [Experienced & New Grad](https://jobs.bytedance.com/society/position/detail/7505999453133015314) |
-| Internship | Computational Biology / Chemistry       | [Internship](https://jobs.bytedance.com/campus/position/7509005072577546504/detail) |
-| Internship | Machine Learning                   | [Internship](https://jobs.bytedance.com/campus/position/7509005074018961672/detail) |
+| Full-Time  | Protein Design Scientist       | [Experienced](https://jobs.bytedance.com/society/position/detail/7550992796392982792) |
+| Full-Time  | Computational Biology / Chemistry       | [Experienced](https://jobs.bytedance.com/society/position/detail/7505998274429421842), [New Grad](https://job.toutiao.com/s/HGwWBs1UGR4) |
+| Full-Time  | Machine Learning                   | [Experienced](https://jobs.bytedance.com/society/position/detail/7505999453133015314), [New Grad](https://job.toutiao.com/s/upy82CljXlY) |
+| Internship | Computational Biology / Chemistry       | [Internship](https://job.toutiao.com/s/Wr3yig1Wet4) |
+| Internship | Machine Learning                   | [Internship](https://job.toutiao.com/s/w2GQQDfQUkc) |
 
 
 ### 📍 Seattle, US
 
 | Type       | Expertise                          | Apply Link |
 |------------|------------------------------------|------------|
-| Full-Time  | Computational Biology / Chemistry       | [Experienced](https://jobs.bytedance.com/en/position/7270666468370614585/detail), [New Grad](https://jobs.bytedance.com/en/position/7515465250054211847/detail) |
-| Full-Time  | Machine Learning                   | [Experienced](https://jobs.bytedance.com/en/position/7270665658072926521/detail), [New Grad](https://jobs.bytedance.com/en/position/7515908698011601159/detail) |
-| Internship | Computational Biology / Chemistry       | Internship (opening ~August) |
-| Internship | Machine Learning                   | Internship (opening ~August) |
+| Full-Time  | Computational Biology / Chemistry       | [Experienced](https://jobs.bytedance.com/en/position/7270666468370614585/detail), [New Grad](https://job.toutiao.com/s/iH00nSEvrFo) |
+| Full-Time  | Machine Learning                   | [Experienced](https://jobs.bytedance.com/en/position/7270665658072926521/detail), [New Grad](https://job.toutiao.com/s/dmU_fbEHGOw) |
+| Internship | Computational Biology / Chemistry       | [Internship](https://job.toutiao.com/s/aiCZz0kJexs) |
+| Internship | Machine Learning                   | [Internship](https://job.toutiao.com/s/DiGnn5l1QpQ) |
