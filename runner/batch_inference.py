@@ -36,7 +36,12 @@ from protenix.data.json_maker import cif_to_input_json
 from protenix.data.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
-from runner.inference import InferenceRunner, download_infercence_cache, infer_predict
+from runner.inference import (
+    InferenceRunner,
+    download_infercence_cache,
+    infer_predict,
+    update_gpu_compatible_configs,
+)
 from runner.msa_search import msa_search, update_infer_json
 
 logger = get_logger(__name__)
@@ -166,6 +171,7 @@ def get_default_runner(
     n_cycle: int = 10,
     n_step: int = 200,
     n_sample: int = 5,
+    dtype: str = "bf16",
     model_name: str = "protenix_base_default_v0.5.0",
     use_msa: bool = True,
     trimul_kernel="cuequivariance",
@@ -184,9 +190,6 @@ def get_default_runner(
         configs.seeds = seeds
     model_name = configs.model_name
     _, model_size, model_feature, model_version = model_name.split("_")
-    logger.info(
-        f"Inference by Protenix: model_size: {model_size}, with_feature: {model_feature.replace('-', ',')}, model_version: {model_version}"
-    )
     model_specfics_configs = ConfigDict(model_configs[model_name])
     # update model specific configs
     configs.update(model_specfics_configs)
@@ -194,6 +197,7 @@ def get_default_runner(
     configs.model.N_cycle = n_cycle
     configs.sample_diffusion.N_sample = n_sample
     configs.sample_diffusion.N_step = n_step
+    configs.dtype = dtype
     configs.use_msa = use_msa
     configs.triangle_multiplicative = trimul_kernel
     configs.triangle_attention = triatt_kernel
@@ -201,6 +205,13 @@ def get_default_runner(
     configs.enable_efficient_fusion = enable_fusion
     configs.enable_tf32 = enable_tf32
 
+    configs = update_gpu_compatible_configs(configs)
+    logger.info(
+        f"Inference by Protenix: model_size: {model_size}, with_feature: {model_feature.replace('-', ',')}, model_version: {model_version}, dtype: {configs.dtype}"
+    )
+    logger.info(
+        f"Triangle_multiplicative kernel: {trimul_kernel}, Triangle_attention kernel: {triatt_kernel}"
+    )
     logger.info(
         f"enable_diffusion_shared_vars_cache: {configs.enable_diffusion_shared_vars_cache}, "
         + f"enable_efficient_fusion: {configs.enable_efficient_fusion}, enable_tf32: {configs.enable_tf32}"
@@ -217,6 +228,7 @@ def inference_jsons(
     n_cycle: int = 10,
     n_step: int = 200,
     n_sample: int = 5,
+    dtype: str = "bf16",
     model_name: str = "protenix_base_default_v0.5.0",
     trimul_kernel="cuequivariance",
     triatt_kernel="triattention",
@@ -255,6 +267,7 @@ def inference_jsons(
         n_cycle,
         n_step,
         n_sample,
+        dtype,
         model_name,
         use_msa,
         trimul_kernel,
@@ -290,6 +303,7 @@ def protenix_cli():
 @click.option("-c", "--cycle", type=int, default=10, help="pairformer cycle number")
 @click.option("-p", "--step", type=int, default=200, help="diffusion step")
 @click.option("-e", "--sample", type=int, default=5, help="sample number")
+@click.option("-d", "--dtype", type=str, default="bf16", help="sample number")
 @click.option(
     "-n",
     "--model_name",
@@ -349,6 +363,7 @@ def predict(
     cycle,
     step,
     sample,
+    dtype,
     model_name,
     use_msa,
     use_default_params,
@@ -403,9 +418,6 @@ def predict(
         "deepspeed",
         "torch",
     ], "Kernel to use for triangle attention. Options: 'triattention', 'cuequivariance', 'deepspeed', 'torch'."
-    logger.info(
-        f"Triangle_multiplicative kernel: {trimul_kernel}, Triangle_attention kernel: {triatt_kernel}"
-    )
     seeds = list(map(int, seeds.split(",")))
     inference_jsons(
         input,
@@ -415,6 +427,7 @@ def predict(
         n_cycle=cycle,
         n_step=step,
         n_sample=sample,
+        dtype=dtype,
         model_name=model_name,
         trimul_kernel=trimul_kernel,
         triatt_kernel=triatt_kernel,

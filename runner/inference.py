@@ -372,6 +372,30 @@ def main(configs: Any) -> None:
     infer_predict(runner, configs)
 
 
+def update_gpu_compatible_configs(configs: Any) -> None:
+    def is_gpu_capability_between_7_and_8():
+        # 7.0 <= device_capability < 8.0
+        if not torch.cuda.is_available():
+            return False
+
+        capability = torch.cuda.get_device_capability()
+        major, minor = capability
+        cc = major + minor / 10.0
+        if 7.0 <= cc < 8.0:
+            return True
+        return False
+
+    if is_gpu_capability_between_7_and_8():
+        # Some kernels and BF16 aren’t supported on V100 — enforce specific configurations to work around it.
+        configs.dtype = "fp32"
+        configs.triangle_attention = "torch"
+        configs.triangle_multiplicative = "torch"
+        logger.info(
+            "GPU capability is between 7.0 and 8.0, enforce fp32 and torch kernels for triangle attention and multiplicative."
+        )
+    return configs
+
+
 def run() -> None:
     LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
     logging.basicConfig(
@@ -390,11 +414,12 @@ def run() -> None:
     model_name = configs.model_name
     _, model_size, model_feature, model_version = model_name.split("_")
     logger.info(
-        f"Inference by Protenix: model_size: {model_size}, with_feature: {model_feature.replace('-',', ')}, model_version: {model_version}"
+        f"Inference by Protenix: model_size: {model_size}, with_feature: {model_feature.replace('-',', ')}, model_version: {model_version}, dtype: {configs.dtype}"
     )
     model_specfics_configs = ConfigDict(model_configs[model_name])
     # update model specific configs
     configs.update(model_specfics_configs)
+    configs = update_gpu_compatible_configs(configs)
     logger.info(
         f"Triangle_multiplicative kernel: {configs.triangle_multiplicative}, Triangle_attention kernel: {configs.triangle_attention}"
     )
