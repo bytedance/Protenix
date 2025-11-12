@@ -303,7 +303,7 @@ def protenix_cli():
 @click.option("-c", "--cycle", type=int, default=10, help="pairformer cycle number")
 @click.option("-p", "--step", type=int, default=200, help="diffusion step")
 @click.option("-e", "--sample", type=int, default=5, help="sample number")
-@click.option("-d", "--dtype", type=str, default="bf16", help="sample number")
+@click.option("-d", "--dtype", type=str, default="bf16", help="inference dtype")
 @click.option(
     "-n",
     "--model_name",
