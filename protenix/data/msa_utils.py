@@ -498,6 +498,8 @@ def parse_prot_msa_data(
     """
     msa_data = {}
     for path, seq_limit in zip(raw_msa_paths, seq_limits):
+        if not os.path.exists(path):
+            continue
         sequences, descriptions = parse_a3m(path, seq_limit)
 
         deletion_matrix = []
@@ -635,7 +637,7 @@ def add_assembly_features(
 
 
 def process_unmerged_features(
-    all_chain_features: MutableMapping[str, Mapping[str, np.ndarray]]
+    all_chain_features: MutableMapping[str, Mapping[str, np.ndarray]],
 ):
     """
     Postprocessing stage for per-chain features before merging
@@ -944,7 +946,7 @@ def merge_features_from_prot_rna(
 
 
 def _concatenate_paired_and_unpaired_features(
-    np_example: Mapping[str, np.ndarray]
+    np_example: Mapping[str, np.ndarray],
 ) -> dict[str, np.ndarray]:
     """
     Concatenate paired and unpaired features
@@ -1072,7 +1074,7 @@ def process_rna_final(np_example: Mapping[str, np.ndarray]) -> dict[str, np.ndar
 
 
 def correct_rna_msa_restypes(
-    np_example: Mapping[str, np.ndarray]
+    np_example: Mapping[str, np.ndarray],
 ) -> dict[str, np.ndarray]:
     """
     Correct MSA restype to have the same order as residue_constants

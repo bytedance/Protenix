@@ -975,9 +975,11 @@ class InferenceMSAFeaturizer(object):
         )
         if not is_homomer_or_monomer:
             # Separately process the pairing MSA
-            assert opexists(
-                raw_msa_path := opjoin(msa_dir, "pairing.a3m")
-            ), f"No pairing-MSA of {pdb_name} (please check {raw_msa_path})"
+            raw_msa_path = opjoin(msa_dir, "pairing.a3m")
+            if not os.path.exists(raw_msa_path):
+                logger.info(
+                    f"{raw_msa_path} is not exists, using only non_pairing msa for inference"
+                )
 
             all_seq_msa_features = load_and_process_msa(
                 pdb_name=pdb_name,
@@ -987,7 +989,8 @@ class InferenceMSAFeaturizer(object):
                 identifier_func=get_identifier_func(
                     pairing_db=pairing_db,
                 ),
-                handle_empty="raise_error",
+                input_sequence=sequence,
+                handle_empty="return_self",  # Allow for the absence of pairing.a3m in inference.
             )
             sequence_features.update(all_seq_msa_features)
 
