@@ -53,8 +53,8 @@ def update_input_feature_dict(input_feature_dict):
     with torch.no_grad():
         # Prepare tensors in dense trunks for local operations
         q_trunked_list, k_trunked_list, pad_info = rearrange_qk_to_dense_trunk(
-            q=[input_feature_dict["ref_pos"], input_feature_dict["ref_mask"]],
-            k=[input_feature_dict["ref_pos"], input_feature_dict["ref_mask"]],
+            q=[input_feature_dict["ref_pos"], input_feature_dict["ref_space_uid"]],
+            k=[input_feature_dict["ref_pos"], input_feature_dict["ref_space_uid"]],
             dim_q=[-2, -1],
             dim_k=[-2, -1],
             n_queries=32,
