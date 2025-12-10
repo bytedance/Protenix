@@ -334,4 +334,43 @@ class SampleDictToFeatures:
         feature_dict["frame_atom_index"] = torch.Tensor(
             token_array_with_frame.get_annotation("frame_atom_index")
         ).long()
+
+        # Add additional features for design
+        feature_dict = self.get_design_features(atom_array, feature_dict)
         return feature_dict, atom_array, token_array
+
+    def get_design_features(self, atom_array, feature_dict):
+        if "coord_from_cif" not in atom_array._annot:
+            return feature_dict
+
+        feature_dict["distogram_rep_atom_mask"] = torch.Tensor(
+            atom_array.distogram_rep_atom_mask
+        ).long()
+
+        label_dict = {}
+        condition_coord_mask = torch.from_numpy(
+            atom_array.coord_from_cif_is_resolved
+        ).bool()
+        condition_coord = torch.from_numpy(atom_array.coord_from_cif)
+        condition_coord = condition_coord * condition_coord_mask[:, None]
+        label_dict["condition_coordinate"] = condition_coord
+        label_dict["condition_coordinate_mask"] = condition_coord_mask
+
+        feature_dict = self.prepare_structure_input(feature_dict, label_dict)
+
+        feature_dict["label_dict"] = label_dict
+        return feature_dict
+
+    def prepare_structure_input(self, feat_dict, label_dict):
+        # Get CB coordinates
+        cb_mask = feat_dict["distogram_rep_atom_mask"].bool()
+        coord_cb = label_dict["condition_coordinate"][cb_mask]
+        coord_cb_mask = label_dict["condition_coordinate_mask"][cb_mask]
+        if coord_cb_mask.sum() > 0:
+            feat_dict.update(
+                {
+                    "struct_cb_coords": coord_cb.clone(),
+                    "struct_cb_mask": coord_cb_mask.clone(),
+                }
+            )
+        return feat_dict

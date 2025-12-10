@@ -18,6 +18,7 @@ import os
 import time
 import traceback
 import warnings
+from copy import deepcopy
 from typing import Any, Mapping
 
 import torch
@@ -30,6 +31,7 @@ from protenix.data.json_to_feature import SampleDictToFeatures
 from protenix.data.msa_featurizer import InferenceMSAFeaturizer
 from protenix.data.utils import data_type_transform, make_dummy_feature
 from protenix.utils.distributed import DIST_WRAPPER
+from protenix.utils.file_io import load_gzip_pickle
 from protenix.utils.torch_utils import collate_fn_identity, dict_to_tensor
 
 logger = logging.getLogger(__name__)
@@ -107,6 +109,123 @@ class InferenceDataset(Dataset):
                 error_dir="./esm_embeddings/",
             )
 
+    def make_cond_sequences(self, json_dict):
+        """
+        read json_dict and make condition sequences
+        """
+        atom_array = None
+
+        if "condition" in json_dict:
+            path_file = json_dict["condition"]["structure_file"]
+            assert path_file.endswith(
+                ".pkl.gz"
+            ), f"Unsupported structure file {path_file}!"
+            bioassembly_dict = load_gzip_pickle(path_file)
+            atom_array = bioassembly_dict["atom_array"]
+
+            if "filter" in json_dict["condition"]:
+                chain_id = json_dict["condition"]["filter"]["chain_id"]
+            else:
+                chain_id = list(set(atom_array.chain_id))
+
+            if len(chain_id) > 0:
+                json_dict = self.get_and_map_sequence_from_atom_array(
+                    bioassembly_dict, atom_array, json_dict, chain_id, path_file
+                )
+
+        return json_dict
+
+    def get_and_map_sequence_from_atom_array(
+        self, bioassembly_dict, atom_array, json_dict, chain_id, path
+    ):
+        """
+        add proteinChain, nucChain, Ligand or ions to json
+        """
+
+        label_entity_id_to_sequence = bioassembly_dict.get("sequences", {})
+
+        if "sequences" not in json_dict:
+            json_dict["sequences"] = []
+
+        for chain in chain_id:
+            chain_mask = atom_array.chain_id == chain
+            chains = atom_array[chain_mask]
+            chain_type = chains[0].mol_type
+            label_entity_id = chains.label_entity_id[0]
+            sequence = label_entity_id_to_sequence.get(label_entity_id, None)
+
+            crop = None
+            msa_path = None
+
+            if (
+                "crop" in json_dict["condition"]["filter"]
+                and chain in json_dict["condition"]["filter"]["crop"].keys()
+            ):
+                crop = json_dict["condition"]["filter"]["crop"][chain]
+            if (
+                "msa" in json_dict["condition"]
+                and chain in json_dict["condition"]["msa"]
+            ):
+                msa_path = json_dict["condition"]["msa"][chain]
+
+            if chain_type == "protein":
+                one_dict = {
+                    "proteinChain": {
+                        "sequence": sequence,
+                        "count": 1,
+                        "sequence_type": "condition",
+                        "path": path,
+                        "crop": crop,
+                        "json_chain_id": chain,
+                        "use_msa": self.use_msa,
+                    }
+                }
+                if msa_path is not None:
+                    one_dict["proteinChain"]["msa"] = msa_path
+            elif chain_type == "dna":
+                one_dict = {
+                    "dnaSequence": {
+                        "sequence": sequence,
+                        "count": 1,
+                        "sequence_type": "condition",
+                        "path": path,
+                        "crop": crop,
+                        "json_chain_id": chain,
+                        "use_msa": self.use_msa,
+                    }
+                }
+                if msa_path is not None:
+                    one_dict["dnaSequence"]["msa"] = msa_path
+            elif chain_type == "rna":
+                one_dict = {
+                    "rnaSequence": {
+                        "sequence": sequence,
+                        "count": 1,
+                        "sequence_type": "condition",
+                        "path": path,
+                        "crop": crop,
+                        "json_chain_id": chain,
+                        "use_msa": self.use_msa,
+                    }
+                }
+                if msa_path is not None:
+                    one_dict["rnaSequence"]["msa"] = msa_path
+            elif chain_type == "ligand":
+                one_dict = {
+                    "condition_ligand": {
+                        "ligand": "",
+                        "count": 1,
+                        "sequence_type": "condition",
+                        "path": path,
+                        "json_chain_id": chain,
+                        "use_msa": self.use_msa,
+                    }
+                }
+            else:
+                print("Error: chain_type error")
+            json_dict["sequences"].append(one_dict)
+        return json_dict
+
     def process_one(
         self,
         single_sample_dict: Mapping[str, Any],
@@ -125,6 +244,15 @@ class InferenceDataset(Dataset):
         """
         # general features
         t0 = time.time()
+
+        processed_sample_dict = deepcopy(single_sample_dict)
+        processed_sample_dict["sequences"] = []
+        if "condition" in single_sample_dict:
+            processed_sample_dict = self.make_cond_sequences(processed_sample_dict)
+        if "sequences" in single_sample_dict:
+            processed_sample_dict["sequences"] += single_sample_dict["sequences"]
+        single_sample_dict = processed_sample_dict
+
         sample2feat = SampleDictToFeatures(
             single_sample_dict,
         )
@@ -244,7 +372,6 @@ class InferenceDataset(Dataset):
             single_sample_dict = self.inputs[index]
             sample_name = single_sample_dict["name"]
             logger.info(f"Featurizing {sample_name}...")
-
             data, atom_array, _ = self.process_one(
                 single_sample_dict=single_sample_dict
             )

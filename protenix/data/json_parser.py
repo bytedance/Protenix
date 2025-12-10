@@ -27,6 +27,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from protenix.data import ccd
+from protenix.utils.file_io import load_gzip_pickle
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,60 @@ def _build_polymer_atom_array(ccd_seqs: list[str]) -> tuple[AtomArray, struc.Bon
     return chain
 
 
+def remove_unresolved_residue_in_atom_array(atom_array):
+    coord_mask = atom_array.is_resolved.astype(bool)
+    res_ids = atom_array.res_id
+    chain_ids = atom_array.chain_id
+    res_chain_ids_to_mask = set(zip(res_ids[coord_mask], chain_ids[coord_mask]))
+    new_mask = np.array(
+        [
+            not (res_id, chain_id) in res_chain_ids_to_mask
+            for res_id, chain_id in zip(res_ids, chain_ids)
+        ]
+    )
+    atom_array = atom_array[~new_mask]
+    return atom_array
+
+
+def build_polymer_from_bioassombly_dict(entity_info, remove_unresolved_residue=True):
+    poly_type, info = list(entity_info.items())[0]
+
+    path_file = entity_info[poly_type]["path"]
+    assert path_file.endswith(".pkl.gz"), f"Unsupported structure file {path_file}!"
+    bioassembly_dict = load_gzip_pickle(path_file)
+
+    mask_chain_id = entity_info[poly_type]["json_chain_id"]
+    atom_array = bioassembly_dict["atom_array"]
+
+    if remove_unresolved_residue:
+        atom_array = remove_unresolved_residue_in_atom_array(atom_array)
+
+    chain_array_mask = atom_array.chain_id == mask_chain_id
+    chain_array = atom_array[chain_array_mask]
+    chain_array.set_annotation("coord_from_cif", chain_array.coord)
+    chain_array.set_annotation(
+        "coord_from_cif_is_resolved", chain_array.is_resolved.astype(bool)
+    )
+    chain_array = add_reference_features(chain_array)
+
+    if "crop" in entity_info[poly_type] and entity_info[poly_type]["crop"] is not None:
+        crop = entity_info[poly_type]["crop"]
+        crop.replace(" ", "")
+        crop = crop.split(",")
+        save_list = []
+        for pid in crop:
+            if "-" in pid:
+                s, e = pid.split("-")
+                length = int(e) - int(s) + 1
+                save_num = [i + int(s) for i in range(0, length)]
+                save_list += save_num
+            else:
+                save_list.append(int(pid))
+        crop_mask = np.isin(chain_array.res_id, np.array(save_list))
+        chain_array = chain_array[crop_mask]
+    return {"atom_array": chain_array}
+
+
 def build_polymer(entity_info: dict) -> dict:
     """
     Build a polymer from a polymer info dict
@@ -330,6 +385,10 @@ def build_polymer(entity_info: dict) -> dict:
         dict: {"atom_array": biotite_AtomArray_object}
     """
     poly_type, info = list(entity_info.items())[0]
+    if entity_info[poly_type].get("sequence_type", None) == "condition":
+        assert info.get("path", None) is not None
+        return build_polymer_from_bioassombly_dict(entity_info)
+
     if poly_type == "proteinChain":
         ccd_seqs = [PROTEIN_1to3[x] for x in info["sequence"]]
         if modifications := info.get("modifications"):
@@ -362,6 +421,13 @@ def build_polymer(entity_info: dict) -> dict:
             "polymer type must be proteinChain, dnaSequence or rnaSequence"
         )
     chain_array = add_reference_features(chain_array)
+
+    ## coord * 0 -> not from cif file
+    chain_array.set_annotation("coord_from_cif", chain_array.coord * 0.0)
+    chain_array.set_annotation(
+        "coord_from_cif_is_resolved", np.full(len(chain_array), 0).astype(bool)
+    )
+
     if "crop" in entity_info[poly_type] and entity_info[poly_type]["crop"] is not None:
         crop = entity_info[poly_type]["crop"]
         crop.replace(" ", "")

@@ -121,7 +121,14 @@ default_weighted_pdb_configs = {
     },
 }
 
-DATA_ROOT_DIR = os.environ.get("PROTENIX_DATA_ROOT_DIR", "/af3-dev/release_data/")
+if "PROTENIX_DATA_ROOT_DIR" not in os.environ:
+    print(f"PROTENIX_DATA_ROOT_DIR not set, will use ../release_data/ccd_cache")
+    current_file_path = os.path.abspath(__file__)
+    current_directory = os.path.dirname(current_file_path)
+    code_directory = os.path.dirname(current_directory)
+    DATA_ROOT_DIR = os.path.join(code_directory, "release_data/ccd_cache")
+else:
+    DATA_ROOT_DIR = os.environ["PROTENIX_DATA_ROOT_DIR"]
 
 # Use CCD cache created by scripts/gen_ccd_cache.py priority. (without date in filename)
 # See: docs/prepare_data.md
@@ -138,44 +145,6 @@ if (not os.path.exists(CCD_COMPONENTS_FILE_PATH)) or (
     CCD_COMPONENTS_RDKIT_MOL_FILE_PATH = os.path.join(
         DATA_ROOT_DIR, "components.v20240608.cif.rdkit_mol.pkl"
     )
-
-
-# This is a patch in inference stage for users that do not have root permission.
-# If you run
-# ```
-# bash inference_demo.sh
-# ```
-# or
-# ```
-# protenix predict --input examples/example.json --out_dir  ./output
-# ````
-# The checkpoint and the data cache will be downloaded to the current code directory.
-if (
-    (not os.path.exists(CCD_COMPONENTS_FILE_PATH))
-    or (not os.path.exists(CCD_COMPONENTS_RDKIT_MOL_FILE_PATH))
-    or (not os.path.exists(PDB_CLUSTER_FILE_PATH))
-):
-    print("Try to find the ccd cache data in the code directory for inference.")
-    current_file_path = os.path.abspath(__file__)
-    current_directory = os.path.dirname(current_file_path)
-    code_directory = os.path.dirname(current_directory)
-
-    data_cache_dir = os.path.join(code_directory, "release_data/ccd_cache")
-    CCD_COMPONENTS_FILE_PATH = os.path.join(data_cache_dir, "components.cif")
-    CCD_COMPONENTS_RDKIT_MOL_FILE_PATH = os.path.join(
-        data_cache_dir, "components.cif.rdkit_mol.pkl"
-    )
-    PDB_CLUSTER_FILE_PATH = os.path.join(data_cache_dir, "clusters-by-entity-40.txt")
-    if (not os.path.exists(CCD_COMPONENTS_FILE_PATH)) or (
-        not os.path.exists(CCD_COMPONENTS_RDKIT_MOL_FILE_PATH)
-    ):
-
-        CCD_COMPONENTS_FILE_PATH = os.path.join(
-            data_cache_dir, "components.v20240608.cif"
-        )
-        CCD_COMPONENTS_RDKIT_MOL_FILE_PATH = os.path.join(
-            data_cache_dir, "components.v20240608.cif.rdkit_mol.pkl"
-        )
 
 data_configs = {
     "num_dl_workers": 16,

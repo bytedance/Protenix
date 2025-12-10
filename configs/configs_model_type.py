@@ -139,6 +139,37 @@ model_configs = {
         },
         "load_strict": False,  # For inference, it should be True.
     },
+    "protenix_mini_tmpl_v0.5.0": {
+        "sample_diffusion": {
+            "gamma0": 0,
+            "step_scale_eta": 1.0,
+            "N_step": 5,
+        },  # the default setting for mini model
+        "model": {
+            "N_cycle": 4,
+            "noisy_structure_embedder": {
+                "c_z": 128,
+            },
+            "msa_module": {
+                "n_blocks": 1,
+            },
+            "pairformer": {
+                "n_blocks": 16,
+            },
+            "diffusion_module": {
+                "atom_encoder": {
+                    "n_blocks": 1,
+                },
+                "transformer": {
+                    "n_blocks": 8,
+                },
+                "atom_decoder": {
+                    "n_blocks": 1,
+                },
+            },
+        },
+        "load_strict": False,  # For inference, it should be True.
+    },
     "protenix_tiny_default_v0.5.0": {
         "sample_diffusion": {
             "gamma0": 0,

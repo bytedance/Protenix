@@ -29,6 +29,7 @@ import pandas as pd
 from biotite.structure import AtomArray, get_chain_starts, get_residue_starts
 from biotite.structure.io.pdbx import convert as pdbx_convert
 from biotite.structure.molecules import get_molecule_indices
+from rdkit import Chem
 
 from protenix.data import ccd
 from protenix.data.ccd import get_ccd_ref_info
@@ -1693,10 +1694,12 @@ class MMCIFParser:
 
 
 class DistillationMMCIFParser(MMCIFParser):
-
-    def get_structure_dict(self) -> dict[str, Any]:
+    def get_structure_dict(self, add_missing_atom: bool = True) -> dict[str, Any]:
         """
         Get an AtomArray from a CIF file of distillation data.
+
+        Args:
+            add_missing_atom (bool, optional): Whether to add missing atoms. Defaults to True.
 
         Returns:
             Dict[str, Any]: a dict of asymmetric unit structure info.
@@ -1704,29 +1707,45 @@ class DistillationMMCIFParser(MMCIFParser):
         # created AtomArray of first model from mmcif atom_site (Asymmetric Unit)
         atom_array = self.get_structure()
 
-        # convert MSE to MET to consistent with MMCIFParser.get_poly_res_names()
-        atom_array = self.mse_to_met(atom_array)
-
         structure_dict = {
             "pdb_id": self.pdb_id,
             "atom_array": None,
             "assembly_id": None,
-            "sequences": self.get_sequences(atom_array),
+            "sequences": self.get_sequences(),
             "entity_poly_type": self.entity_poly_type,
             "num_tokens": -1,
             "num_prot_chains": -1,
         }
 
+        if atom_array is None:
+            return structure_dict
+
+        # convert MSE to MET to consistent with MMCIFParser.get_poly_res_names()
+        atom_array = self.mse_to_met(atom_array)
+
+        # update sequences: keep same altloc residue with atom_array
+        structure_dict["sequences"] = self.get_sequences(atom_array)
+
         pipeline_functions = [
             self.fix_arginine,
-            self.add_missing_atoms_and_residues,  # add UNK
+            Filter.remove_water,
+            Filter.remove_hydrogens,
         ]
+
+        if add_missing_atom:
+            # add UNK
+            pipeline_functions.append(self.add_missing_atoms_and_residues)
 
         for func in pipeline_functions:
             atom_array = func(atom_array)
             if len(atom_array) == 0:
                 # no atoms left
                 return structure_dict
+
+        if not add_missing_atom:
+            atom_array.set_annotation(
+                "is_resolved", np.ones(len(atom_array)).astype(bool)
+            )
 
         atom_array = AddAtomArrayAnnot.add_token_mol_type(
             atom_array, self.entity_poly_type
