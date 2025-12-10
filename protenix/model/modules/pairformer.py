@@ -981,3 +981,81 @@ class TemplateEmbedder(nn.Module):
         if "template_restype" not in input_feature_dict or self.n_blocks < 1:
             return 0
         return 0
+
+
+class NoisyStructureEmbedder(nn.Module):
+    def __init__(
+        self,
+        c_z: int = 128,
+        min_bin: float = 3.25,
+        max_bin: float = 50.75,
+        no_bins: int = 39,
+    ) -> None:
+        super().__init__()
+        self.min_bin, self.max_bin, self.no_bins = min_bin, max_bin, no_bins
+        self.inf = 1e6
+        self.c_z = c_z
+        c = c_z // 2
+        assert c * 2 == c_z
+
+        # Pre-computed bin edges (Å)
+        bins = torch.linspace(self.min_bin, self.max_bin, self.no_bins)
+        upper_bins = torch.cat([bins[1:], bins.new_tensor([self.inf])])
+        self.bins = nn.Parameter(bins, requires_grad=False)
+        self.upper_bins = nn.Parameter(upper_bins, requires_grad=False)
+
+        # Input Layers
+        self.linear_struct = LinearNoBias(self.no_bins + 1, c)
+        self.layernorm_z = LayerNorm(self.c_z)
+        self.linear_z = LinearNoBias(self.c_z, c)
+        # Output Layers
+        self.transition_out = Transition(self.c_z, n=2)
+
+    def _one_hot_binned_sqdist(
+        self, x: torch.Tensor, *, add_noise: float = 0.0
+    ) -> torch.Tensor:
+        x32 = x.float()
+        d2 = torch.cdist(x32, x32)[..., None]  # [..., N, N, 1]
+        if add_noise > 0:
+            d2 = d2 + torch.randn_like(d2) * add_noise
+        mask = (d2 > self.bins) & (d2 < self.upper_bins)  # [..., N, N, B]
+        return mask.to(x.dtype)
+
+    def forward(
+        self,
+        input_feature_dict: dict[str, Any],
+        z: torch.Tensor,
+        add_noise: float = 0.0,
+    ) -> torch.Tensor:
+        """
+        z : [..., N, N, C_z]  existing pair features
+        add_noise : float
+            Gaussian noise **in Å** added to distances
+            (set 0.0 to disable)
+        """
+
+        if "struct_cb_coords" in input_feature_dict:
+            x = input_feature_dict["struct_cb_coords"]
+            mask = input_feature_dict["struct_cb_mask"].bool()
+        else:
+            x = z.new_zeros(size=z.shape[:-2] + (3,))  # [..., N, 3]
+            mask = x.new_zeros(size=x.shape[:-1]).bool()  # [..., N]
+
+        pair_mask = (mask[..., None] & mask[..., None, :]).to(z.dtype)[..., None]
+
+        # distance features
+        d = self._one_hot_binned_sqdist(x, add_noise=add_noise) * pair_mask
+        d = torch.cat([d, pair_mask], dim=-1)  # [..., N, N, B+1]
+        d = self.linear_struct(d)  # [..., N, N, C]
+
+        # add to pair features
+        z = torch.cat(
+            [self.linear_z(self.layernorm_z(z)), d], dim=-1
+        )  # [..., N, N, C*2]
+
+        # output
+        z = self.transition_out(z)  # [..., N, N, C_z]
+        has_valid_input = pair_mask.any()
+        if not has_valid_input:
+            z = 0 * z
+        return z

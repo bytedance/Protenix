@@ -83,7 +83,6 @@ class DiffusionConditioning(nn.Module):
         # Line10-Line12
         self.transition_s1 = Transition(c_in=self.c_s, n=2)
         self.transition_s2 = Transition(c_in=self.c_s, n=2)
-        print(f"Diffusion Module has {self.sigma_data}")
 
     def forward(
         self,

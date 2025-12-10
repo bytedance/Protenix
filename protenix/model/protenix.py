@@ -41,7 +41,12 @@ from .modules.embedders import (
     RelativePositionEncoding,
 )
 from .modules.head import DistogramHead
-from .modules.pairformer import MSAModule, PairformerStack, TemplateEmbedder
+from .modules.pairformer import (
+    MSAModule,
+    NoisyStructureEmbedder,
+    PairformerStack,
+    TemplateEmbedder,
+)
 from .modules.primitives import LinearNoBias
 
 logger = get_logger(__name__)
@@ -81,6 +86,11 @@ class Protenix(nn.Module):
             **configs.model.relative_position_encoding
         )
         self.template_embedder = TemplateEmbedder(**configs.model.template_embedder)
+        self.use_structure_embedder = hasattr(configs.model, "noisy_structure_embedder")
+        if self.use_structure_embedder:
+            self.noisy_structure_embedder = NoisyStructureEmbedder(
+                **configs.model.get("noisy_structure_embedder", {"c_z": configs.c_z})
+            )
         self.msa_module = MSAModule(
             **configs.model.msa_module,
             msa_configs=configs.data.get("msa", {}),
@@ -154,6 +164,8 @@ class Protenix(nn.Module):
             self.template_embedder.eval()
             self.msa_module.eval()
             self.pairformer_stack.eval()
+            if self.use_structure_embedder:
+                self.noisy_structure_embedder.eval()
 
         # Line 1-5
         s_inputs = self.input_embedder(
@@ -198,6 +210,8 @@ class Protenix(nn.Module):
             ):
                 z = z_init + self.linear_no_bias_z_cycle(self.layernorm_z_cycle(z))
                 if inplace_safe:
+                    if self.use_structure_embedder:
+                        z += self.noisy_structure_embedder(input_feature_dict, z)
                     if self.template_embedder.n_blocks > 0:
                         z += self.template_embedder(
                             input_feature_dict,
@@ -220,6 +234,11 @@ class Protenix(nn.Module):
                         chunk_size=chunk_size,
                     )
                 else:
+                    if self.use_structure_embedder:
+                        z = z + self.noisy_structure_embedder(
+                            input_feature_dict,
+                            z,
+                        )
                     if self.template_embedder.n_blocks > 0:
                         z = z + self.template_embedder(
                             input_feature_dict,
@@ -258,6 +277,8 @@ class Protenix(nn.Module):
             self.template_embedder.train()
             self.msa_module.train()
             self.pairformer_stack.train()
+            if self.use_structure_embedder:
+                self.noisy_structure_embedder.train()
 
         return s_inputs, s, z
 

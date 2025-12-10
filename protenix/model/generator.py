@@ -83,7 +83,6 @@ class InferenceNoiseScheduler:
         self.s_max = s_max
         self.s_min = s_min
         self.rho = rho
-        print(f"inference scheduler {self.sigma_data}")
 
     def __call__(
         self,

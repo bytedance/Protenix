@@ -16,6 +16,7 @@ URL = {
     "protenix_base_default_v0.5.0": "https://af3-dev.tos-cn-beijing.volces.com/release_model/protenix_base_default_v0.5.0.pt",
     "protenix_base_constraint_v0.5.0": "https://af3-dev.tos-cn-beijing.volces.com/release_model/protenix_base_constraint_v0.5.0.pt",
     "protenix_mini_default_v0.5.0": "https://af3-dev.tos-cn-beijing.volces.com/release_model/protenix_mini_default_v0.5.0.pt",
+    "protenix_mini_tmpl_v0.5.0": "https://af3-dev.tos-cn-beijing.volces.com/release_model/protenix_mini_tmpl_v0.5.0.pt",
     "protenix_tiny_default_v0.5.0": "https://af3-dev.tos-cn-beijing.volces.com/release_model/protenix_tiny_default_v0.5.0.pt",
     "protenix_mini_esm_v0.5.0": "https://af3-dev.tos-cn-beijing.volces.com/release_model/protenix_mini_esm_v0.5.0.pt",
     "esm2_t36_3B_UR50D": "https://af3-dev.tos-cn-beijing.volces.com/release_model/esm2_t36_3B_UR50D.pt",

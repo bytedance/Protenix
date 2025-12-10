@@ -78,6 +78,8 @@ class ConfigManager(object):
         elif isinstance(value, ListValue):
             return (value.dtype, value.value, False, False)
         elif isinstance(value, list):
+            if not value:
+                return (str, value, False, False)
             return (type(value[0]), value, False, False)
         else:
             return type(value), value, False, False
