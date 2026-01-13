@@ -1,17 +1,20 @@
-FROM vemlp-cn-beijing.cr.volces.com/preset-images/pytorch:2.7.1-cu12.6.3-py3.11-ubuntu22.04
+# Switch to a standard RunPod/PyTorch image compatible with newer GPUs (Blackwell)
+# Using RunPod official image which usually has correct CUDA toolkit and PyTorch version
+FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PIP_INDEX_URL=https://pypi.org/simple
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        g++ \
-        gcc \
-        libc6-dev \
-        make \
-        postgresql \
+    g++ \
+    gcc \
+    libc6-dev \
+    make \
+    postgresql \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -51,7 +54,15 @@ RUN pip3 --no-cache-dir install \
     ipdb==0.13.13 \
     wandb==0.21.1 \
     posix_ipc==1.3.0 \
-    numpy==1.26.4
+    numpy==1.26.4 \
+    runpod
 
 RUN git clone -b v3.5.1 https://github.com/NVIDIA/cutlass.git /opt/cutlass
 ENV CUTLASS_PATH=/opt/cutlass
+
+# RunPod setup
+WORKDIR /app
+COPY . /app
+RUN pip3 install -e .
+
+CMD ["python3", "-u", "runpod_handler.py"]

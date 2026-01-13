@@ -52,12 +52,17 @@ class Linear(nn.Linear):
         self.use_bias = bias
         self.precision = precision
         self.initializer = initializer
+        # Only pass device/dtype if they are not None to avoid PyTorch 2.7+ compatibility issues
+        factory_kwargs = {}
+        if device is not None:
+            factory_kwargs['device'] = device
+        if dtype is not None:
+            factory_kwargs['dtype'] = dtype
         super().__init__(
             in_features=in_features,
             out_features=out_features,
             bias=bias,
-            device=device,
-            dtype=dtype,
+            **factory_kwargs,
         )
 
         self._init_params()

@@ -1,0 +1,26 @@
+{
+    "input": {
+        "name": "test_7pzb",
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "MAEVIRSSAFWRSFPIFEEFDSETLCELSGIASYRKWSAGTVIFQRGDQGDYMIVVVSGRIKLSLFTPQGRELMLRQHEAGALFGEMALLDGQPRSADATAVTAAEGYVIGKKDFLALITQRPKTAEAVIRFLCAQLRDTTDRLETIALYDLNARVARFFLATLRQIHGSEMPQSANLRLTLSQTDIASILGASRPKVNRAILSLEESGAIKRADGIICCNVGRLLSIADPEEDLEHHHHHHHH",
+                    "count": 1
+                }
+            },
+            {
+                "dnaSequence": {
+                    "sequence": "CTAGGTAACATTACTCGCG",
+                    "count": 1
+                }
+            },
+            {
+                "dnaSequence": {
+                    "sequence": "GCGAGTAATGTTAC",
+                    "count": 1
+                }
+            }
+        ],
+        "use_msa": false
+    }
+}

@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Protenix specific
+output/
+checkpoints/
+esm_embeddings/
+tests/
+docs/
+assets/
+examples/
+*.sh
+# *.md  <-- Removed to allow README.md
+# LICENSE <-- Removed to allow LICENSE if needed
+# CHANGELOG.md <-- Removed just in case
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+Protenix_Technical_Report.pdf
+test_input.json
+test_runpod_api.py
