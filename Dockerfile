@@ -1,7 +1,6 @@
 # Switch to a standard RunPod/PyTorch image compatible with newer GPUs (Blackwell)
 # Using RunPod official image which usually has correct CUDA toolkit and PyTorch version
-FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
-
+FROM vemlp-cn-beijing.cr.volces.com/preset-images/pytorch:2.7.1-cu12.6.3-py3.11-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=Asia/Shanghai \
     PYTHONDONTWRITEBYTECODE=1 \

@@ -1,7 +1,7 @@
 """
 RunPod Serverless Handler for Protenix Inference.
 
-Uses the proven infer_predict() pipeline approach that works in the non-serverless deployment.
+Based on the working dropxcell-proteinx/api_server/inference_engine.py pattern.
 """
 import logging
 import os
@@ -11,11 +11,22 @@ import json
 import runpod
 import torch
 import traceback
+import platform
+import sys
 from argparse import Namespace
-from typing import Any, Dict
-from ml_collections.config_dict import ConfigDict
+from typing import Any, Dict, Optional
+
+# Configure logging first
+LOG_FORMAT = "%(asctime)s [%(filename)s:%(lineno)d] %(levelname)s %(name)s: %(message)s"
+logging.basicConfig(
+    level=logging.INFO,
+    format=LOG_FORMAT,
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 # Import Protenix modules
+from ml_collections.config_dict import ConfigDict
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
@@ -24,85 +35,78 @@ from protenix.config import parse_configs
 from runner.inference import (
     InferenceRunner,
     infer_predict,
-    update_gpu_compatible_configs,
     download_infercence_cache,
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # PyTorch 2.6+ compatibility fix for ESM model loading
 # The fair-esm repository is archived and can't be updated to support newer PyTorch versions.
 # ESM model files contain argparse.Namespace which isn't allowed by default in secure unpickling.
 torch.serialization.add_safe_globals([Namespace])
 
-# Global configs (initialized once on cold start)
-base_configs = None
+# Global state (initialized once on cold start)
+cache_downloaded = False
+
+
+def log_separator(title: str = ""):
+    """Log a visual separator for clarity."""
+    logger.info("=" * 60)
+    if title:
+        logger.info(title)
+        logger.info("=" * 60)
+
+
+def log_runtime_info():
+    """Log runtime environment information for debugging."""
+    logger.info("RUNTIME ENVIRONMENT:")
+    logger.info(f"  Python: {platform.python_version()}")
+    logger.info(f"  Platform: {platform.platform()}")
+    logger.info(f"  PyTorch: {torch.__version__}")
+    logger.info(f"  CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        logger.info(f"  CUDA device count: {torch.cuda.device_count()}")
+        logger.info(f"  CUDA device name: {torch.cuda.get_device_name(0)}")
 
 
 def init_handler():
     """
-    Initialize base configurations and download checkpoints once during container start/cold start.
+    Initialize handler - download checkpoints/cache once on cold start.
+    
+    This is called once when the container starts.
     """
-    global base_configs
+    global cache_downloaded
     
-    logger.info("Initializing handler...")
+    log_separator("INIT_HANDLER STARTING")
+    log_runtime_info()
     
-    # Setup base configs - merge configs similar to runner/inference.py
-    configs = {**configs_base, **{"data": data_configs}, **inference_configs}
+    # Create a minimal config just to download the cache
+    logger.info("Creating minimal config for cache download...")
     
-    # Set a placeholder for input_json_path (will be overridden per request)
-    configs["input_json_path"] = "/dev/null"
+    local_inference_configs = dict(inference_configs)
+    local_inference_configs["dump_dir"] = "/tmp/init_output"
+    local_inference_configs["input_json_path"] = "/dev/null"
+    local_inference_configs["model_name"] = os.environ.get("MODEL_NAME", "protenix_base_default_v0.5.0")
     
-    merged_configs = ConfigDict(configs)
+    configs = {**configs_base, **{"data": data_configs}, **local_inference_configs}
+    configs = parse_configs(
+        configs=configs,
+        fill_required_with_null=True,
+    )
     
-    # Set default values usually coming from CLI
-    merged_configs.model_name = os.environ.get("MODEL_NAME", "protenix_base_default_v0.5.0")
-    merged_configs.dump_dir = os.environ.get("DUMP_DIR", "/tmp/output")
-    merged_configs.load_checkpoint_dir = os.environ.get("CHECKPOINT_DIR", "/app/checkpoints")
-    merged_configs.need_atom_confidence = False
-    merged_configs.use_msa = True  # Default true, can be overridden in payload
-    merged_configs.num_workers = 0
-    merged_configs.dtype = "bf16"
-    merged_configs.seeds = [101]  # Default seed
-    merged_configs.sample_diffusion = ConfigDict({
-        "step_scale_eta": 1.5,
-        "N_sample": 1,
-        "N_step": 50
-    })
-    merged_configs.enable_tf32 = True
-    merged_configs.enable_efficient_fusion = True
-    merged_configs.enable_diffusion_shared_vars_cache = True
-    merged_configs.infer_setting = ConfigDict({
-        "sample_diffusion_chunk_size": 5,
-        "chunk_size": 256
-    })
-    merged_configs.triangle_multiplicative = "torch"
-    merged_configs.load_strict = True
-    merged_configs.skip_amp = ConfigDict({
-        "confidence_head": False,
-        "sample_diffusion": False
-    })
-    merged_configs.sorted_by_ranking_score = True
-    merged_configs.deterministic = False
+    model_name = configs.model_name
+    logger.info(f"Model name: {model_name}")
     
-    # Update model specific configs
-    model_name = merged_configs.model_name
+    # Update with model-specific configs
     if model_name in model_configs:
-        merged_configs.update(ConfigDict(model_configs[model_name]))
-    
-    merged_configs = update_gpu_compatible_configs(merged_configs)
+        model_specific_configs = ConfigDict(model_configs[model_name])
+        configs.update(model_specific_configs)
+        logger.info(f"Applied model-specific configs for: {model_name}")
     
     # Download checkpoints/cache if needed (do this once on cold start)
     logger.info("Downloading inference cache if needed...")
-    download_infercence_cache(merged_configs)
+    download_infercence_cache(configs)
+    cache_downloaded = True
     
-    base_configs = merged_configs
-    logger.info("Handler initialized successfully.")
+    log_separator("INIT_HANDLER COMPLETED")
 
 
 def save_input_to_json(input_data: Dict[str, Any], output_dir: str) -> str:
@@ -151,13 +155,14 @@ def collect_output_files(output_dir: str) -> Dict[str, str]:
                 # Use relative path from output_dir as key
                 rel_path = os.path.relpath(filepath, output_dir)
                 output_files[rel_path] = content
+                logger.info(f"  Collected: {rel_path} ({len(content)} bytes)")
             except UnicodeDecodeError:
                 # Skip binary files
-                logger.warning(f"Skipping binary file: {filepath}")
+                logger.warning(f"  Skipping binary file: {filepath}")
             except Exception as e:
-                logger.error(f"Error reading file {filepath}: {e}")
+                logger.error(f"  Error reading file {filepath}: {e}")
     
-    logger.info(f"Collected {len(output_files)} output files")
+    logger.info(f"Collected {len(output_files)} output files total")
     return output_files
 
 
@@ -165,20 +170,26 @@ def handler(event):
     """
     RunPod Handler function.
     
-    Uses the proven infer_predict() pipeline approach.
+    Uses the proven pattern from dropxcell-proteinx inference_engine.py
     """
     temp_dir = None
     
     try:
-        job_input = event["input"]
+        log_separator("HANDLER STARTED")
+        
+        job_input = event.get("input", {})
         job_id = event.get("id", "unknown")
+        
+        logger.info(f"Job ID: {job_id}")
+        logger.info(f"Event keys: {list(event.keys())}")
+        logger.info(f"Input keys: {list(job_input.keys())}")
         
         # Ensure name exists
         if "name" not in job_input:
             job_input["name"] = f"job_{job_id}"
         
         sample_name = job_input["name"]
-        logger.info(f"Processing job {job_id} for sample: {sample_name}")
+        logger.info(f"Processing sample: {sample_name}")
         
         # Create temporary directory for this job
         temp_dir = tempfile.mkdtemp(prefix=f"protenix_{job_id}_")
@@ -190,42 +201,124 @@ def handler(event):
         # Create job-specific output directory
         output_dir = os.path.join(temp_dir, "output")
         os.makedirs(output_dir, exist_ok=True)
+        logger.info(f"Output directory: {output_dir}")
         
-        # Create job-specific configs (copy from base)
-        configs = ConfigDict(base_configs.to_dict())
-        configs.input_json_path = json_path
-        configs.dump_dir = output_dir
+        # Extract parameters from request (with defaults)
+        model_name = job_input.get("model_name", os.environ.get("MODEL_NAME", "protenix_base_default_v0.5.0"))
+        use_msa = job_input.get("use_msa", True)
+        seeds = job_input.get("seeds", [101])
+        n_cycle = job_input.get("n_cycle", None)
+        n_step = job_input.get("n_step", None)
+        n_sample = job_input.get("n_sample", None)
         
-        # Override configs from request payload if provided
-        if "use_msa" in job_input:
-            configs.use_msa = job_input["use_msa"]
-        if "seeds" in job_input:
-            configs.seeds = job_input["seeds"] if isinstance(job_input["seeds"], list) else [job_input["seeds"]]
-        if "n_sample" in job_input:
-            configs.sample_diffusion.N_sample = job_input["n_sample"]
-        if "n_step" in job_input:
-            configs.sample_diffusion.N_step = job_input["n_step"]
-        if "n_cycle" in job_input:
-            configs.model.N_cycle = job_input["n_cycle"]
+        # Ensure seeds is a list
+        if not isinstance(seeds, list):
+            seeds = [seeds]
         
-        logger.info(f"Running inference with: use_msa={configs.use_msa}, seeds={configs.seeds}")
+        logger.info(f"Parameters:")
+        logger.info(f"  model_name: {model_name}")
+        logger.info(f"  use_msa: {use_msa}")
+        logger.info(f"  seeds: {seeds}")
+        logger.info(f"  n_cycle: {n_cycle}")
+        logger.info(f"  n_step: {n_step}")
+        logger.info(f"  n_sample: {n_sample}")
         
-        # Initialize runner and run inference using the proven pipeline
+        # Set defaults based on model type (matching official Protenix implementation)
+        if "mini" in model_name or "tiny" in model_name:
+            default_n_cycle = 4
+            default_n_step = 5
+        else:
+            default_n_cycle = 10
+            default_n_step = 200
+        
+        # Handle None, 0, or any falsy value by using defaults
+        n_cycle = n_cycle if (n_cycle is not None and n_cycle > 0) else default_n_cycle
+        n_step = n_step if (n_step is not None and n_step > 0) else default_n_step
+        n_sample = n_sample if (n_sample is not None and n_sample > 0) else 5
+        
+        logger.info(f"Final parameters after defaults:")
+        logger.info(f"  n_cycle: {n_cycle}")
+        logger.info(f"  n_step: {n_step}")
+        logger.info(f"  n_sample: {n_sample}")
+        
+        # ============================================================
+        # CONFIGURE INFERENCE - Following inference_engine.py pattern
+        # ============================================================
+        log_separator("CONFIGURING INFERENCE")
+        
+        # Use copy to avoid global mutation
+        local_inference_configs = dict(inference_configs)
+        local_inference_configs["dump_dir"] = output_dir
+        local_inference_configs["input_json_path"] = json_path
+        local_inference_configs["model_name"] = model_name
+        
+        logger.info("Merging configs...")
+        configs = {**configs_base, **{"data": data_configs}, **local_inference_configs}
+        
+        logger.info("Calling parse_configs()...")
+        configs = parse_configs(
+            configs=configs,
+            fill_required_with_null=True,
+        )
+        logger.info("parse_configs() completed successfully")
+        
+        # Update with model-specific configs
+        if model_name in model_configs:
+            model_specific_configs = ConfigDict(model_configs[model_name])
+            configs.update(model_specific_configs)
+            logger.info(f"Applied model-specific configs for: {model_name}")
+        else:
+            logger.warning(f"No model-specific configs found for: {model_name}")
+        
+        # Set user-provided parameters - PLAIN PYTHON TYPES, NOT ListValue
+        logger.info("Setting user parameters (plain Python types)...")
+        configs.seeds = seeds          # plain list
+        configs.use_msa = use_msa      # plain bool
+        configs.model.N_cycle = n_cycle
+        configs.sample_diffusion.N_step = n_step
+        configs.sample_diffusion.N_sample = n_sample
+        
+        logger.info(f"Config seeds type: {type(configs.seeds)}")
+        logger.info(f"Config use_msa type: {type(configs.use_msa)}")
+        
+        # Download cache if needed (should be cached from init_handler)
+        if not cache_downloaded:
+            logger.info("Cache not downloaded yet, downloading now...")
+            download_infercence_cache(configs)
+        else:
+            logger.info("Cache already downloaded during init")
+        
+        # ============================================================
+        # RUN INFERENCE
+        # ============================================================
+        log_separator("INITIALIZING INFERENCE RUNNER")
+        
+        logger.info("Creating InferenceRunner...")
         runner = InferenceRunner(configs)
+        logger.info("InferenceRunner created successfully!")
+        
+        logger.info("Starting infer_predict()...")
         infer_predict(runner, configs)
+        logger.info("infer_predict() completed!")
         
         # Clear CUDA cache
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            logger.info("Cleared CUDA cache")
         
-        # Collect output files
+        # ============================================================
+        # COLLECT RESULTS
+        # ============================================================
+        log_separator("COLLECTING RESULTS")
+        
         output_files = collect_output_files(output_dir)
         
         if not output_files:
             logger.warning("No output files found after inference")
             return {"error": "Inference completed but no output files were generated"}
         
-        logger.info(f"Job {job_id} completed successfully with {len(output_files)} files")
+        log_separator(f"JOB {job_id} COMPLETED SUCCESSFULLY")
+        logger.info(f"Returning {len(output_files)} files")
         
         return {"output_files": output_files}
     
@@ -237,7 +330,10 @@ def handler(event):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        return {"error": str(e), "traceback": traceback.format_exc()}
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
     
     finally:
         # Cleanup temp directory
