@@ -102,6 +102,10 @@ model_configs = {
                 },
             },
         },
+        "esm": {
+            "enable": True,
+            "model_name": "esm2-3b",
+        },
         "load_strict": False,  # If finetuning from base model, model arch has been changed,
         # it should be False, for inference, it should be True.
         "finetune_params_with_substring": [
