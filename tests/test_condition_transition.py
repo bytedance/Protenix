@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import time
 import unittest
 
 import torch
 
+os.environ["LAYERNORM_TYPE"] = "torch"
 from protenix.model.modules.transformer import ConditionedTransitionBlock
 
 
