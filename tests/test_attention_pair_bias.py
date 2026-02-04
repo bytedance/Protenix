@@ -13,11 +13,13 @@
 # limitations under the License.
 
 import math
+import os
 import time
 import unittest
 
 import torch
 
+os.environ["LAYERNORM_TYPE"] = "torch"
 from protenix.model.modules.transformer import AttentionPairBias
 
 

@@ -11,7 +11,7 @@
 
 <div align="center" style="margin: 20px 0;">
   <span style="margin: 0 10px;">⚡ <a href="https://protenix-server.com">Protenix Web Server</a></span>
-  &bull; <span style="margin: 0 10px;">📄 <a href="https://www.biorxiv.org/content/10.1101/2025.01.08.631967v1">Technical Report</a></span>
+  &bull; <span style="margin: 0 10px;">📄 <a href="docs/PTX_V1_Technical_Report_202602042356.pdf">Technical Report</a></span>
 </div>
 
 <div align="center">
@@ -36,7 +36,7 @@ Protenix is built for high-accuracy structure prediction. It serves as an initia
 - **[Protenix-Dock](https://github.com/bytedance/Protenix-Dock)**: Our implementation of a classical protein-ligand docking framework that leverages empirical scoring functions. Without using deep neural networks, Protenix-Dock delivers competitive performance in rigid docking tasks.
 
 ## 🎉 Latest Updates
-- **2026-02-04: Protenix-v1 Released** 💪
+- **2026-02-05: Protenix-v1 Released** 💪 [[Technical Report](docs/PTX_V1_Technical_Report_202602042356.pdf)]
   - Supported Template/RNA MSA features and improved training dynamics, along with further Inference-time model performance enhancements.
 - **2025-11-05: Protenix-v0.7.0 Released** 🚀
   - Introduced advanced diffusion inference optimizations: Shared variable caching, efficient kernel fusion, and TF32 acceleration. See our [performance analysis](./assets/inference_time_vs_ntoken.png).
