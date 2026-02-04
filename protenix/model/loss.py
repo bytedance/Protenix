@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional
 
 import torch
 import torch.nn as nn
@@ -24,9 +23,11 @@ from protenix.model.modules.frames import (
     expressCoordinatesInFrame,
     gather_frame_atom_by_indices,
 )
-from protenix.model.utils import expand_at_dim
-from protenix.openfold_local.utils.checkpointing import get_checkpoint_fn
+from protenix.model.utils import expand_at_dim, get_checkpoint_fn
+from protenix.utils.logger import get_logger
 from protenix.utils.torch_utils import cdist
+
+logger = get_logger(__name__)
 
 
 def loss_reduction(loss: torch.Tensor, method: str = "mean") -> torch.Tensor:
@@ -53,6 +54,10 @@ def loss_reduction(loss: torch.Tensor, method: str = "mean") -> torch.Tensor:
 class SmoothLDDTLoss(nn.Module):
     """
     Implements Algorithm 27 [SmoothLDDTLoss] in AF3
+
+    Args:
+        eps (float, optional): avoid nan. Defaults to 1e-10.
+        reduction (str, optional): reduction method for the batch dims. Defaults to mean.
     """
 
     def __init__(
@@ -60,17 +65,16 @@ class SmoothLDDTLoss(nn.Module):
         eps: float = 1e-10,
         reduction: str = "mean",
     ) -> None:
-        """SmoothLDDTLoss
-
-        Args:
-            eps (float, optional): avoid nan. Defaults to 1e-10.
-            reduction (str, optional): reduction method for the batch dims. Defaults to mean.
-        """
         super(SmoothLDDTLoss, self).__init__()
         self.eps = eps
         self.reduction = reduction
 
-    def _chunk_forward(self, pred_distance, true_distance, c_lm=None):
+    def _chunk_forward(
+        self,
+        pred_distance: torch.Tensor,
+        true_distance: torch.Tensor,
+        c_lm: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
         dist_diff = torch.abs(pred_distance - true_distance)
         # For save cuda memory we use inplace op
         dist_diff_epsilon = 0
@@ -170,13 +174,15 @@ class SmoothLDDTLoss(nn.Module):
         lddt_indices = torch.nonzero(lddt_mask, as_tuple=True)
         true_coords_l = true_coordinate.index_select(-2, lddt_indices[0])
         true_coords_m = true_coordinate.index_select(-2, lddt_indices[1])
-        true_distance_sparse_lm = torch.norm(true_coords_l - true_coords_m, p=2, dim=-1)
+        true_distance_sparse_lm = torch.linalg.vector_norm(
+            true_coords_l - true_coords_m, ord=2, dim=-1
+        )
         if diffusion_chunk_size is None:
             pred_coords_l = pred_coordinate.index_select(-2, lddt_indices[0])
             pred_coords_m = pred_coordinate.index_select(-2, lddt_indices[1])
             # \delta x_{lm} and \delta x_{lm}^{GT} in the Algorithm 27
-            pred_distance_sparse_lm = torch.norm(
-                pred_coords_l - pred_coords_m, p=2, dim=-1
+            pred_distance_sparse_lm = torch.linalg.vector_norm(
+                pred_coords_l - pred_coords_m, ord=2, dim=-1
             )
             lddt = self._chunk_forward(
                 pred_distance_sparse_lm, true_distance_sparse_lm, c_lm=None
@@ -197,8 +203,8 @@ class SmoothLDDTLoss(nn.Module):
                 ].index_select(-2, lddt_indices[1])
 
                 # \delta x_{lm} and \delta x_{lm}^{GT} in the Algorithm 27
-                pred_distance_sparse_i_lm = torch.norm(
-                    pred_coords_i_l - pred_coords_i_m, p=2, dim=-1
+                pred_distance_sparse_i_lm = torch.linalg.vector_norm(
+                    pred_coords_i_l - pred_coords_i_m, ord=2, dim=-1
                 )
                 lddt_i = checkpoint_fn(
                     self._chunk_forward,
@@ -270,7 +276,9 @@ class SmoothLDDTLoss(nn.Module):
                 )
                 lddt.append(lddt_i)
             lddt = torch.cat(lddt, dim=-1)
-
+        if not self.training:
+            del true_distance, c_lm, lddt_mask
+            torch.cuda.empty_cache()
         lddt = lddt.mean(dim=-1)  # [...]
         return 1 - loss_reduction(lddt, method=self.reduction)
 
@@ -278,20 +286,23 @@ class SmoothLDDTLoss(nn.Module):
 class BondLoss(nn.Module):
     """
     Implements Formula 5 [BondLoss] in AF3
+
+    Args:
+        eps (float, optional): avoid nan. Defaults to 1e-6.
+        reduction (str, optional): reduction method for the batch dims. Defaults to mean.
     """
 
     def __init__(self, eps: float = 1e-6, reduction: str = "mean") -> None:
-        """BondLoss
-
-        Args:
-            eps (float, optional): avoid nan. Defaults to 1e-6.
-            reduction (str, optional): reduction method for the batch dims. Defaults to mean.
-        """
         super(BondLoss, self).__init__()
         self.eps = eps
         self.reduction = reduction
 
-    def _chunk_forward(self, pred_distance, true_distance, bond_mask):
+    def _chunk_forward(
+        self,
+        pred_distance: torch.Tensor,
+        true_distance: torch.Tensor,
+        bond_mask: torch.Tensor,
+    ) -> torch.Tensor:
         # Distance squared error
         # [...,  N_sample , N_atom, N_atom]
         dist_squared_err = (pred_distance - true_distance.unsqueeze(dim=-3)) ** 2
@@ -399,8 +410,12 @@ class BondLoss(nn.Module):
         true_coords_i = true_coordinate.index_select(-2, bond_indices[0])
         true_coords_j = true_coordinate.index_select(-2, bond_indices[1])
 
-        pred_distance_sparse = torch.norm(pred_coords_i - pred_coords_j, p=2, dim=-1)
-        true_distance_sparse = torch.norm(true_coords_i - true_coords_j, p=2, dim=-1)
+        pred_distance_sparse = torch.linalg.vector_norm(
+            pred_coords_i - pred_coords_j, ord=2, dim=-1
+        )
+        true_distance_sparse = torch.linalg.vector_norm(
+            true_coords_i - true_coords_j, ord=2, dim=-1
+        )
         dist_squared_err_sparse = (pred_distance_sparse - true_distance_sparse) ** 2
         # Protecting special data that has size: tensor([], size=(x, 0), grad_fn=<PowBackward0>)
         if dist_squared_err_sparse.numel() == 0:
@@ -412,6 +427,14 @@ class BondLoss(nn.Module):
             bond_loss = bond_loss * per_sample_scale
 
         bond_loss = bond_loss.mean(dim=-1)  # [...]
+        if not self.training:
+            del (
+                true_distance_sparse,
+                pred_distance_sparse,
+                dist_squared_err_sparse,
+                bond_mask,
+            )
+            torch.cuda.empty_cache()
         return bond_loss
 
 
@@ -481,6 +504,18 @@ def softmax_cross_entropy(logits: torch.Tensor, labels: torch.Tensor) -> torch.T
 class DistogramLoss(nn.Module):
     """
     Implements DistogramLoss in AF3
+
+    This head and loss are identical to AlphaFold 2, where the pairwise token distances use the representative atom for each token:
+        Cβ for protein residues (Cα for glycine),
+        C4 for purines and C2 for pyrimidines.
+        All ligands already have a single atom per token.
+
+    Args:
+        min_bin (float, optional): min boundary of bins. Defaults to 2.3125.
+        max_bin (float, optional): max boundary of bins. Defaults to 21.6875.
+        no_bins (int, optional): number of bins. Defaults to 64.
+        eps (float, optional): small number added to denominator. Defaults to 1e-6.
+        reduction (str, optional): reduction method for the batch dims. Defaults to mean.
     """
 
     def __init__(
@@ -491,19 +526,6 @@ class DistogramLoss(nn.Module):
         eps: float = 1e-6,
         reduction: str = "mean",
     ) -> None:
-        """Distogram loss
-        This head and loss are identical to AlphaFold 2, where the pairwise token distances use the representative atom for each token:
-            Cβ for protein residues (Cα for glycine),
-            C4 for purines and C2 for pyrimidines.
-            All ligands already have a single atom per token.
-
-        Args:
-            min_bin (float, optional): min boundary of bins. Defaults to 2.3125.
-            max_bin (float, optional): max boundary of bins. Defaults to 21.6875.
-            no_bins (int, optional): number of bins. Defaults to 64.
-            eps (float, optional): small number added to denominator. Defaults to 1e-6.
-            reduce (bool, optional): reduce dim. Defaults to True.
-        """
         super(DistogramLoss, self).__init__()
         self.min_bin = min_bin
         self.max_bin = max_bin
@@ -596,13 +618,24 @@ class DistogramLoss(nn.Module):
         denom = self.eps + torch.sum(pair_mask, dim=(-1, -2))
         loss = torch.sum(errors * pair_mask, dim=(-1, -2))
         loss = loss / denom
-
+        if not self.training:
+            del true_bins, logits
+            torch.cuda.empty_cache()
         return loss_reduction(loss, method=self.reduction)
 
 
 class PDELoss(nn.Module):
     """
     Implements Predicted distance loss in AF3
+
+    This loss are between representative token atoms i and j in the mini-rollout prediction
+
+    Args:
+        min_bin (float, optional): min boundary of bins. Defaults to 0.
+        max_bin (float, optional): max boundary of bins. Defaults to 32.
+        no_bins (int, optional): number of bins. Defaults to 64.
+        eps (float, optional): small number added to denominator. Defaults to 1e-6.
+        reduction (str, optional): reduction method for the batch dims. Defaults to mean.
     """
 
     def __init__(
@@ -613,16 +646,6 @@ class PDELoss(nn.Module):
         eps: float = 1e-6,
         reduction: str = "mean",
     ) -> None:
-        """PDELoss
-        This loss are between representative token atoms i and j in the mini-rollout prediction
-
-        Args:
-            min_bin (float, optional): min boundary of bins. Defaults to 0.
-            max_bin (float, optional): max boundary of bins. Defaults to 32.
-            no_bins (int, optional): number of bins. Defaults to 64.
-            eps (float, optional): small number added to denominator. Defaults to 1e-6.
-            reduction (str, optional): reduction method for the batch dims. Defaults to mean.
-        """
         super(PDELoss, self).__init__()
         self.min_bin = min_bin
         self.max_bin = max_bin
@@ -735,7 +758,9 @@ class PDELoss(nn.Module):
         loss = torch.sum(loss, dim=(-1, -2))  # [..., N_sample]
         loss = loss / denom.unsqueeze(dim=-1)  # [..., N_sample]
         loss = loss.mean(dim=-1)  # [...]
-
+        if not self.training:
+            del true_bins, errors, logits
+            torch.cuda.empty_cache()
         return loss_reduction(loss, method=self.reduction)
 
 
@@ -777,6 +802,15 @@ def compute_alignment_error_squared(
 class PAELoss(nn.Module):
     """
     Implements Predicted Aligned distance loss in AF3
+
+    This loss are between representative token atoms i and j in the mini-rollout prediction
+
+    Args:
+        min_bin (float, optional): min boundary of bins. Defaults to 0.
+        max_bin (float, optional): max boundary of bins. Defaults to 32.
+        no_bins (int, optional): number of bins. Defaults to 64.
+        eps (float, optional): small number added to denominator. Defaults to 1e-6.
+        reduction (str, optional): reduction method for the batch dims. Defaults to mean.
     """
 
     def __init__(
@@ -787,16 +821,6 @@ class PAELoss(nn.Module):
         eps: float = 1e-6,
         reduction: str = "mean",
     ) -> None:
-        """PAELoss
-        This loss are between representative token atoms i and j in the mini-rollout prediction
-
-        Args:
-            min_bin (float, optional): min boundary of bins. Defaults to 0.
-            max_bin (float, optional): max boundary of bins. Defaults to 32.
-            no_bins (int, optional): number of bins. Defaults to 64.
-            eps (float, optional): small number added to denominator. Defaults to 1e-6.
-            reduce (bool, optional): reduce dim. Defaults to True.
-        """
         super(PAELoss, self).__init__()
         self.min_bin = min_bin
         self.max_bin = max_bin
@@ -966,20 +990,24 @@ class PAELoss(nn.Module):
         loss = torch.sum(loss, dim=(-1, -2))  # [..., N_sample]
         loss = loss / denom.unsqueeze(dim=-1)  # [..., N_sample]
         loss = loss.mean(dim=-1)  # [...]
-
+        if not self.training:
+            del true_bins, pair_mask, logits
+            torch.cuda.empty_cache()
         return loss_reduction(loss, self.reduction)
 
 
 class ExperimentallyResolvedLoss(nn.Module):
+    """
+    Args:
+        eps (float, optional): avoid nan. Defaults to 1e-6.
+        reduction (str, optional): reduction method for the batch dims. Defaults to mean.
+    """
+
     def __init__(
         self,
         eps: float = 1e-6,
         reduction: str = "mean",
     ) -> None:
-        """
-        Args:
-            eps (float, optional): avoid nan. Defaults to 1e-6.
-        """
         super(ExperimentallyResolvedLoss, self).__init__()
         self.eps = eps
         self.reduction = reduction
@@ -1030,9 +1058,9 @@ class MSELoss(nn.Module):
         self,
         weight_mse: float = 1 / 3,
         weight_dna: float = 5.0,
-        weight_rna=5.0,
-        weight_ligand=10.0,
-        eps=1e-6,
+        weight_rna: float = 5.0,
+        weight_ligand: float = 10.0,
+        eps: float = 1e-6,
         reduction: str = "mean",
     ) -> None:
         super(MSELoss, self).__init__()
@@ -1244,9 +1272,21 @@ def calculate_atom_bespoke_lddt(
 class PLDDTLoss(nn.Module):
     """
     Implements PLDDT Loss in AF3, different from the paper description.
+
+    This loss are between atoms l and m (has some filters) in the mini-rollout prediction.
+
     Main changes:
     1. use difference of distance instead of predicted distance when calculating plddt
     2. normalize each plddt score within 0-1
+
+    Args:
+        min_bin (float, optional): min boundary of bins. Defaults to 0.
+        max_bin (float, optional): max boundary of bins. Defaults to 1.
+        no_bins (int, optional): number of bins. Defaults to 50.
+        is_nucleotide_threshold (float, optional): threshold for nucleotide atoms. Defaults 30.0.
+        is_not_nucleotide_threshold (float, optional): threshold for non-nucleotide atoms. Defaults 15.0
+        eps (float, optional): small number added to denominator. Defaults to 1e-6.
+        reduction (str, optional): reduction method for the batch dims. Defaults to mean.
     """
 
     def __init__(
@@ -1260,18 +1300,6 @@ class PLDDTLoss(nn.Module):
         normalize: bool = True,
         reduction: str = "mean",
     ) -> None:
-        """PLDDT loss
-        This loss are between atoms l and m (has some filters) in the mini-rollout prediction
-
-        Args:
-            min_bin (float, optional): min boundary of bins. Defaults to 0.
-            max_bin (float, optional): max boundary of bins. Defaults to 1.
-            no_bins (int, optional): number of bins. Defaults to 50.
-            is_nucleotide_threshold (float, optional): threshold for nucleotide atoms. Defaults 30.0.
-            is_not_nucleotide_threshold (float, optional): threshold for non-nucleotide atoms. Defaults 15.0
-            eps (float, optional): small number added to denominator. Defaults to 1e-6.
-            reduction (str, optional): reduction method for the batch dims. Defaults to mean.
-        """
         super(PLDDTLoss, self).__init__()
         self.normalize = normalize
         self.min_bin = min_bin
@@ -1286,7 +1314,7 @@ class PLDDTLoss(nn.Module):
         self,
         per_atom_lddt: torch.Tensor,
         per_atom_weight: torch.Tensor,
-    ):
+    ) -> torch.Tensor:
         if self.normalize:
             per_atom_lddt = per_atom_lddt / (per_atom_weight + self.eps)
         # Distribute into bins
@@ -1314,16 +1342,14 @@ class PLDDTLoss(nn.Module):
         logits: torch.Tensor,
         per_atom_lddt: torch.Tensor,
         per_atom_weight: torch.Tensor,
-    ):
+    ) -> torch.Tensor:
         """
         Args:
-        per_atom_lddt
-            [..., N_sample, N_atom, 1]
-        per_atom_weight
-            [..., N_sample, N_atom, 1]
+            logits (torch.Tensor): predicted plddt logits [..., N_sample, N_atom, N_bins]
+            per_atom_lddt (torch.Tensor): [..., N_sample, N_atom, 1]
+            per_atom_weight (torch.Tensor): [..., N_sample, N_atom, 1]
         Returns:
-            torch.Tensor: per-atom lddt bins
-                [..., N_sample, N_atom, N_bins]
+            torch.Tensor: plddt loss
         """
         with torch.no_grad():
             true_bins = self.bins_from_lddt(per_atom_lddt, per_atom_weight).detach()
@@ -1513,19 +1539,21 @@ class ProtenixLoss(nn.Module):
         return pred_dict
 
     def aggregate_losses(
-        self, loss_fns: dict, has_valid_resolution: Optional[torch.Tensor] = None
-    ) -> tuple[torch.Tensor, dict]:
+        self,
+        loss_fns: dict[str, Callable],
+        has_valid_resolution: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Aggregates multiple loss functions and their respective metrics.
 
         Args:
-            loss_fns (dict): Dictionary of loss functions to be aggregated.
+            loss_fns (dict[str, Callable]): Dictionary of loss functions to be aggregated.
             has_valid_resolution (Optional[torch.Tensor]): Tensor indicating valid resolutions. Defaults to None.
 
         Returns:
-            tuple[torch.Tensor, dict]:
+            tuple[torch.Tensor, dict[str, torch.Tensor]]:
                 - cum_loss (torch.Tensor): Cumulative loss.
-                - all_metrics (dict): Dictionary containing all metrics.
+                - all_metrics (dict[str, torch.Tensor]): Dictionary containing all metrics.
         """
         cum_loss = 0.0
         all_metrics = {}
@@ -1542,12 +1570,18 @@ class ProtenixLoss(nn.Module):
                 {f"{loss_name}/{key}": val for key, val in metrics.items()}
             )
             if torch.isnan(loss) or torch.isinf(loss):
-                logging.warning(f"{loss_name} loss is NaN. Skipping...")
+                logger.warning(f"{loss_name} loss is NaN. Skipping...")
             if (
                 (has_valid_resolution is not None)
                 and (has_valid_resolution.sum() == 0)
                 and (
-                    loss_name in ["plddt_loss", "pde_loss", "resolved_loss", "pae_loss"]
+                    loss_name
+                    in [
+                        "plddt_loss",
+                        "pde_loss",
+                        "resolved_loss",
+                        "pae_loss",
+                    ]
                 )
             ):
                 loss = 0.0 * loss
@@ -1581,7 +1615,7 @@ class ProtenixLoss(nn.Module):
                 - cum_loss (torch.Tensor): Cumulative loss.
                 - metrics (dict[str, torch.Tensor]): Dictionary containing aggregated metrics.
         """
-        assert mode in ["train", "eval", "inference"]
+        assert mode in ["train", "eval"]
         if mode == "train":
             # Confidence Loss: use mini-rollout coordinates
             confidence_coordinate = "coordinate_mini"
@@ -1772,14 +1806,14 @@ class ProtenixLoss(nn.Module):
                 - losses (dict[str, torch.Tensor]): Dictionary containing aggregated metrics.
         """
         diffusion_chunk_size = self.configs.loss.diffusion_chunk_size_outer
-        assert mode in ["train", "eval", "inference"]
+        assert mode in ["train", "eval"]
         # Pre-computations
         with torch.no_grad():
             label_dict = self.calculate_label(feat_dict, label_dict)
 
         pred_dict = self.calculate_prediction(pred_dict)
 
-        if diffusion_chunk_size <= 0:
+        if mode == "train":
             # Calculate losses
             cum_loss, losses = self.calculate_losses(
                 feat_dict=feat_dict,
@@ -1790,8 +1824,6 @@ class ProtenixLoss(nn.Module):
         else:
             if "coordinate" in pred_dict:
                 N_sample = pred_dict["coordinate"].shape[-3]
-            elif self.configs.train_confidence_only:
-                N_sample = pred_dict["coordinate_mini"].shape[-3]
             else:
                 raise KeyError("Missing key: coordinate (in pred_dict).")
             no_chunks = N_sample // diffusion_chunk_size + (
@@ -1805,16 +1837,13 @@ class ProtenixLoss(nn.Module):
                 )
                 pred_dict_i = {}
                 for key, value in pred_dict.items():
-                    if key in ["coordinate"] and mode == "train":
-                        pred_dict_i[key] = value[
-                            i * diffusion_chunk_size : (i + 1) * diffusion_chunk_size,
-                            :,
-                            :,
-                        ]
-                    elif (
-                        key in ["coordinate", "plddt", "pae", "pde", "resolved"]
-                        and mode != "train"
-                    ):
+                    if key in [
+                        "coordinate",
+                        "plddt",
+                        "pae",
+                        "pde",
+                        "resolved",
+                    ]:
                         pred_dict_i[key] = value[
                             i * diffusion_chunk_size : (i + 1) * diffusion_chunk_size,
                             :,
@@ -1837,11 +1866,17 @@ class ProtenixLoss(nn.Module):
                 # Aggregate metrics
                 for key, value in losses_i.items():
                     if key in losses:
-                        losses[key] += value * cur_sample_num
+                        if "per_sample" in key:
+                            losses[key] = torch.cat([losses[key], value], dim=-1)
+                        else:
+                            losses[key] += value * cur_sample_num
                     else:
-                        losses[key] = value * cur_sample_num
+                        if "per_sample" in key:
+                            losses[key] = value
+                        else:
+                            losses[key] = value * cur_sample_num
             cum_loss /= N_sample
             for key in losses.keys():
-                losses[key] /= N_sample
-
+                if "per_sample" not in key:
+                    losses[key] /= N_sample
         return cum_loss, losses

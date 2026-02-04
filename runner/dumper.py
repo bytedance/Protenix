@@ -14,6 +14,7 @@
 
 import os
 from pathlib import Path
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -26,7 +27,8 @@ from protenix.utils.torch_utils import round_values
 
 def get_clean_full_confidence(full_confidence_dict: dict) -> dict:
     """
-    Clean and format the full confidence dictionary by removing unnecessary keys and rounding values.
+    Clean and format the full confidence dictionary by removing
+    unnecessary keys and rounding values.
 
     Args:
         full_confidence_dict (dict): The dictionary containing full confidence data.
@@ -44,9 +46,18 @@ def get_clean_full_confidence(full_confidence_dict: dict) -> dict:
 
 
 class DataDumper:
+    """
+    Class for dumping prediction data, including structure coordinates and confidence scores.
+
+    Args:
+        base_dir (str): Base directory for saving dumped data.
+        need_atom_confidence (bool): Whether to save detailed atom-level confidence data.
+        sorted_by_ranking_score (bool): Whether to sort output files by ranking score.
+    """
+
     def __init__(
         self,
-        base_dir,
+        base_dir: str,
         need_atom_confidence: bool = False,
         sorted_by_ranking_score: bool = True,
     ) -> None:
@@ -88,7 +99,8 @@ class DataDumper:
 
     def _get_dump_dir(self, dataset_name: str, sample_name: str, seed: int) -> str:
         """
-        Generate the directory path for dumping data based on the dataset name, sample name, and seed.
+        Generate the directory path for dumping data based on the dataset
+        name, sample name, and seed.
         """
         dump_dir = os.path.join(
             self.base_dir, dataset_name, sample_name, f"seed_{seed}"
@@ -105,9 +117,15 @@ class DataDumper:
         seed: int,
     ):
         """
-        Dump raw predictions from the model:
-            structure: Save the predicted coordinates as CIF files.
-            confidence: Save the confidence data as JSON files.
+        Dump raw predictions from the model.
+
+        Args:
+            pred_dict (dict): Prediction results.
+            dump_dir (str): Directory where to save the predictions.
+            pdb_id (str): PDB ID or sample name.
+            atom_array (AtomArray): Reference atom array for structure formatting.
+            entity_poly_type (dict[str, str]): Dictionary mapping entity IDs to their polymer types.
+            seed (int): Random seed used for the prediction.
         """
         prediction_save_dir = os.path.join(dump_dir, "predictions")
         os.makedirs(prediction_save_dir, exist_ok=True)
@@ -155,9 +173,22 @@ class DataDumper:
         atom_array: AtomArray,
         entity_poly_type: dict[str, str],
         seed: int,
-        sorted_indices: None,
-        b_factor: torch.Tensor = None,
+        sorted_indices: Optional[List[int]],
+        b_factor: Optional[List[np.ndarray]] = None,
     ):
+        """
+        Save predicted structures to CIF files.
+
+        Args:
+            pred_coordinates (torch.Tensor): Predicted coordinates [N_sample, N_atom, 3].
+            prediction_save_dir (str): Directory where to save the structures.
+            sample_name (str): Sample name.
+            atom_array (AtomArray): Template atom array.
+            entity_poly_type (dict[str, str]): Entity polymer types.
+            seed (int): Prediction seed.
+            sorted_indices (Optional[List[int]]): Indices for ranking.
+            b_factor (Optional[List[np.ndarray]]): Predicted LDDT scores to be saved as B-factors.
+        """
         assert atom_array is not None
         N_sample = pred_coordinates.shape[0]
         if sorted_indices is None:
@@ -179,7 +210,16 @@ class DataDumper:
                 pdb_id=sample_name,
             )
 
-    def _get_ranker_indices(self, data: dict):
+    def _get_ranker_indices(self, data: dict) -> List[int]:
+        """
+        Get indices for ranking predictions based on their confidence scores.
+
+        Args:
+            data (dict): Prediction results containing summary confidence.
+
+        Returns:
+            List[int]: List of indices sorted by ranking score.
+        """
         N_sample = len(data["summary_confidence"])
         if self.sorted_by_ranking_score:
             value = torch.tensor(
@@ -201,8 +241,18 @@ class DataDumper:
         prediction_save_dir: str,
         sample_name: str,
         seed: int,
-        sorted_indices: None,
+        sorted_indices: Optional[List[int]],
     ):
+        """
+        Save confidence data to JSON files.
+
+        Args:
+            data (dict): Prediction results containing confidence scores.
+            prediction_save_dir (str): Directory where to save the files.
+            sample_name (str): Sample name.
+            seed (int): Prediction seed.
+            sorted_indices (Optional[List[int]]): Indices for ranking.
+        """
         N_sample = len(data["summary_confidence"])
         for idx in range(N_sample):
             if self.need_atom_confidence:

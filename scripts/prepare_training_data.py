@@ -18,11 +18,11 @@ from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-from joblib import Parallel, delayed
-from tqdm import tqdm
+from joblib import delayed, Parallel
 
-from protenix.data.data_pipeline import DataPipeline
+from protenix.data.pipeline.data_pipeline import DataPipeline
 from protenix.utils.file_io import dump_gzip_pickle
+from tqdm import tqdm
 
 
 def gen_a_bioassembly_data(

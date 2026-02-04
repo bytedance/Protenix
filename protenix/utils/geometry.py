@@ -29,9 +29,9 @@ def angle_3p(a, b, c):
         float: The angle in degrees (0, 180) between the vectors
                from point a to point b and point b to point c.
     """
-    a = np.array(a)
-    b = np.array(b)
-    c = np.array(c)
+    a = np.asarray(a)
+    b = np.asarray(b)
+    c = np.asarray(c)
 
     ab = b - a
     bc = c - b

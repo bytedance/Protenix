@@ -14,22 +14,22 @@
 
 from __future__ import annotations
 
-import logging
-import json
 import builtins
+import json
+
+import logging
 import os
 import time
-from typing import Dict
+from multiprocessing import Lock
+from typing import Any, Callable, Dict, List, Optional
 
 import triton
-from multiprocessing import Lock
 
 from protenix.model.tri_attention.autotune_helpers import (
-    config_to_dict,
-    dict_to_config,
-    device_capability,
-    device_name,
     config_dir,
+    config_to_dict,
+    device_capability,
+    dict_to_config,
 )
 
 FILE_LOCK = Lock()
@@ -41,29 +41,37 @@ logger = logging.getLogger(__name__)
 class Autotuner(triton.runtime.Autotuner):
     """
     Copied from triton -- changed autotune to persist to disk.
+
+    Args:
+        fn (Callable): The function to be autotuned.
+        arg_names (List[str]): Names of the arguments.
+        configs (List[triton.Config]): List of configurations to try.
+        key (List[str]): List of argument names to use as cache key.
+        reset_to_zero (List[str]): List of argument names to reset to zero.
+        restore_value (List[str]): List of argument names to restore.
+        pre_hook (Optional[Callable], optional): Pre-hook function. Defaults to None.
+        post_hook (Optional[Callable], optional): Post-hook function. Defaults to None.
+        prune_configs_by (Optional[Dict], optional): Dictionary of functions to prune configs. Defaults to None.
+        warmup (Optional[int], optional): Warmup time in ms. Defaults to None.
+        rep (Optional[int], optional): Number of repetitions. Defaults to None.
+        use_cuda_graph (bool, optional): Whether to use CUDA graph. Defaults to False.
     """
 
     def __init__(
         self,
-        fn,
-        arg_names,
-        configs,
-        key,
-        reset_to_zero,
-        restore_value,
-        pre_hook=None,
-        post_hook=None,
-        prune_configs_by: Dict = None,
-        warmup=None,
-        rep=None,
-        use_cuda_graph=False,
-    ):
-        """
-        :param prune_configs_by: a dict of functions that are used to prune configs, fields:
-            'perf_model': performance model used to predicate running time with different configs, returns running time
-            'top_k': number of configs to bench
-            'prune_num_stages_by'(optional): a function used to prune num_stages. It takes configs:List[Config] as its input, and returns pruned configs.
-        """
+        fn: Callable,
+        arg_names: List[str],
+        configs: List[triton.Config],
+        key: List[str],
+        reset_to_zero: List[str],
+        restore_value: List[str],
+        pre_hook: Optional[Callable] = None,
+        post_hook: Optional[Callable] = None,
+        prune_configs_by: Optional[Dict] = None,
+        warmup: Optional[int] = None,
+        rep: Optional[int] = None,
+        use_cuda_graph: bool = False,
+    ) -> None:
         super().__init__(
             fn,
             arg_names,
@@ -83,9 +91,7 @@ class Autotuner(triton.runtime.Autotuner):
         if config_dir is not None:
             config_dir.mkdir(parents=True, exist_ok=True)
             # TODO: adjust this to also include the fn's hash?
-            self.cache_file = (
-                config_dir / f"{fn.__name__}_{device_capability}.json"
-            )
+            self.cache_file = config_dir / f"{fn.__name__}_{device_capability}.json"
             # Load any previously cached data
             if self.cache_file.exists():
                 try:
@@ -100,7 +106,7 @@ class Autotuner(triton.runtime.Autotuner):
                     )
                     self.cache = {}
 
-    def _write_cache_to_disk(self):
+    def _write_cache_to_disk(self) -> None:
         """Writes the current self.cache to disk if self.cache_dir is set."""
         if self.cache_file is None:
             return
@@ -120,7 +126,7 @@ class Autotuner(triton.runtime.Autotuner):
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
-    def run(self, *args, **kwargs):
+    def run(self, *args: Any, **kwargs: Any) -> Any:
         self.nargs = dict(zip(self.arg_names, args))
         used_cached_result = True
         if len(self.configs) > 1:
@@ -170,18 +176,18 @@ class Autotuner(triton.runtime.Autotuner):
 
 
 def autotune(
-    configs,
-    key,
-    prune_configs_by=None,
-    reset_to_zero=None,
-    restore_value=None,
-    pre_hook=None,
-    post_hook=None,
-    warmup=None,
-    rep=None,
-    use_cuda_graph=False,
-    do_bench=None,
-):
+    configs: List[triton.Config],
+    key: List[str],
+    prune_configs_by: Optional[Dict] = None,
+    reset_to_zero: Optional[List[str]] = None,
+    restore_value: Optional[List[str]] = None,
+    pre_hook: Optional[Callable] = None,
+    post_hook: Optional[Callable] = None,
+    warmup: Optional[int] = None,
+    rep: Optional[int] = None,
+    use_cuda_graph: bool = False,
+    do_bench: Optional[Callable] = None,
+) -> Callable:
     """
     Decorator for auto-tuning a :code:`triton.jit`'d function.
 
@@ -237,7 +243,7 @@ def autotune(
     :type do_bench: lambda fn, quantiles
     """
 
-    def decorator(fn):
+    def decorator(fn: Callable) -> Autotuner:
         return Autotuner(
             fn,
             fn.arg_names,

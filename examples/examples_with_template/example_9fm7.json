@@ -1,0 +1,24 @@
+[
+    {
+        "sequences": [
+            {
+                "proteinChain": {
+                    "sequence": "MDVSILGTGLMGTALAQALIRSGTKVTVWNRTADRALPLAAAGATVAESPQSAIAASPLIVISLLNYEIAKDVVTEADSIAGKIIVNTATGTPEEANQFAEWIAGRGARYLDGAIAAYPEDIGTESSGINYSGDEDVWEDVQSLLTPIAAQSRYVGARPGAANVIDAAMAGAFFNVALGAFHEAAAYVRSEDVAIAEMRHSLHLWTDKLLELLHEALKAFESGEYETDQATLNVYAAAVEAWQQSMQRAGQRAALMTANLDNLQRACAAGHGDKGIFAQIETLSANPQSAI",
+                    "count": 2,
+                    "pairedMsaPath": "./examples/examples_with_template/9fm7/pairing.a3m",
+                    "unpairedMsaPath": "./examples/examples_with_template/9fm7/non_pairing.a3m",
+                    "templatesPath": "./examples/examples_with_template/9fm7/hmmsearch.a3m"
+                }
+            },
+            {
+                "ligand": {
+                    "ligand": "CCD_ATR",
+                    "count": 2
+                }
+            }
+        ],
+        "modelSeeds": [],
+        "assembly_id": "1",
+        "name": "9fm7"
+    }
+]

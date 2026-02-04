@@ -22,11 +22,11 @@ from ml_collections.config_dict import ConfigDict
 
 from protenix.config.extend_types import (
     DefaultNoneWithType,
+    get_bool_value,
     GlobalConfigValue,
     ListValue,
     RequiredValue,
     ValueMaybeNone,
-    get_bool_value,
 )
 
 
@@ -35,15 +35,16 @@ class ArgumentNotSet(object):
 
 
 class ConfigManager(object):
-    def __init__(self, global_configs: dict, fill_required_with_null: bool = False):
-        """
-        Initialize the ConfigManager instance.
+    """
+    Initialize the ConfigManager instance.
 
-        Args:
-            global_configs (dict): A dictionary containing global configuration settings.
-            fill_required_with_null (bool, optional):
-                A boolean flag indicating whether required values should be filled with `None` if not provided. Defaults to False.
-        """
+    Args:
+        global_configs (dict): A dictionary containing global configuration settings.
+        fill_required_with_null (bool, optional):
+            A boolean flag indicating whether required values should be filled with `None` if not provided. Defaults to False.
+    """
+
+    def __init__(self, global_configs: dict, fill_required_with_null: bool = False):
         self.global_configs = global_configs
         self.fill_required_with_null = fill_required_with_null
         self.config_infos, self.default_configs = self.get_config_infos()

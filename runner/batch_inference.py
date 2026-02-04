@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import difflib
 import json
 import logging
 import os
@@ -24,40 +25,154 @@ from typing import List, Optional, Union
 import click
 import tqdm
 from Bio import SeqIO
-from ml_collections.config_dict import ConfigDict
-from rdkit import Chem
 
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
 from configs.configs_model_type import model_configs
-from protenix.config import parse_configs
-from protenix.data.json_maker import cif_to_input_json
-from protenix.data.json_parser import lig_file_to_atom_info
+from ml_collections.config_dict import ConfigDict
+from protenix.config.config import parse_configs
+from protenix.data.inference.json_maker import cif_to_input_json
+from protenix.data.inference.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
+from rdkit import Chem
+
 from runner.inference import (
-    InferenceRunner,
-    download_infercence_cache,
+    download_inference_cache,
     infer_predict,
+    InferenceRunner,
     update_gpu_compatible_configs,
 )
 from runner.msa_search import msa_search, update_infer_json
+from runner.rna_msa_search import update_rna_msa_info
+from runner.template_search import update_template_info
 
 logger = get_logger(__name__)
 
 
-def init_logging():
-    LOG_FORMAT = "%(asctime)s,%(msecs)-3d %(levelname)-8s [%(filename)s:%(lineno)s %(funcName)s] %(message)s"
+def init_logging() -> None:
+    """Initialize logging configuration."""
+    log_format = (
+        "%(asctime)s,%(msecs)-3d %(levelname)-8s "
+        "[%(filename)s:%(lineno)s %(funcName)s] %(message)s"
+    )
     logging.basicConfig(
-        format=LOG_FORMAT,
+        format=log_format,
         level=logging.INFO,
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
     )
 
 
+def preprocess_input(
+    input_json: str,
+    out_dir: str,
+    use_msa: bool = True,
+    use_template: bool = False,
+    use_rna_msa: bool = False,
+    msa_server_mode: str = "protenix",
+    hmmsearch_binary_path: Optional[str] = None,
+    hmmbuild_binary_path: Optional[str] = None,
+    seqres_database_path: Optional[str] = None,
+    nhmmer_binary_path: Optional[str] = None,
+    hmmalign_binary_path: Optional[str] = None,
+    hmmbuild_rna_binary_path: Optional[str] = None,
+    ntrna_database_path: Optional[str] = None,
+    rfam_database_path: Optional[str] = None,
+    rna_central_database_path: Optional[str] = None,
+    nhmmer_n_cpu: Optional[int] = None,
+) -> str:
+    """
+    Preprocess the input JSON file by performing MSA, template, and RNA MSA searches as needed.
+
+    Args:
+        input_json (str): Path to the input JSON file.
+        out_dir (str): Directory to save search results.
+        use_msa (bool): Whether to use protein MSA.
+        use_template (bool): Whether to use templates.
+        use_rna_msa (bool): Whether to use RNA MSA.
+        msa_server_mode (str): MSA search mode ('protenix' or 'colabfold').
+        hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
+        hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
+        seqres_database_path (Optional[str]): Path to sequence database.
+        nhmmer_binary_path (Optional[str]): Path to nhmmer binary.
+        hmmalign_binary_path (Optional[str]): Path to hmmalign binary.
+        hmmbuild_rna_binary_path (Optional[str]): Path to RNA hmmbuild binary.
+        ntrna_database_path (Optional[str]): NT-RNA database path.
+        rfam_database_path (Optional[str]): Rfam database path.
+        rna_central_database_path (Optional[str]): RNAcentral database path.
+        nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
+
+    Returns:
+        str: Path to the updated JSON file.
+    """
+    # 1. Protein MSA search
+    msa_updated_json, _ = update_infer_json(
+        input_json, out_dir, use_msa=use_msa, mode=msa_server_mode
+    )
+
+    # Read the data (either original or updated)
+    with open(msa_updated_json, "r") as f:
+        json_data = json.load(f)
+
+    actual_updated = False
+
+    # 2. Template search
+    if use_template:
+        template_updated = update_template_info(
+            json_data,
+            hmmsearch_binary_path=hmmsearch_binary_path,
+            hmmbuild_binary_path=hmmbuild_binary_path,
+            seqres_database_path=seqres_database_path,
+        )
+        actual_updated = actual_updated or template_updated
+
+    # 3. RNA MSA search
+    if use_rna_msa:
+        rna_updated = update_rna_msa_info(
+            json_data,
+            out_dir=out_dir,
+            nhmmer_binary_path=nhmmer_binary_path,
+            hmmalign_binary_path=hmmalign_binary_path,
+            hmmbuild_binary_path=hmmbuild_rna_binary_path or hmmbuild_binary_path,
+            ntrna_database_path=ntrna_database_path,
+            rfam_database_path=rfam_database_path,
+            rna_central_database_path=rna_central_database_path,
+            nhmmer_n_cpu=nhmmer_n_cpu,
+        )
+        actual_updated = actual_updated or rna_updated
+
+    if actual_updated:
+        base, ext = os.path.splitext(os.path.basename(msa_updated_json))
+        if "-update-msa" in base:
+            output_json_name = base.replace("-update-msa", "-final-updated") + ext
+        else:
+            output_json_name = f"{base}-final-updated{ext}"
+
+        output_json = os.path.join(
+            os.path.dirname(os.path.abspath(msa_updated_json)), output_json_name
+        )
+
+        with open(output_json, "w") as f:
+            json.dump(json_data, f, indent=4)
+        logger.info(f"Input preprocessing completed, results saved to {output_json}")
+        return output_json
+    else:
+        return msa_updated_json
+
+
 def generate_infer_jsons(protein_msa_res: dict, ligand_file: str) -> List[str]:
+    """
+    Generate inference JSON files from protein MSA results and ligand files.
+
+    Args:
+        protein_msa_res (dict): Dictionary mapping protein sequences to their MSA results.
+        ligand_file (str): Path to a ligand file (SDF or SMI) or directory containing ligand files.
+
+    Returns:
+        List[str]: List of paths to the generated inference JSON files.
+    """
     protein_chains = []
     if len(protein_msa_res) <= 0:
         raise RuntimeError(f"invalid `protein_msa_res` data in {protein_msa_res}")
@@ -161,7 +276,8 @@ def generate_infer_jsons(protein_msa_res: dict, ligand_file: str) -> List[str]:
         infer_json_files.append(json_file_name)
     if len(invalid_ligand_files) > 0:
         logger.warning(
-            f"{len(invalid_ligand_files)} sdf file is invaild, one of them is {invalid_ligand_files[0]}"
+            f"Found {len(invalid_ligand_files)} invalid ligand files. "
+            f"Example: {invalid_ligand_files[0]}"
         )
     return infer_json_files
 
@@ -172,14 +288,40 @@ def get_default_runner(
     n_step: int = 200,
     n_sample: int = 5,
     dtype: str = "bf16",
-    model_name: str = "protenix_base_default_v0.5.0",
+    model_name: str = "protenix_base_default_v1.0.0",
     use_msa: bool = True,
     trimul_kernel="cuequivariance",
-    triatt_kernel="triattention",
+    triatt_kernel="cuequivariance",
     enable_cache=True,
     enable_fusion=True,
     enable_tf32=True,
+    use_template: bool = False,
+    use_rna_msa: bool = False,
+    use_seeds_in_json: bool = False,
 ) -> InferenceRunner:
+    """
+    Get a default InferenceRunner with the specified configurations.
+
+    Args:
+        seeds (Optional[list]): List of inference seeds.
+        n_cycle (int): Number of Pairformer cycles.
+        n_step (int): Number of diffusion steps.
+        n_sample (int): Number of samples.
+        dtype (str): Inference data type (e.g., 'bf16').
+        model_name (str): Name of the model checkpoint.
+        use_msa (bool): Whether to use MSA.
+        trimul_kernel (str): Kernel for triangle multiplicative update.
+        triatt_kernel (str): Kernel for triangle attention.
+        enable_cache (bool): Whether to enable diffusion shared variables cache.
+        enable_fusion (bool): Whether to enable diffusion transformer fusion.
+        enable_tf32 (bool): Whether to enable TF32.
+        use_template (bool): Whether to use templates.
+        use_rna_msa (bool): Whether to use RNA MSA.
+        use_seeds_in_json (bool): Whether to use seeds defined in the JSON file.
+
+    Returns:
+        InferenceRunner: An instance of InferenceRunner.
+    """
     inference_configs["model_name"] = model_name
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
     configs = parse_configs(
@@ -204,19 +346,26 @@ def get_default_runner(
     configs.enable_diffusion_shared_vars_cache = enable_cache
     configs.enable_efficient_fusion = enable_fusion
     configs.enable_tf32 = enable_tf32
+    configs.use_template = use_template
+    configs.use_rna_msa = use_rna_msa
+    configs.use_seeds_in_json = use_seeds_in_json
 
     configs = update_gpu_compatible_configs(configs)
     logger.info(
-        f"Inference by Protenix: model_size: {model_size}, with_feature: {model_feature.replace('-', ',')}, model_version: {model_version}, dtype: {configs.dtype}"
+        f"Inference by Protenix: model_size: {model_size}, "
+        f"with_feature: {model_feature.replace('-', ',')}, "
+        f"model_version: {model_version}, dtype: {configs.dtype}"
     )
     logger.info(
-        f"Triangle_multiplicative kernel: {trimul_kernel}, Triangle_attention kernel: {triatt_kernel}"
+        f"Triangle_multiplicative kernel: {trimul_kernel}, "
+        f"Triangle_attention kernel: {triatt_kernel}"
     )
     logger.info(
         f"enable_diffusion_shared_vars_cache: {configs.enable_diffusion_shared_vars_cache}, "
-        + f"enable_efficient_fusion: {configs.enable_efficient_fusion}, enable_tf32: {configs.enable_tf32}"
+        f"enable_efficient_fusion: {configs.enable_efficient_fusion}, "
+        f"enable_tf32: {configs.enable_tf32}"
     )
-    download_infercence_cache(configs)
+    download_inference_cache(configs)
     return InferenceRunner(configs)
 
 
@@ -229,17 +378,59 @@ def inference_jsons(
     n_step: int = 200,
     n_sample: int = 5,
     dtype: str = "bf16",
-    model_name: str = "protenix_base_default_v0.5.0",
-    trimul_kernel="cuequivariance",
-    triatt_kernel="triattention",
-    enable_cache=True,
-    enable_fusion=True,
-    enable_tf32=True,
+    model_name: str = "protenix_base_default_v1.0.0",
+    trimul_kernel: str = "cuequivariance",
+    triatt_kernel: str = "cuequivariance",
+    enable_cache: bool = True,
+    enable_fusion: bool = True,
+    enable_tf32: bool = True,
     msa_server_mode: str = "protenix",
+    use_template: bool = False,
+    use_rna_msa: bool = False,
+    use_seeds_in_json: bool = False,
+    hmmsearch_binary_path: Optional[str] = None,
+    hmmbuild_binary_path: Optional[str] = None,
+    seqres_database_path: Optional[str] = None,
+    nhmmer_binary_path: Optional[str] = None,
+    hmmalign_binary_path: Optional[str] = None,
+    hmmbuild_rna_binary_path: Optional[str] = None,
+    ntrna_database_path: Optional[str] = None,
+    rfam_database_path: Optional[str] = None,
+    rna_central_database_path: Optional[str] = None,
+    nhmmer_n_cpu: Optional[int] = None,
 ) -> None:
     """
-    infer_json: json file or directory, will run infer with these jsons
+    Run inference on a single JSON file or a directory of JSON files.
 
+    Args:
+        json_file (str): Path to a JSON file or directory containing JSON files.
+        out_dir (str): Directory to save inference results.
+        use_msa (bool): Whether to use MSA.
+        seeds (list): List of inference seeds.
+        n_cycle (int): Number of cycles.
+        n_step (int): Number of diffusion steps.
+        n_sample (int): Number of samples.
+        dtype (str): Data type.
+        model_name (str): Model name.
+        trimul_kernel (str): Kernel for triangle multiplicative.
+        triatt_kernel (str): Kernel for triangle attention.
+        enable_cache (bool): Enable shared variables cache.
+        enable_fusion (bool): Enable efficient fusion.
+        enable_tf32 (bool): Enable TF32.
+        msa_server_mode (str): MSA server mode.
+        use_template (bool): Whether to use templates.
+        use_rna_msa (bool): Whether to use RNA MSA.
+        use_seeds_in_json (bool): Whether to use seeds from JSON.
+        hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
+        hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
+        seqres_database_path (Optional[str]): Path to sequence database.
+        nhmmer_binary_path (Optional[str]): Path to nhmmer binary.
+        hmmalign_binary_path (Optional[str]): Path to hmmalign binary.
+        hmmbuild_rna_binary_path (Optional[str]): Path to RNA hmmbuild binary.
+        ntrna_database_path (Optional[str]): NT-RNA database path.
+        rfam_database_path (Optional[str]): Rfam database path.
+        rna_central_database_path (Optional[str]): RNAcentral database path.
+        nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
     """
     infer_jsons = []
     if os.path.isdir(json_file):
@@ -247,144 +438,316 @@ def inference_jsons(
             str(file) for file in Path(json_file).rglob("*") if file.is_file()
         ]
         if len(infer_jsons) == 0:
-            raise RuntimeError(
-                f"can not read a valid `sdf` or `smi` ligand_file in {json_file}"
-            )
+            raise RuntimeError(f"Can not read a valid json file in {json_file}")
     elif os.path.isfile(json_file):
         infer_jsons = [json_file]
     else:
-        raise RuntimeError(f"can not read a special ligand_file: {json_file}")
+        raise RuntimeError(f"Can not read a special file: {json_file}")
     infer_jsons = [file for file in infer_jsons if file.endswith(".json")]
-    logger.info(f"will infer with {len(infer_jsons)} jsons")
+    logger.info(f"Will infer with {len(infer_jsons)} jsons")
     if len(infer_jsons) == 0:
         return
 
     infer_errors = {}
     inference_configs["dump_dir"] = out_dir
-    inference_configs["input_json_path"] = infer_jsons[0]
     runner = get_default_runner(
-        seeds,
-        n_cycle,
-        n_step,
-        n_sample,
-        dtype,
-        model_name,
-        use_msa,
-        trimul_kernel,
-        triatt_kernel,
-        enable_cache,
-        enable_fusion,
-        enable_tf32,
+        seeds=seeds,
+        n_cycle=n_cycle,
+        n_step=n_step,
+        n_sample=n_sample,
+        dtype=dtype,
+        model_name=model_name,
+        use_msa=use_msa,
+        trimul_kernel=trimul_kernel,
+        triatt_kernel=triatt_kernel,
+        enable_cache=enable_cache,
+        enable_fusion=enable_fusion,
+        enable_tf32=enable_tf32,
+        use_template=use_template,
+        use_rna_msa=use_rna_msa,
+        use_seeds_in_json=use_seeds_in_json,
     )
     configs = runner.configs
-    for idx, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
+    for _, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
         try:
-            configs["input_json_path"] = update_infer_json(
-                infer_json, out_dir=out_dir, use_msa=use_msa, mode=msa_server_mode
+            configs["input_json_path"] = preprocess_input(
+                infer_json,
+                out_dir=out_dir,
+                use_msa=use_msa,
+                use_template=use_template,
+                use_rna_msa=use_rna_msa,
+                msa_server_mode=msa_server_mode,
+                hmmsearch_binary_path=hmmsearch_binary_path,
+                hmmbuild_binary_path=hmmbuild_binary_path,
+                seqres_database_path=seqres_database_path,
+                nhmmer_binary_path=nhmmer_binary_path,
+                hmmalign_binary_path=hmmalign_binary_path,
+                hmmbuild_rna_binary_path=hmmbuild_rna_binary_path,
+                ntrna_database_path=ntrna_database_path,
+                rfam_database_path=rfam_database_path,
+                rna_central_database_path=rna_central_database_path,
+                nhmmer_n_cpu=nhmmer_n_cpu,
             )
             infer_predict(runner, configs)
         except Exception as exc:
             infer_errors[infer_json] = str(exc)
     if len(infer_errors) > 0:
-        logger.warning(f"run inference failed: {infer_errors}")
+        logger.warning(f"Run inference failed: {infer_errors}")
 
 
-@click.group()
-def protenix_cli():
-    return
+CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"], show_default=True)
 
 
-@click.command()
-@click.option("-i", "--input", type=str, help="json files or dir for inference")
-@click.option("-o", "--out_dir", default="./output", type=str, help="infer result dir")
+class SuggestGroup(click.Group):
+    """A Click group that suggests similar commands on error."""
+
+    def resolve_command(self, ctx, args):
+        """Try to resolve the command, and suggest matches if it fails."""
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError as e:
+            if len(args) > 0:
+                cmd_name = args[0]
+                all_commands = self.list_commands(ctx)
+                matches = difflib.get_close_matches(cmd_name, all_commands)
+                if matches:
+                    e.message += (
+                        f"\n\nDid you mean one of these?\n    {', '.join(matches)}"
+                    )
+            raise e
+
+
+@click.group(cls=SuggestGroup, context_settings=CONTEXT_SETTINGS)
+@click.version_option(version="1.0.0")
+def protenix_cli() -> None:
+    """
+    Protenix: A trainable reproduction of AlphaFold 3.
+
+    This CLI provides tools for structure prediction, data conversion,
+    and MSA/template searching.
+    """
+    pass
+
+
+@click.command(context_settings=CONTEXT_SETTINGS)
 @click.option(
-    "-s", "--seeds", type=str, default="101", help="the inference seed, split by comma"
+    "-i", "--input", type=str, required=True, help="Input JSON file or directory."
 )
-@click.option("-c", "--cycle", type=int, default=10, help="pairformer cycle number")
-@click.option("-p", "--step", type=int, default=200, help="diffusion step")
-@click.option("-e", "--sample", type=int, default=5, help="sample number")
-@click.option("-d", "--dtype", type=str, default="bf16", help="inference dtype")
+@click.option("-o", "--out_dir", default="./output", type=str, help="Output directory.")
+@click.option("-s", "--seeds", type=str, default="101", help="Seeds (comma-separated).")
+@click.option("-c", "--cycle", type=int, default=10, help="Pairformer cycle number.")
+@click.option("-p", "--step", type=int, default=200, help="Diffusion steps.")
+@click.option("-e", "--sample", type=int, default=5, help="Number of samples.")
+@click.option("-d", "--dtype", type=str, default="bf16", help="Inference dtype.")
 @click.option(
     "-n",
     "--model_name",
     type=str,
-    default="protenix_base_default_v0.5.0",
-    help="select model checkpoint for inference",
+    default="protenix_base_default_v1.0.0",
+    help="Model checkpoint name.",
 )
 @click.option(
     "--use_msa",
     type=bool,
     default=True,
-    help="use msa for inference or not, use the precomputed msa or msa searching by server",
+    help="Whether to use MSA for inference.",
 )
 @click.option(
-    "--use_default_params", type=bool, default=True, help="use the default params"
+    "--use_default_params",
+    type=bool,
+    default=False,
+    help="Use recommended default parameters for the selected model.",
 )
 @click.option(
     "--trimul_kernel",
     type=str,
     default="cuequivariance",
-    help="Kernel to use for triangle multiplicative update. Options: 'cuequivariance', 'torch'.",
+    help="Triangle multiplicative update kernel ('cuequivariance' or 'torch').",
 )
 @click.option(
     "--triatt_kernel",
     type=str,
-    default="triattention",
-    help="Kernel to use for triangle attention. Options: 'triattention', 'cuequivariance', 'deepspeed', 'torch'.",
+    default="cuequivariance",
+    help=(
+        "Triangle attention kernel ('triattention', 'cuequivariance', "
+        "'deepspeed', or 'torch')."
+    ),
 )
 @click.option(
     "--enable_cache",
     type=bool,
     default=True,
-    help="The diffusion module precomputes and caches pair_z, p_lm, and c_l (which are shareable across the N_sample and N_step dimensions)",
+    help="Cache shareable variables in the diffusion module.",
 )
 @click.option(
     "--enable_fusion",
     type=bool,
     default=True,
-    help="The diffusion transformer consists of 24 transformer blocks, and the biases in these blocks can be pre-transformed in terms of dimensionality and normalization",
+    help="Enable efficient kernel fusion in the diffusion transformer.",
 )
 @click.option(
     "--enable_tf32",
     type=bool,
     default=True,
-    help="When the diffusion module uses FP32 computation, enabling enable_tf32 reduces the matrix multiplication precision from FP32 to TF32.",
+    help="Enable TF32 for FP32 matrix multiplications.",
 )
 @click.option(
     "--msa_server_mode",
     type=str,
     default="protenix",
-    help="msa search mode, protenix or colabfold",
+    help="MSA search mode ('protenix' or 'colabfold').",
+)
+@click.option(
+    "--use_template",
+    type=bool,
+    default=False,
+    help="Use templates (requires templatesPath in input JSON).",
+)
+@click.option(
+    "--use_rna_msa",
+    type=bool,
+    default=False,
+    help="Use RNA MSA (requires rna_msa_path in input JSON).",
+)
+@click.option(
+    "--use_seeds_in_json",
+    type=bool,
+    default=False,
+    help="Priority to seeds defined in input JSON.",
+)
+@click.option(
+    "--hmmsearch_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmsearch (searches in PATH if not provided).",
+)
+@click.option(
+    "--hmmbuild_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmbuild (searches in PATH if not provided).",
+)
+@click.option(
+    "--seqres_database_path",
+    type=str,
+    default=None,
+    help="Path to the sequence database for template search.",
+)
+@click.option(
+    "--nhmmer_binary_path",
+    type=str,
+    default=None,
+    help="Path to nhmmer for RNA MSA search.",
+)
+@click.option(
+    "--hmmalign_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmalign for RNA MSA search.",
+)
+@click.option(
+    "--hmmbuild_rna_binary_path",
+    type=str,
+    default=None,
+    help="Path to RNA-specific hmmbuild.",
+)
+@click.option(
+    "--ntrna_database_path",
+    type=str,
+    default=None,
+    help="Path to the NT-RNA database.",
+)
+@click.option(
+    "--rfam_database_path",
+    type=str,
+    default=None,
+    help="Path to the Rfam database.",
+)
+@click.option(
+    "--rna_central_database_path",
+    type=str,
+    default=None,
+    help="Path to the RNAcentral database.",
+)
+@click.option(
+    "--nhmmer_n_cpu",
+    type=int,
+    default=None,
+    help="Number of CPUs for nhmmer.",
 )
 def predict(
-    input,
-    out_dir,
-    seeds,
-    cycle,
-    step,
-    sample,
-    dtype,
-    model_name,
-    use_msa,
-    use_default_params,
-    trimul_kernel,
-    triatt_kernel,
-    enable_cache,
-    enable_fusion,
-    enable_tf32,
-    msa_server_mode,
-):
+    input: str,
+    out_dir: str,
+    seeds: str,
+    cycle: int,
+    step: int,
+    sample: int,
+    dtype: str,
+    model_name: str,
+    use_msa: bool,
+    use_default_params: bool,
+    trimul_kernel: str,
+    triatt_kernel: str,
+    enable_cache: bool,
+    enable_fusion: bool,
+    enable_tf32: bool,
+    msa_server_mode: str,
+    use_template: bool,
+    use_rna_msa: bool,
+    use_seeds_in_json: bool,
+    hmmsearch_binary_path: Optional[str] = None,
+    hmmbuild_binary_path: Optional[str] = None,
+    seqres_database_path: Optional[str] = None,
+    nhmmer_binary_path: Optional[str] = None,
+    hmmalign_binary_path: Optional[str] = None,
+    hmmbuild_rna_binary_path: Optional[str] = None,
+    ntrna_database_path: Optional[str] = None,
+    rfam_database_path: Optional[str] = None,
+    rna_central_database_path: Optional[str] = None,
+    nhmmer_n_cpu: Optional[int] = None,
+) -> None:
     """
-    predict: Run predictions with protenix.
-    :param input, out_dir, seeds, cycle, step, sample, model_name, use_msa, use_default_params, trimul_kernel, triatt_kernel
-    :return:
+    Run predictions with Protenix using various input formats.
+
+    Args:
+        input (str): Input JSON file or directory.
+        out_dir (str): Output directory for results.
+        seeds (str): Comma-separated seeds.
+        cycle (int): Number of cycles.
+        step (int): Number of diffusion steps.
+        sample (int): Number of samples.
+        dtype (str): Data type.
+        model_name (str): Model name.
+        use_msa (bool): Use MSA.
+        use_default_params (bool): Use default parameters for the model.
+        trimul_kernel (str): Kernel for triangle multiplicative.
+        triatt_kernel (str): Kernel for triangle attention.
+        enable_cache (bool): Enable shared variables cache.
+        enable_fusion (bool): Enable efficient fusion.
+        enable_tf32 (bool): Enable TF32.
+        msa_server_mode (str): MSA server mode.
+        use_template (bool): Use templates.
+        use_rna_msa (bool): Use RNA MSA.
+        use_seeds_in_json (bool): Use seeds from JSON.
+        hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
+        hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
+        seqres_database_path (Optional[str]): Path to sequence database.
+        nhmmer_binary_path (Optional[str]): Path to nhmmer binary.
+        hmmalign_binary_path (Optional[str]): Path to hmmalign binary.
+        hmmbuild_rna_binary_path (Optional[str]): Path to RNA hmmbuild binary.
+        ntrna_database_path (Optional[str]): NT-RNA database path.
+        rfam_database_path (Optional[str]): Rfam database path.
+        rna_central_database_path (Optional[str]): RNAcentral database path.
+        nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
     """
     init_logging()
-    logger.info(f"run infer with input={input}, out_dir={out_dir}, sample={sample}")
+    logger.info(f"Run infer with input={input}, out_dir={out_dir}, sample={sample}")
     if use_default_params:
         if model_name in [
             "protenix_base_default_v0.5.0",
             "protenix_base_constraint_v0.5.0",
+            "protenix_base_default_v1.0.0",
+            "protenix_base_20250630_v1.0.0",
         ]:
             cycle = 10
             step = 200
@@ -406,19 +769,58 @@ def predict(
                 f"{model_name} is not supported for inference in our model list"
             )
     logger.info(
-        f"Using the default params for inference for model {model_name}: cycle={cycle}, step={step}, use_msa={use_msa}"
+        f"Using default params for model {model_name}: "
+        f"cycle={cycle}, step={step}, use_msa={use_msa}"
     )
     assert trimul_kernel in [
         "cuequivariance",
         "torch",
-    ], "Kernel to use for triangle multiplicative update. Options: 'cuequivariance', 'torch'."
-    assert triatt_kernel in [
-        "triattention",
-        "cuequivariance",
-        "deepspeed",
-        "torch",
-    ], "Kernel to use for triangle attention. Options: 'triattention', 'cuequivariance', 'deepspeed', 'torch'."
+    ], "Invalid trimul_kernel. Options: 'cuequivariance', 'torch'."
+    assert triatt_kernel in ["triattention", "cuequivariance", "deepspeed", "torch",], (
+        "Invalid triatt_kernel. Options: 'triattention', "
+        "'cuequivariance', 'deepspeed', 'torch'."
+    )
     seeds = list(map(int, seeds.split(",")))
+
+    if use_template:
+        assert model_name in [
+            "protenix_base_default_v1.0.0",
+            "protenix_base_20250630_v1.0.0",
+        ], "Only protenix_base_default_v1.0.0 and protenix_base_20250630_v1.0.0 supports template inference."
+        logger.info("=" * 50)
+        logger.info(
+            "Using templates for inference. Template files should have "
+            ".hrr or .a3m extensions and be specified in the JSON file.\n"
+            "Example: /path/to/template.hrr or /path/to/template.a3m\n"
+            "Note: Inference will proceed with automatic template search "
+            "if none are provided and use_template is True."
+        )
+        logger.info("=" * 50)
+
+    if use_rna_msa:
+        assert model_name in [
+            "protenix_base_default_v1.0.0",
+            "protenix_base_20250630_v1.0.0",
+        ], "Only protenix_base_default_v1.0.0 and protenix_base_20250630_v1.0.0 supports RNA MSA inference."
+        logger.info("=" * 50)
+        logger.info(
+            "Using RNA MSA for inference. RNA MSA files should have .a3m "
+            "extension and be specified in the JSON file.\n"
+            "Example: /path/to/rna_msa.a3m\n"
+            "Note: Inference will proceed with automatic RNA MSA search "
+            "if none are provided and use_rna_msa is True."
+        )
+        logger.info("=" * 50)
+
+    if use_seeds_in_json:
+        logger.info("=" * 50)
+        logger.info(
+            "Using seeds defined in JSON file for inference.\n"
+            "Note: This will override any seeds passed via command line, "
+            "using seeds from modelSeeds defined in the JSON."
+        )
+        logger.info("=" * 50)
+
     inference_jsons(
         input,
         out_dir,
@@ -435,37 +837,68 @@ def predict(
         enable_fusion=enable_fusion,
         enable_tf32=enable_tf32,
         msa_server_mode=msa_server_mode,
+        use_template=use_template,
+        use_rna_msa=use_rna_msa,
+        use_seeds_in_json=use_seeds_in_json,
+        hmmsearch_binary_path=hmmsearch_binary_path,
+        hmmbuild_binary_path=hmmbuild_binary_path,
+        seqres_database_path=seqres_database_path,
+        nhmmer_binary_path=nhmmer_binary_path,
+        hmmalign_binary_path=hmmalign_binary_path,
+        hmmbuild_rna_binary_path=hmmbuild_rna_binary_path,
+        ntrna_database_path=ntrna_database_path,
+        rfam_database_path=rfam_database_path,
+        rna_central_database_path=rna_central_database_path,
+        nhmmer_n_cpu=nhmmer_n_cpu,
     )
 
 
-@click.command()
+@click.command(context_settings=CONTEXT_SETTINGS)
 @click.option(
-    "--input", type=str, help="pdb or cif files to generate jsons for inference"
+    "-i",
+    "--input",
+    type=str,
+    required=True,
+    help="PDB/CIF files or directory to generate inference JSONs.",
 )
-@click.option("--out_dir", type=str, default="./output", help="dir to save json files")
+@click.option("-o", "--out_dir", type=str, default="./output", help="Output directory.")
 @click.option(
     "--altloc",
     default="first",
     type=str,
-    help=" Select the first altloc conformation of each residue in the input file, \
-        or specify the altloc letter for selection. For example, 'first', 'A', 'B', etc.",
+    help=(
+        "Select the first altloc conformation of each residue, "
+        "or specify the altloc letter ('A', 'B', etc.)."
+    ),
 )
 @click.option(
     "--assembly_id",
     default=None,
     type=str,
-    help="Extends the structure based on the Assembly ID in \
-                        the input file. The default is no extension",
+    help="Assembly ID for structure extension (default: no extension).",
 )
-def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
+def tojson(
+    input: str,
+    out_dir: str = "./output",
+    altloc: str = "first",
+    assembly_id: Optional[str] = None,
+) -> List[str]:
     """
-    tojson: convert pdb/cif files or dir to json files for predict.
-    :param input, out_dir, altloc, assembly_id
-    :return:
+    Convert PDB or CIF files to JSON files for Protenix inference.
+
+    Args:
+        input (str): Input PDB/CIF file or directory.
+        out_dir (str): Output directory for JSON files.
+        altloc (str): Alternate location conformation selection.
+        assembly_id (Optional[str]): Assembly ID for structure extension.
+
+    Returns:
+        List[str]: List of generated JSON file paths.
     """
     init_logging()
     logger.info(
-        f"run tojson with input={input}, out_dir={out_dir}, altloc={altloc}, assembly_id={assembly_id}"
+        f"Run tojson with input={input}, out_dir={out_dir}, "
+        f"altloc={altloc}, assembly_id={assembly_id}"
     )
     input_files = []
     if not os.path.exists(input):
@@ -492,7 +925,7 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     for input_file in input_files:
         stem, _ = os.path.splitext(os.path.basename(input_file))
         pdb_name = stem[:20]
-        output_json = os.path.join(out_dir, f"{pdb_name}-{uuid.uuid4().hex}.json")
+        output_json = os.path.join(out_dir, f"{pdb_name}.json")
         if input_file.endswith(".pdb"):
             with tempfile.NamedTemporaryFile(suffix=".cif") as tmp:
                 tmp_cif_file = tmp.name
@@ -518,27 +951,39 @@ def tojson(input, out_dir="./output", altloc="first", assembly_id=None):
     return output_jsons
 
 
-@click.command()
+@click.command(context_settings=CONTEXT_SETTINGS)
 @click.option(
-    "--input", type=str, help="file to do msa search, support `json` or `fasta` format"
+    "-i",
+    "--input",
+    type=str,
+    required=True,
+    help="JSON or FASTA file for MSA search.",
 )
-@click.option("--out_dir", type=str, default="./output", help="dir to save msa results")
+@click.option("-o", "--out_dir", type=str, default="./output", help="Output directory.")
 @click.option(
+    "-m",
     "--msa_server_mode",
     type=str,
     default="protenix",
-    help="msa search mode, protenix or colabfold",
+    help="MSA search mode ('protenix' or 'colabfold').",
 )
-def msa(input, out_dir, msa_server_mode) -> Union[str, dict]:
+def msa(input: str, out_dir: str, msa_server_mode: str) -> Union[str, dict]:
     """
-    msa: do msa search by mmseqs. If input is in `fasta`, it should all be proteinChain.
-    :param input, out_dir, msa_server_mode
-    :return:
+    Perform MSA search using MMseqs2.
+    If input is a FASTA file, it should contain protein sequences.
+
+    Args:
+        input (str): Path to a JSON or FASTA file.
+        out_dir (str): Directory to save MSA results.
+        msa_server_mode (str): MSA search mode ('protenix' or 'colabfold').
+
+    Returns:
+        Union[str, dict]: Updated JSON path or dictionary of MSA results.
     """
     init_logging()
-    logger.info(f"run msa with input={input}, out_dir={out_dir}")
+    logger.info(f"Run msa with input={input}, out_dir={out_dir}")
     if input.endswith(".json"):
-        msa_input_json = update_infer_json(
+        msa_input_json, _ = update_infer_json(
             input, out_dir, use_msa=True, mode=msa_server_mode
         )
         logger.info(f"msa results have been update to {msa_input_json}")
@@ -560,10 +1005,244 @@ def msa(input, out_dir, msa_server_mode) -> Union[str, dict]:
         raise RuntimeError(f"only support `json` or `fasta` format, but got : {input}")
 
 
-protenix_cli.add_command(predict)
-protenix_cli.add_command(tojson)
-protenix_cli.add_command(msa)
+# The new msatemplate command first performs MSA search, then performs template search
+@click.command(context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "-i",
+    "--input",
+    type=str,
+    required=True,
+    help="JSON file for MSA and template search.",
+)
+@click.option(
+    "-o",
+    "--out_dir",
+    type=str,
+    default="./output",
+    help="Output directory.",
+)
+@click.option(
+    "-m",
+    "--msa_server_mode",
+    type=str,
+    default="protenix",
+    help="MSA search mode ('protenix' or 'colabfold').",
+)
+@click.option(
+    "--hmmsearch_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmsearch (searches in PATH if not provided).",
+)
+@click.option(
+    "--hmmbuild_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmbuild (searches in PATH if not provided).",
+)
+@click.option(
+    "--seqres_database_path",
+    type=str,
+    default=None,
+    help="Path to the sequence database for template search.",
+)
+def msatemplate(
+    input: str,
+    out_dir: str,
+    msa_server_mode: str,
+    hmmsearch_binary_path: Optional[str],
+    hmmbuild_binary_path: Optional[str],
+    seqres_database_path: Optional[str],
+) -> str:
+    """
+    Perform MSA search followed by template search.
 
+    Args:
+        input (str): Path to the input JSON file.
+        out_dir (str): Directory to save MSA and template results.
+        msa_server_mode (str): MSA search mode ('protenix' or 'colabfold').
+        hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
+        hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
+        seqres_database_path (Optional[str]): Path to sequence database.
+
+    Returns:
+        str: Updated JSON file path with template information.
+    """
+    logger.info(f"Run msa_template with input={input}, out_dir={out_dir}")
+
+    if not input.endswith(".json"):
+        raise RuntimeError(
+            f"msa_template only supports `json` format, but got: {input}"
+        )
+
+    if not os.path.exists(input):
+        raise RuntimeError(f"input file {input} does not exist")
+
+    return preprocess_input(
+        input_json=input,
+        out_dir=out_dir,
+        use_msa=True,
+        use_template=True,
+        use_rna_msa=False,
+        msa_server_mode=msa_server_mode,
+        hmmsearch_binary_path=hmmsearch_binary_path,
+        hmmbuild_binary_path=hmmbuild_binary_path,
+        seqres_database_path=seqres_database_path,
+    )
+
+
+# The new inputprep command calls the RNA MSA process after the MSA template process finishes
+@click.command(context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "-i",
+    "--input",
+    type=str,
+    required=True,
+    help="JSON file to update with RNA MSA (supports 'json' format only).",
+)
+@click.option(
+    "-o",
+    "--out_dir",
+    type=str,
+    default="./output",
+    help="Output directory.",
+)
+@click.option(
+    "-m",
+    "--msa_server_mode",
+    type=str,
+    default="protenix",
+    help="MSA search mode ('protenix' or 'colabfold').",
+)
+@click.option(
+    "--hmmsearch_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmsearch.",
+)
+@click.option(
+    "--hmmbuild_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmbuild.",
+)
+@click.option(
+    "--seqres_database_path",
+    type=str,
+    default=None,
+    help="Path to the sequence database for template search.",
+)
+@click.option(
+    "--nhmmer_binary_path",
+    type=str,
+    default=None,
+    help="Path to nhmmer for RNA MSA search.",
+)
+@click.option(
+    "--hmmalign_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmalign for RNA MSA search.",
+)
+@click.option(
+    "--hmmbuild_rna_binary_path",
+    type=str,
+    default=None,
+    help="Path to RNA-specific hmmbuild.",
+)
+@click.option(
+    "--ntrna_database_path",
+    type=str,
+    default=None,
+    help="Path to the NT-RNA database.",
+)
+@click.option(
+    "--rfam_database_path",
+    type=str,
+    default=None,
+    help="Path to the Rfam database.",
+)
+@click.option(
+    "--rna_central_database_path",
+    type=str,
+    default=None,
+    help="Path to the RNAcentral database.",
+)
+@click.option(
+    "--nhmmer_n_cpu",
+    type=int,
+    default=None,
+    help="Number of CPUs for nhmmer.",
+)
+def inputprep(
+    input: str,
+    out_dir: str,
+    msa_server_mode: str,
+    hmmsearch_binary_path: Optional[str],
+    hmmbuild_binary_path: Optional[str],
+    seqres_database_path: Optional[str],
+    nhmmer_binary_path: Optional[str],
+    hmmalign_binary_path: Optional[str],
+    hmmbuild_rna_binary_path: Optional[str],
+    ntrna_database_path: Optional[str],
+    rfam_database_path: Optional[str],
+    rna_central_database_path: Optional[str],
+    nhmmer_n_cpu: Optional[int],
+) -> str:
+    """
+    Perform MSA search, template search, and RNA MSA search sequentially.
+
+    Args:
+        input (str): Path to the input JSON file.
+        out_dir (str): Directory to save all search results.
+        msa_server_mode (str): MSA search mode ('protenix' or 'colabfold').
+        hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
+        hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
+        seqres_database_path (Optional[str]): Path to sequence database.
+        nhmmer_binary_path (Optional[str]): Path to nhmmer binary.
+        hmmalign_binary_path (Optional[str]): Path to hmmalign binary.
+        hmmbuild_rna_binary_path (Optional[str]): Path to RNA hmmbuild binary.
+        ntrna_database_path (Optional[str]): Path to NT-RNA database.
+        rfam_database_path (Optional[str]): Path to Rfam database.
+        rna_central_database_path (Optional[str]): Path to RNAcentral database.
+        nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
+
+    Returns:
+        str: Final updated JSON file path with all search information.
+    """
+    logger.info(f"Run inputprep with input={input}, out_dir={out_dir}")
+
+    if not input.endswith(".json"):
+        raise RuntimeError(f"inputprep only supports `json` format, but got: {input}")
+
+    if not os.path.exists(input):
+        raise RuntimeError(f"input file {input} does not exist")
+
+    return preprocess_input(
+        input_json=input,
+        out_dir=out_dir,
+        use_msa=True,
+        use_template=True,
+        use_rna_msa=True,
+        msa_server_mode=msa_server_mode,
+        hmmsearch_binary_path=hmmsearch_binary_path,
+        hmmbuild_binary_path=hmmbuild_binary_path,
+        seqres_database_path=seqres_database_path,
+        nhmmer_binary_path=nhmmer_binary_path,
+        hmmalign_binary_path=hmmalign_binary_path,
+        hmmbuild_rna_binary_path=hmmbuild_rna_binary_path,
+        ntrna_database_path=ntrna_database_path,
+        rfam_database_path=rfam_database_path,
+        rna_central_database_path=rna_central_database_path,
+        nhmmer_n_cpu=nhmmer_n_cpu,
+    )
+
+
+protenix_cli.add_command(predict, name="pred")
+protenix_cli.add_command(tojson, name="json")
+protenix_cli.add_command(msa, name="msa")
+protenix_cli.add_command(msatemplate, name="mt")
+protenix_cli.add_command(inputprep, name="prep")
 
 if __name__ == "__main__":
     predict()

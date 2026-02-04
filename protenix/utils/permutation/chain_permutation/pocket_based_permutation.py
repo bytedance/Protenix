@@ -21,7 +21,6 @@ from protenix.utils.logger import get_logger
 from protenix.utils.permutation.chain_permutation.utils import (
     apply_transform,
     get_optimal_transform,
-    num_unique_matches,
 )
 
 logger = get_logger(__name__)
@@ -237,9 +236,11 @@ def permute_pred_to_optimize_pocket_aligned_rmsd(
     permuted_aligned_pred_coord = []
     sample_log_dicts = []
     for i in range(N_sample):
-        atom_indices, aligned_pred_coord, per_sample_log_dict = (
-            _find_protein_ligand_chains_for_one_sample(pred_coord[i])
-        )
+        (
+            atom_indices,
+            aligned_pred_coord,
+            per_sample_log_dict,
+        ) = _find_protein_ligand_chains_for_one_sample(pred_coord[i])
         permute_pred_indices.append(atom_indices)
         permuted_aligned_pred_coord.append(aligned_pred_coord)
         sample_log_dicts.append(per_sample_log_dict)

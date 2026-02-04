@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from functools import partial
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -23,23 +23,34 @@ from protenix.model.modules.primitives import (
     AdaptiveLayerNorm,
     Attention,
     BiasInitLinear,
+    broadcast_token_to_local_atom_pair,
     DropPath,
     LinearNoBias,
-    broadcast_token_to_local_atom_pair,
     rearrange_qk_to_dense_trunk,
 )
+from protenix.model.triangular.layers import LayerNorm
 from protenix.model.utils import (
     aggregate_atom_to_token,
     broadcast_token_to_atom,
+    checkpoint_blocks,
     permute_final_dims,
 )
-from protenix.openfold_local.model.primitives import LayerNorm
-from protenix.openfold_local.utils.checkpointing import checkpoint_blocks
 
 
 class AttentionPairBias(nn.Module):
     """
     Implements Algorithm 24 in AF3
+
+    Args:
+        has_s (bool, optional):  whether s is None as stated in Algorithm 24 Line1. Defaults to True.
+        create_offset_ln_z (bool, optional): the value of create_offset for the LayerNorm applied to z. Defaults to False.
+        n_heads (int, optional): number of attention-like head in AttentionPairBias. Defaults to 16.
+        c_a (int, optional): the embedding dim of a(single feature aggregated atom info). Defaults to 768.
+        c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        biasinit (float, optional): biasinit for BiasInitLinear. Defaults to -2.0.
+        cross_attention_mode (bool, optional): If cross_attention_model = True, the adaptive layernorm will be applied
+            to query and key/value seperately. Defaults to False.
     """
 
     def __init__(
@@ -53,18 +64,6 @@ class AttentionPairBias(nn.Module):
         biasinit: float = -2.0,
         cross_attention_mode: bool = False,
     ) -> None:
-        """
-        Args:
-            has_s (bool, optional):  whether s is None as stated in Algorithm 24 Line1. Defaults to True.
-            create_offset_ln_z (bool, optional): the value of create_offset for the LayerNorm applied to z. Defaults to False.
-            n_heads (int, optional): number of attention-like head in AttentionPairBias. Defaults to 16.
-            c_a (int, optional): the embedding dim of a(single feature aggregated atom info). Defaults to 768.
-            c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            biasinit (float, optional): biasinit for BiasInitLinear. Defaults to -2.0.
-            cross_attention_mode (bool, optional): If cross_attention_model = True, the adaptive layernorm will be applied
-                to query and key/value seperately.
-        """
         super(AttentionPairBias, self).__init__()
         assert c_a % n_heads == 0
         self.n_heads = n_heads
@@ -175,6 +174,7 @@ class AttentionPairBias(nn.Module):
             z (torch.Tensor): pair embedding, used for computing pair bias.
                 [..., N_token, N_token, c_z]
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
+            enable_efficient_fusion (bool): Whether to enable efficient fusion of bias calculation in attention to speed up. Defaults to False. (Alg 24)
 
         Returns:
             torch.Tensor: the updated a from AttentionPairBias
@@ -257,6 +257,15 @@ class AttentionPairBias(nn.Module):
 class DiffusionTransformerBlock(nn.Module):
     """
     Implements Algorithm 23[Line2-Line3] in AF3
+
+    Args:
+        c_a (int): single embedding dimension.
+        c_s (int): single embedding dimension.
+        c_z (int): pair embedding dimension.
+        n_heads (int): number of heads for DiffusionTransformerBlock.
+        biasinit (float, optional): bias initialization value. Defaults to -2.0.
+        drop_path_rate (float, optional): drop path rate. Defaults to 0.0.
+        cross_attention_mode (bool, optional): whether to use cross attention. Defaults to False.
     """
 
     def __init__(
@@ -269,13 +278,6 @@ class DiffusionTransformerBlock(nn.Module):
         drop_path_rate: float = 0.0,
         cross_attention_mode: bool = False,
     ) -> None:
-        """
-        Args:
-            c_a (int, optional): single embedding dimension.
-            c_s (int, optional): single embedding dimension.
-            c_z (int, optional): pair embedding dimension.
-            n_heads (int, optional): number of heads for DiffusionTransformerBlock.
-        """
         super(DiffusionTransformerBlock, self).__init__()
         self.n_heads = n_heads
         self.c_a = c_a
@@ -308,7 +310,7 @@ class DiffusionTransformerBlock(nn.Module):
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         enable_efficient_fusion: bool = False,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
             a (torch.Tensor): the single feature aggregate per-atom representation
@@ -321,10 +323,13 @@ class DiffusionTransformerBlock(nn.Module):
             n_keys (int, optional): local window size of key tensor. Defaults to None.
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
+            enable_efficient_fusion (bool): Whether to enable efficient fusion of bias calculation in attention to speed up. Defaults to False. (Alg 24)
 
         Returns:
-            torch.Tensor: the output of DiffusionTransformerBlock
-                [..., N, c_a]
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                - out_a: the output of DiffusionTransformerBlock [..., N, c_a]
+                - s: the single embedding [..., N, c_s]
+                - z: the pair embedding
         """
         attn_out = self.drop_path(
             self.attention_pair_bias(
@@ -351,6 +356,16 @@ class DiffusionTransformerBlock(nn.Module):
 class DiffusionTransformer(nn.Module):
     """
     Implements Algorithm 23 in AF3
+
+    Args:
+        c_a (int): single embedding dimension.
+        c_s (int): single embedding dimension.
+        c_z (int): pair embedding dimension.
+        n_blocks (int): number of blocks in DiffusionTransformer.
+        n_heads (int): number of heads in attention.
+        cross_attention_mode (bool, optional): whether to use cross attention. Defaults to False.
+        drop_path_rate (float, optional): drop skip connection path rate. Defaults to 0.0.
+        blocks_per_ckpt (int, optional): number of DiffusionTransformer blocks in each activation checkpoint. Defaults to None.
     """
 
     def __init__(
@@ -364,15 +379,6 @@ class DiffusionTransformer(nn.Module):
         drop_path_rate: float = 0.0,  # drop skip connection path
         blocks_per_ckpt: Optional[int] = None,
     ) -> None:
-        """
-        Args:
-            c_a (int): single embedding dimension.
-            c_s (int): single embedding dimension.
-            c_z (int): pair embedding dimension.
-            n_blocks (int): number of blocks in DiffusionTransformer.
-            n_heads (int): number of heads in attention.
-            blocks_per_ckpt: number of DiffusionTransformer blocks in each activation checkpoint
-        """
         super(DiffusionTransformer, self).__init__()
         self.n_blocks = n_blocks
         self.n_heads = n_heads
@@ -404,7 +410,7 @@ class DiffusionTransformer(nn.Module):
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         enable_efficient_fusion: bool = False,
-    ):
+    ) -> list[Callable]:
         blocks = [
             partial(
                 b,
@@ -430,19 +436,20 @@ class DiffusionTransformer(nn.Module):
         enable_efficient_fusion: bool = False,
     ) -> torch.Tensor:
         """
-        Args:
-            a (torch.Tensor): the single feature aggregate per-atom representation
-                [..., N, c_a]
-            s (torch.Tensor): single embedding
-                [..., N, c_s]
-            z (torch.Tensor): pair embedding
-                [..., N, N, c_z]
-            n_queries (int, optional): local window size of query tensor. If not None, will perform local attention. Defaults to None.
-            n_keys (int, optional): local window size of key tensor. Defaults to None.
+                Args:
+                    a (torch.Tensor): the single feature aggregate per-atom representation
+                        [..., N, c_a]
+                    s (torch.Tensor): single embedding
+                        [..., N, c_s]
+                    z (torch.Tensor): pair embedding
+                        [..., N, N, c_z]
+                    n_queries (int, optional): local window size of query tensor. If not None, will perform local attention. Defaults to None.
+                    n_keys (int, optional): local window size of key tensor. Defaults to None.
+        enable_efficient_fusion (bool): Whether to enable efficient fusion of bias calculation in attention to speed up. Defaults to False. (Alg 24)
 
-        Returns:
-            torch.Tensor: the output of DiffusionTransformer
-                [..., N, c_a]
+                Returns:
+                    torch.Tensor: the output of DiffusionTransformer
+                        [..., N, c_a]
         """
         blocks = self._prep_blocks(
             n_queries=n_queries,
@@ -464,6 +471,17 @@ class DiffusionTransformer(nn.Module):
 class AtomTransformer(nn.Module):
     """
     Implements Algorithm 7 in AF3
+
+    Performs local transformer among atom embeddings, with bias predicted from atom pair embeddings
+
+    Args:
+        c_atom (int, optional): embedding dim for atom feature. Defaults to 128.
+        c_atompair (int, optional): embedding dim for atompair feature. Defaults to 16.
+        n_blocks (int, optional): number of block in AtomTransformer. Defaults to 3.
+        n_heads (int, optional): number of heads in attention. Defaults to 4.
+        n_queries (int, optional): local window size of query tensor. If not None, will perform local attention. Defaults to 32.
+        n_keys (int, optional): local window size of key tensor. Defaults to 128.
+        blocks_per_ckpt (int, optional): number of AtomTransformer/DiffusionTransformer blocks in each activation checkpoint. Defaults to None.
     """
 
     def __init__(
@@ -476,20 +494,6 @@ class AtomTransformer(nn.Module):
         n_keys: int = 128,
         blocks_per_ckpt: Optional[int] = None,
     ) -> None:
-        """Performs local transformer among atom embeddings, with bias predicted from atom pair embeddings
-
-        Args:
-            c_atom int: embedding dim for atom feature. Defaults to 128.
-            c_atompair int: embedding dim for atompair feature. Defaults to 16.
-            n_blocks (int, optional): number of block in AtomTransformer. Defaults to 3.
-            n_heads (int, optional): nubmer of heads in attention. Defaults to 4.
-            n_queries (int, optional): local window size of query tensor. If not None, will perform local attention. Defaults to 32.
-            n_keys (int, optional): local window size of key tensor. Defaults to 128.
-            blocks_per_ckpt: number of AtomTransformer/DiffusionTransformer blocks in each activation checkpoint
-                Size of each chunk. A higher value corresponds to fewer
-                checkpoints, and trades memory for speed. If None, no checkpointing
-                is performed.
-        """
         super(AtomTransformer, self).__init__()
         self.n_blocks = n_blocks
         self.n_heads = n_heads
@@ -546,15 +550,15 @@ class AtomTransformer(nn.Module):
 class ConditionedTransitionBlock(nn.Module):
     """
     Implements Algorithm 25 in AF3
+
+    Args:
+        c_a (int): single embedding dim (single feature aggregated atom info).
+        c_s (int):  single embedding dim.
+        n (int, optional): channel scale factor. Defaults to 2.
+        biasinit (float, optional): bias initialization value. Defaults to -2.0.
     """
 
     def __init__(self, c_a: int, c_s: int, n: int = 2, biasinit: float = -2.0) -> None:
-        """
-        Args:
-            c_a (int, optional): single embedding dim (single feature aggregated atom info).
-            c_s (int, optional):  single embedding dim.
-            n (int, optional): channel scale factor. Defaults to 2.
-        """
         super(ConditionedTransitionBlock, self).__init__()
         self.c_a = c_a
         self.c_s = c_s
@@ -593,6 +597,19 @@ class ConditionedTransitionBlock(nn.Module):
 class AtomAttentionEncoder(nn.Module):
     """
     Implements Algorithm 5 in AF3
+
+    Args:
+        has_coords (bool): whether the module input will contains coordinates (r_l).
+        c_token (int): token embedding dim.
+        c_atom (int, optional): atom embedding dim. Defaults to 128.
+        c_atompair (int, optional): atompair embedding dim. Defaults to 16.
+        c_s (int, optional):  single embedding dim. Defaults to 384.
+        c_z (int, optional): pair embedding dim. Defaults to 128.
+        n_blocks (int, optional): number of blocks in AtomTransformer. Defaults to 3.
+        n_heads (int, optional): number of heads in AtomTransformer. Defaults to 4.
+        n_queries (int, optional): local window size of query tensor. Defaults to 32.
+        n_keys (int, optional): local window size of key tensor. Defaults to 128.
+        blocks_per_ckpt (int, optional): number of AtomAttentionEncoder/AtomTransformer blocks in each activation checkpoint. Defaults to None.
     """
 
     def __init__(
@@ -609,21 +626,6 @@ class AtomAttentionEncoder(nn.Module):
         n_keys: int = 128,
         blocks_per_ckpt: Optional[int] = None,
     ) -> None:
-        """
-        Args:
-            has_coords (bool): whether the module input will contains coordinates (r_l).
-            c_token (int): token embedding dim.
-            c_atom (int, optional): atom embedding dim. Defaults to 128.
-            c_atompair (int, optional): atompair embedding dim. Defaults to 16.
-            c_s (int, optional):  single embedding dim. Defaults to 384.
-            c_z (int, optional): pair embedding dim. Defaults to 128.
-            n_blocks (int, optional): number of blocks in AtomTransformer. Defaults to 3.
-            n_heads (int, optionall): number of heads in AtomTransformer. Defaults to 4.
-            blocks_per_ckpt: number of AtomAttentionEncoder/AtomTransformer blocks in each activation checkpoint
-                Size of each chunk. A higher value corresponds to fewer
-                checkpoints, and trades memory for speed. If None, no checkpointing
-                is performed.
-        """
         super(AtomAttentionEncoder, self).__init__()
         self.has_coords = has_coords
         self.c_atom = c_atom
@@ -734,10 +736,10 @@ class AtomAttentionEncoder(nn.Module):
         d_lm: torch.Tensor,
         v_lm: torch.Tensor,
         pad_info: torch.Tensor,
-        r_l: torch.Tensor = None,
+        r_l: Union[torch.Tensor, bool, None] = None,
         z: torch.Tensor = None,
         inplace_safe: bool = False,
-    ):
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         batch_shape = ref_pos.shape[:-2]
         N_atom = ref_pos.shape[-2]
         c_l = self.linear_no_bias_ref_pos(ref_pos) + self.linear_no_bias_ref_charge(
@@ -778,7 +780,9 @@ class AtomAttentionEncoder(nn.Module):
         # Line5-Line6: Embed pairwise inverse squared distances, and the valid mask
         if inplace_safe:
             p_lm += (
-                self.linear_no_bias_invd(1 / (1 + (d_lm**2).sum(dim=-1, keepdim=True)))
+                self.linear_no_bias_invd(
+                    1 / (1 + (d_lm**2).sum(dim=-1, keepdim=True))
+                )
                 * v_lm
             )
             p_lm += self.linear_no_bias_v(
@@ -948,6 +952,16 @@ class AtomAttentionEncoder(nn.Module):
 class AtomAttentionDecoder(nn.Module):
     """
     Implements Algorithm 6 in AF3
+
+    Args:
+        n_blocks (int, optional): number of blocks for AtomTransformer. Defaults to 3.
+        n_heads (int, optional): number of heads for AtomTransformer. Defaults to 4.
+        c_token (int, optional): feature channel of token (single a). Defaults to 384.
+        c_atom (int, optional): embedding dim for atom embedding. Defaults to 128.
+        c_atompair (int, optional): embedding dim for atom pair embedding. Defaults to 16.
+        n_queries (int, optional): local window size of query tensor. Defaults to 32.
+        n_keys (int, optional): local window size of key tensor. Defaults to 128.
+        blocks_per_ckpt (int, optional): number of AtomAttentionDecoder/AtomTransformer blocks in each activation checkpoint. Defaults to None.
     """
 
     def __init__(
@@ -961,18 +975,6 @@ class AtomAttentionDecoder(nn.Module):
         n_keys: int = 128,
         blocks_per_ckpt: Optional[int] = None,
     ) -> None:
-        """
-        Args:
-            n_blocks (int, optional): number of blocks for AtomTransformer. Defaults to 3.
-            n_heads (int, optional): number of heads for AtomTransformer. Defaults to 4.
-            c_token (int, optional): feature channel of token (single a). Defaults to 384.
-            c_atom (int, optional): embedding dim for atom embedding. Defaults to 128.
-            c_atompair (int, optional): embedding dim for atom pair embedding.
-            blocks_per_ckpt: number of AtomAttentionDecoder/AtomTransformer blocks in each activation checkpoint
-                Size of each chunk. A higher value corresponds to fewer
-                checkpoints, and trades memory for speed. If None, no checkpointing
-                is performed.
-        """
         super(AtomAttentionDecoder, self).__init__()
         self.n_blocks = n_blocks
         self.n_heads = n_heads
@@ -1020,7 +1022,7 @@ class AtomAttentionDecoder(nn.Module):
                 [..., n_blocks, n_queries, n_keys, c_atompair]
 
         Returns:
-            torch.Tensor: the updated nosiy coordinates
+            torch.Tensor: the updated noisy coordinates
                 [..., N_atom, 3]
         """
         # Broadcast per-token activiations to per-atom activations and add the skip connection

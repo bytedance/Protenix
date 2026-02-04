@@ -135,7 +135,7 @@ def weights_init(m, bias="zero"):
             _param_init(p, bias)
 
     for name, p in m.named_parameters():
-        if not "." in name:  # top-level parameters
+        if "." not in name:  # top-level parameters
             _param_init(p, bias)
 
 

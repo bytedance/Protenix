@@ -97,8 +97,9 @@ def align_pred_to_true(
         (pred_pose_centered * weight.unsqueeze(-1)).transpose(-2, -1),
         true_pose_centered * atom_mask.unsqueeze(-1),
     )
-    u, s, v = torch.svd(H_mat)
+    u, s, vh = torch.linalg.svd(H_mat)
     u = u.transpose(-1, -2)
+    v = vh.transpose(-1, -2)
 
     if not allowing_reflection:
 

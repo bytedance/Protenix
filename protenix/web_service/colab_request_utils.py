@@ -16,7 +16,7 @@ import logging
 import os
 import tarfile
 import time
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -224,12 +224,12 @@ def run_mmseqs2_service(
 
                 if out["status"] == "ERROR":
                     raise Exception(
-                        f"MMseqs2 API is giving errors. Please confirm your input is a valid protein sequence. If error persists, please try again an hour later."
+                        "MMseqs2 API is giving errors. Please confirm your input is a valid protein sequence. If error persists, please try again an hour later."
                     )
 
                 if out["status"] == "MAINTENANCE":
                     raise Exception(
-                        f"MMseqs2 API is undergoing maintenance. Please try again in a few minutes."
+                        "MMseqs2 API is undergoing maintenance. Please try again in a few minutes."
                     )
 
                 # wait for job to finish
@@ -253,7 +253,7 @@ def run_mmseqs2_service(
                 if out["status"] == "ERROR":
                     REDO = False
                     raise Exception(
-                        f"MMseqs2 API is giving errors. Please confirm your input is a valid protein sequence. If error persists, please try again an hour later."
+                        "MMseqs2 API is giving errors. Please confirm your input is a valid protein sequence. If error persists, please try again an hour later."
                     )
 
             # Download results
@@ -269,7 +269,7 @@ def run_mmseqs2_service(
                     or "uniref_tax.m8" not in files
                 ):
                     raise FileNotFoundError(
-                        f"Files 0.a3m, pdb70_220313_db.m8, and uniref_tax.m8 not found in the directory."
+                        "Files 0.a3m, pdb70_220313_db.m8, and uniref_tax.m8 not found in the directory."
                     )
                 else:
                     print("Files downloaded and extracted successfully.")
@@ -288,8 +288,7 @@ def run_mmseqs2_service(
                     query_id = str(int(x.split("\n")[0].split("_")[-1]))
                     query_seq = x.split("\n")[1]
                     real_non_pairing_fpath = os.path.join(
-                        prefix.split("msa_resmsa")[0],
-                        "msa",
+                        prefix,
                         query_id,
                         "non_pairing.a3m",
                     )
@@ -315,8 +314,7 @@ def run_mmseqs2_service(
                     pair_a3m_chunks = open(pair_a3m, "r").read().split("\x00")
                     for chunk in pair_a3m_chunks[:-1]:
                         real_pairing_fpath = os.path.join(
-                            prefix.split("msa_resmsa")[0],
-                            "msa",
+                            prefix,
                             str(int(chunk.split("\n")[0].split("_")[-1])),
                             "pairing.a3m",
                         )

@@ -198,11 +198,11 @@ class LDDT(nn.Module):
             -2, m_index
         )  # [N_atom_sparse_m, 3]
 
-        pred_distance_sparse_lm = torch.norm(
-            pred_coords_l - pred_coords_m, p=2, dim=-1
+        pred_distance_sparse_lm = torch.linalg.vector_norm(
+            pred_coords_l - pred_coords_m, ord=2, dim=-1
         )  # [N_sample, N_pair_sparse]
-        true_distance_sparse_lm = torch.norm(
-            true_coords_l - true_coords_m, p=2, dim=-1
+        true_distance_sparse_lm = torch.linalg.vector_norm(
+            true_coords_l - true_coords_m, ord=2, dim=-1
         )  # [N_sample, N_pair_sparse]
         return pred_distance_sparse_lm, true_distance_sparse_lm
 

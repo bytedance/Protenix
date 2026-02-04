@@ -413,6 +413,18 @@ def get_continues_crop_index(
 class CropData(object):
     """
     Crop the data based on the given crop size and reference chain indices (asym_id).
+
+    Args:
+        crop_size (int): The size of the crop to be sampled.
+        ref_chain_indices (list[int]): The "asym_id_int" of the reference chains.
+        token_array (TokenArray): The token array.
+        atom_array (AtomArray): The atom array.
+        method_weights (list[float], optional): The weights corresponding to these three cropping methods:
+                                      ["ContiguousCropping", "SpatialCropping", "SpatialInterfaceCropping"]. Defaults to [0.2, 0.4, 0.4].
+        contiguous_crop_complete_lig (bool, optional): Whether to crop the complete ligand in ContiguousCropping method. Defaults to False.
+        spatial_crop_complete_lig (bool, optional): Whether to crop the complete ligand in SpatialCropping method. Defaults to False.
+        drop_last (bool, optional): whether to ensure all ligands or unstandard residues to be cropped completely. Defaults to False.
+        remove_metal (bool, optional): whether remove all metal/ions. Defaults to False.
     """
 
     def __init__(
@@ -427,17 +439,6 @@ class CropData(object):
         drop_last: bool = False,
         remove_metal: bool = False,
     ) -> None:
-        """
-        Args:
-            crop_size (int): The size of the crop to be sampled.
-            ref_chain_indices (list[int]): The "asym_id_int" of the reference chains.
-            token_array (TokenArray): The token array.
-            atom_array (AtomArray): The atom array.
-            method_weights (list[float]): The weights corresponding to these three cropping methods:
-                                          ["ContiguousCropping", "SpatialCropping", "SpatialInterfaceCropping"].
-            contiguous_crop_complete_lig: Whether to crop the complete ligand in ContiguousCropping method.
-
-        """
         self.crop_size = crop_size
         self.ref_chain_indices = ref_chain_indices
         self.token_array = token_array
@@ -527,8 +528,6 @@ class CropData(object):
     def crop_by_indices(
         self,
         selected_token_indices: torch.Tensor,
-        msa_features: dict[str, np.ndarray] = None,
-        template_features: dict[str, np.ndarray] = None,
     ) -> tuple[TokenArray, AtomArray, dict[str, Any], dict[str, Any]]:
         """
         Crop the token array, atom array, msa features and template features based on the selected token indices.
@@ -537,8 +536,6 @@ class CropData(object):
             token_array=self.token_array,
             atom_array=self.atom_array,
             selected_token_indices=selected_token_indices,
-            msa_features=msa_features,
-            template_features=template_features,
         )
 
     @staticmethod
@@ -546,8 +543,6 @@ class CropData(object):
         token_array: TokenArray,
         atom_array: AtomArray,
         selected_token_indices: torch.Tensor,
-        msa_features: dict[str, np.ndarray] = None,
-        template_features: dict[str, np.ndarray] = None,
     ) -> tuple[TokenArray, AtomArray, dict[str, Any], dict[str, Any]]:
         """
         Crop the token array, atom array, msa features and template features based on the selected token indices.
@@ -556,14 +551,10 @@ class CropData(object):
             token_array (TokenArray): the input token array
             atom_array (AtomArray): the input atom array
             selected_token_indices (torch.Tensor): The indices of the tokens to be cropped.
-            msa_feature (dict[str, np.ndarray]): The MSA features.
-            template_feature (dict[str, np.ndarray]): The Template features.
 
         Returns:
             cropped_token_array (TokenArray): The cropped token array.
             cropped_atom_array (AtomArray): The cropped atom array.
-            cropped_msa_features (dict[str, np.ndarray]): The cropped msa features.
-            cropped_template_features (dict[str, np.ndarray]): The cropped template features.
         """
         cropped_token_array = copy.deepcopy(token_array[selected_token_indices])
 
@@ -584,41 +575,9 @@ class CropData(object):
         cropped_atom_array = copy.deepcopy(atom_array[cropped_atom_indices])
         assert len(cropped_token_array) == selected_token_indices.shape[0]
 
-        _selected_token_indices = selected_token_indices.tolist()
-        # crop msa
-        cropped_msa_features = {}
-        if msa_features is not None:
-            for k, v in msa_features.items():
-                if k in ["profile", "deletion_mean"]:
-                    cropped_msa_features[k] = v[_selected_token_indices]
-                elif k in ["msa", "has_deletion", "deletion_value"]:
-                    cropped_msa_features[k] = v[:, selected_token_indices]
-                elif k in [
-                    "prot_pair_num_alignments",
-                    "prot_unpair_num_alignments",
-                    "rna_pair_num_alignments",
-                    "rna_unpair_num_alignments",
-                ]:
-                    # keep the feature that do not need crop
-                    cropped_msa_features[k] = v
-        # crop template
-        cropped_template_features = {}
-        if template_features is not None:
-            for k, v in template_features.items():
-                if k == "template_restype":
-                    cropped_template_features[k] = v[:, _selected_token_indices]
-                elif k == "template_all_atom_mask":
-                    cropped_template_features[k] = v[:, _selected_token_indices, :]
-                elif k == "template_all_atom_positions":
-                    cropped_template_features[k] = v[:, _selected_token_indices, :, :]
-                else:
-                    raise ValueError(f"Cropping for {k} has not been implemented yet")
-
         return (
             cropped_token_array,
             cropped_atom_array,
-            cropped_msa_features,
-            cropped_template_features,
         )
 
     def get_crop_indices(self, crop_method: str = None) -> torch.Tensor:
@@ -630,9 +589,13 @@ class CropData(object):
         Returns:
             selected_indices : torch.Tensor, shape=(N_selected, )
         """
-        tokens, chain_id, token_dist_mask_1d, token_indices_in_ref, is_ligand = (
-            self.extract_info()
-        )
+        (
+            tokens,
+            chain_id,
+            token_dist_mask_1d,
+            token_indices_in_ref,
+            is_ligand,
+        ) = self.extract_info()
 
         assert (
             crop_method in self.cand_crop_methods

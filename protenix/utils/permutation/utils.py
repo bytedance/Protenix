@@ -19,7 +19,6 @@ import torch
 
 
 class Checker:
-
     @staticmethod
     def is_permutation(x: torch.Tensor):
         """

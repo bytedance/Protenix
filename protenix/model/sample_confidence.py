@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import torch
 from ml_collections.config_dict import ConfigDict
@@ -21,18 +21,20 @@ from protenix.metrics.clash import Clash
 from protenix.utils.distributed import traverse_and_aggregate
 
 
-def merge_per_sample_confidence_scores(summary_confidence_list: list[dict]) -> dict:
+def merge_per_sample_confidence_scores(
+    summary_confidence_list: list[dict[str, Any]],
+) -> dict[str, Any]:
     """
     Merge confidence scores from multiple samples into a single dictionary.
 
     Args:
-        summary_confidence_list (list[dict]): List of dictionaries containing confidence scores for each sample.
+        summary_confidence_list (list[dict[str, Any]]): List of dictionaries containing confidence scores for each sample.
 
     Returns:
-        dict: Merged dictionary of confidence scores.
+        dict[str, Any]: Merged dictionary of confidence scores.
     """
 
-    def stack_score(tensor_list: list):
+    def stack_score(tensor_list: list[torch.Tensor]) -> torch.Tensor:
         if tensor_list[0].dim() == 0:
             tensor_list = [x.unsqueeze(0) for x in tensor_list]
         score = torch.stack(tensor_list, dim=0)
@@ -157,7 +159,7 @@ def _compute_full_data_and_summary(
     summary_confidence["num_recycles"] = torch.tensor(
         N_recycle, device=atom_coordinate.device
     )
-    # TODO: disorder
+
     summary_confidence["disorder"] = torch.zeros_like(summary_confidence["ptm"])
     summary_confidence["ranking_score"] = (
         0.8 * summary_confidence["iptm"]
@@ -197,6 +199,7 @@ def _compute_full_data_and_summary(
     summary_confidence = break_down_to_per_sample_dict(
         summary_confidence, shared_keys=["num_recycles"]
     )
+
     if return_full_data:
         # save extra inputs that are used for computing summary_confidence
         full_data["token_has_frame"] = token_has_frame.clone()
@@ -255,6 +258,7 @@ def compute_contact_prob(
     distogram_bins = get_bin_centers(min_bin, max_bin, no_bins)
     thres_idx = (distogram_bins < thres).sum()
     contact_prob = distogram_prob[..., :thres_idx].sum(-1)
+    del distogram_prob
     return contact_prob
 
 
@@ -318,7 +322,7 @@ def logits_to_score(
         return score
 
 
-def calculate_normalization(N):
+def calculate_normalization(N: int) -> float:
     # TM-score normalization constant
     return 1.24 * (max(N, 19) - 15) ** (1 / 3) - 1.8
 
@@ -704,7 +708,7 @@ def calculate_iptm(
     no_bins: int,
     token_mask: Optional[torch.BoolTensor] = None,
     eps: float = 1e-8,
-):
+) -> torch.Tensor:
     """
     Compute ipTM score.
 
@@ -758,16 +762,18 @@ def calculate_iptm(
     return iptm
 
 
-def break_down_to_per_sample_dict(input_dict: dict, shared_keys=[]) -> list[dict]:
+def break_down_to_per_sample_dict(
+    input_dict: dict[str, Any], shared_keys: list[str] = []
+) -> list[dict[str, Any]]:
     """
     Break down a dictionary containing tensors into a list of dictionaries, each corresponding to a sample.
 
     Args:
-        input_dict (dict): Dictionary containing tensors.
-        shared_keys (list): List of keys that are shared across all samples. Defaults to an empty list.
+        input_dict (dict[str, Any]): Dictionary containing tensors.
+        shared_keys (list[str]): List of keys that are shared across all samples. Defaults to an empty list.
 
     Returns:
-        list[dict]: List of dictionaries, each containing data for a single sample.
+        list[dict[str, Any]]: List of dictionaries, each containing data for a single sample.
     """
     per_sample_keys = [key for key in input_dict if key not in shared_keys]
     assert len(per_sample_keys) > 0
@@ -786,22 +792,22 @@ def break_down_to_per_sample_dict(input_dict: dict, shared_keys=[]) -> list[dict
 
 @torch.no_grad()
 def compute_full_data_and_summary(
-    configs,
-    pae_logits,
-    plddt_logits,
-    pde_logits,
-    contact_probs,
-    token_asym_id,
-    token_has_frame,
-    atom_coordinate,
-    atom_to_token_idx,
-    atom_is_polymer,
-    N_recycle,
+    configs: ConfigDict,
+    pae_logits: torch.Tensor,
+    plddt_logits: torch.Tensor,
+    pde_logits: torch.Tensor,
+    contact_probs: torch.Tensor,
+    token_asym_id: torch.Tensor,
+    token_has_frame: torch.Tensor,
+    atom_coordinate: torch.Tensor,
+    atom_to_token_idx: torch.Tensor,
+    atom_is_polymer: torch.Tensor,
+    N_recycle: int,
     return_full_data: bool = False,
-    interested_atom_mask=None,
-    mol_id=None,
-    elements_one_hot=None,
-):
+    interested_atom_mask: Optional[torch.Tensor] = None,
+    mol_id: Optional[torch.Tensor] = None,
+    elements_one_hot: Optional[torch.Tensor] = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Wrapper of `_compute_full_data_and_summary` by enumerating over N samples"""
 
     N_sample = pae_logits.size(0)

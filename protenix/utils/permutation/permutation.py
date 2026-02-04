@@ -198,18 +198,20 @@ class SymmetricPermutation(object):
             chain_mask = 1
             alignment_mask = None
 
-        permuted_pred_dict, atom_perm_log_dict, atom_perm_pred_indices = (
-            atom_permutation.run(
-                pred_coord=pred_dict["coordinate"],
-                true_coord=label_dict["coordinate"],
-                true_coord_mask=label_dict["coordinate_mask"] * chain_mask,
-                ref_space_uid=input_feature_dict["ref_space_uid"],
-                atom_perm_list=input_feature_dict["atom_perm_list"],
-                permute_label=False,
-                alignment_mask=alignment_mask,
-                error_dir=self.atom_error_dir,
-                global_align_wo_symmetric_atom=self.configs.atom_permutation.global_align_wo_symmetric_atom,
-            )
+        (
+            permuted_pred_dict,
+            atom_perm_log_dict,
+            atom_perm_pred_indices,
+        ) = atom_permutation.run(
+            pred_coord=pred_dict["coordinate"],
+            true_coord=label_dict["coordinate"],
+            true_coord_mask=label_dict["coordinate_mask"] * chain_mask,
+            ref_space_uid=input_feature_dict["ref_space_uid"],
+            atom_perm_list=input_feature_dict["atom_perm_list"],
+            permute_label=False,
+            alignment_mask=alignment_mask,
+            error_dir=self.atom_error_dir,
+            global_align_wo_symmetric_atom=self.configs.atom_permutation.global_align_wo_symmetric_atom,
         )
         if permute_pred_indices:
             # Update `permute_pred_indices' according to the results of atom permutation
@@ -465,14 +467,17 @@ class SymmetricPermutation(object):
             permute_by_pocket (bool, optional): Whether to permute by pocket. Defaults to False.
         """
         # 1. Permute predicted coordinates
-        pred_dict, log_dict, permute_pred_indices, _ = (
-            self.permute_diffusion_sample_to_match_label(
-                input_feature_dict,
-                pred_dict=pred_dict,
-                label_dict=label_dict,
-                stage="test",
-                permute_by_pocket=permute_by_pocket,
-            )
+        (
+            pred_dict,
+            log_dict,
+            permute_pred_indices,
+            _,
+        ) = self.permute_diffusion_sample_to_match_label(
+            input_feature_dict,
+            pred_dict=pred_dict,
+            label_dict=label_dict,
+            stage="test",
+            permute_by_pocket=permute_by_pocket,
         )
 
         if permute_pred_indices:

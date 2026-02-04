@@ -22,175 +22,59 @@
 [![Email](https://img.shields.io/badge/Email-Contact-lightgrey?logo=gmail)](#contact-us)
 </div>
 
-We’re excited to introduce **Protenix** — a trainable, open-source PyTorch reproduction of [AlphaFold 3](https://www.nature.com/articles/s41586-024-07487-w).
+We’re excited to introduce **Protenix** — Toward High-Accuracy Open-Source Biomolecular Structure Prediction.
 
 Protenix is built for high-accuracy structure prediction. It serves as an initial step in our journey toward advancing accessible and extensible research tools for the computational biology community.
 
-
-
-![Protenix predictions](assets/protenix_predictions.gif)
+<img src="assets/protenix_predictions.gif" style="width: 100%; height: auto;" alt="Protenix predictions">
 
 ## 🌟 Related Projects
 - **[PXDesign](https://protenix.github.io/pxdesign/)** is a model suite for de novo protein-binder design built on the Protenix foundation model. PXDesign achieves 20–73% experimental success rates across multiple targets — 2–6× higher than prior SOTA methods such as AlphaProteo and RFdiffusion. The framework is freely accessible via the Protenix Server.
 
 - **[PXMeter](https://github.com/bytedance/PXMeter/)** is an open-source toolkit designed for reproducible evaluation of structure prediction models, released with high-quality benchmark dataset that has been manually reviewed to remove experimental artifacts and non-biological interactions. The associated study presents an in-depth comparative analysis of state-of-the-art models, drawing insights from extensive metric data and detailed case studies. The evaluation of Protenix is based on PXMeter.
+
 - **[Protenix-Dock](https://github.com/bytedance/Protenix-Dock)**: Our implementation of a classical protein-ligand docking framework that leverages empirical scoring functions. Without using deep neural networks, Protenix-Dock delivers competitive performance in rigid docking tasks.
 
-## 🎉 Updates
-- 2025-11-05: [**Protenix-v0.7.0**](./assets/inference_time_vs_ntoken.png) is now open-sourced, with new options for faster diffusion inference: shared variable caching, efficient bias fusion, and TF32 acceleration.
-- 2025-07-17: **Protenix-Mini released!**: Lightweight model variants with significantly reduced inference cost are now available. Users can choose from multiple configurations to balance speed and accuracy based on deployment needs. See our [paper](https://arxiv.org/abs/2507.11839) and [model configs](./configs/configs_model_type.py) for more information. 
-- 2025-07-17: [***New constraint feature***](docs/infer_json_format.md#constraint) is released! Now supports **atom-level contact** and **pocket** constraints, significantly improving performance in our evaluations.
-- 2025-05-30: **Protenix-v0.5.0** is now available! You may try Protenix-v0.5.0 by accessing the [server](https://protenix-server.com), or upgrade to the latest version using pip.
-- 2025-01-16: The preview version of **constraint feature** is released to branch [`constraint_esm`](https://github.com/bytedance/Protenix/tree/constraint_esm).
-- 2025-01-16: The [training data pipeline](./docs/prepare_training_data.md) is released.
-- 2025-01-16: The [MSA pipeline](./docs/msa_pipeline.md) is released.
-- 2025-01-16: Use [local colabfold_search](./docs/colabfold_compatible_msa.md) to generate protenix-compatible MSA.
+## 🎉 Latest Updates
+- **2026-02-04: Protenix-v1 Released** 💪
+  - Supported Template/RNA MSA features and improved training dynamics, along with further Inference-time model performance enhancements.
+- **2025-11-05: Protenix-v0.7.0 Released** 🚀
+  - Introduced advanced diffusion inference optimizations: Shared variable caching, efficient kernel fusion, and TF32 acceleration. See our [performance analysis](./assets/inference_time_vs_ntoken.png).
+- **2025-07-17: Protenix-Mini & Constraint Features**
+  - Released lightweight model variants ([Protenix-Mini](https://arxiv.org/abs/2507.11839)) that drastically reduce inference costs with minimal accuracy loss.
+  - Added support for [atom-level contact and pocket constraints](docs/infer_json_format.md#constraint), enhancing prediction accuracy through physical priors.
+- **2025-01-16: Pipeline Enhancements**
+  - Open-sourced the full [training data pipeline](./docs/prepare_training_data.md) and [MSA pipeline](./docs/msa_template_pipeline.md).
+  - Integrated local [ColabFold-compatible search](./docs/colabfold_compatible_msa.md) for streamlined MSA generation.
+
+
+## 🚀 Getting Started
+
+### 🛠 Quick Installation
+
+```bash
+pip install protenix
+```
+
+### 🧬 Quick Prediction
+
+```bash
+# Predict structure using a JSON input
+protenix pred -i examples/input.json -o ./output -n protenix_base_default_v1.0.0
+```
+
+For detailed instructions on installation, data preprocessing, inference, and training, please refer to the [Training and Inference Instructions](docs/training_inference_instructions.md) and [Supported Models](docs/supported_models.md). We recommend users refer to [inference_demo.sh](inference_demo.sh) for detailed inference methods and input explanations.
+
 
 ### 📊 Benchmark
-We benchmarked the performance of Protenix-v0.5.0 against [Boltz-1](https://github.com/jwohlwend/boltz/releases/tag/v0.4.1) and [Chai-1](https://github.com/chaidiscovery/chai-lab/releases/tag/v0.6.1) across multiple datasets, including [PoseBusters v2](https://arxiv.org/abs/2308.05777), [AF3 Nucleic Acid Complexes](https://www.nature.com/articles/s41586-024-07487-w), [AF3 Antibody Set](https://github.com/google-deepmind/alphafold3/blob/20ad0a21eb49febcaad4a6f5d71aa6b701512e5b/docs/metadata_antibody_antigen.csv), and our curated Recent PDB set.
-<!-- 1️⃣ [PoseBusters v2](https://arxiv.org/abs/2308.05777)\
-2️⃣ [AF3 Nucleic Acid Complexes](https://www.nature.com/articles/s41586-024-07487-w)\
-3️⃣ [AF3 Antibody Set](https://github.com/google-deepmind/alphafold3/blob/20ad0a21eb49febcaad4a6f5d71aa6b701512e5b/docs/metadata_antibody_antigen.csv)\
-4️⃣ Our curated Recent PDB set -->
 
-Protenix-v0.5.0 was trained using a PDB cut-off date of September 30, 2021. For the comparative analysis, we adhered to AF3’s inference protocol, generating 25 predictions by employing 5 model seeds, with each seed yielding 5 diffusion samples. The predictions were subsequently ranked based on their respective ranking scores.
+Protenix-v1, the first fully open-source model that outperforms AlphaFold3 across diverse benchmark sets while adhering to the same training data cutoff, model scale, and inference budget as AlphaFold3. For challenging targets, such as antigen-antibody complexes, the prediction accuracy of Protenix-v1 can be further enhanced through inference-time scaling – increasing the sampling budget from several to hundreds of candidates leads to consistent log-linear gains.
 
+<img src="./assets/protenix_base_default_v1.0.0_metrics.png" style="width: 100%; height: auto;" alt="protenix-v1 model Metrics">
 
-![V0.5.0 model Metrics](assets/v0.5.0_metrics.png)
+<img src="./assets/protenix_base_default_v1.0.0_metrics2.png" style="width: 100%; height: auto;" alt="protenix-v1 model Metrics 2">
 
-We will soon release the benchmarking toolkit, including the evaluation datasets, data curation pipeline, and metric calculators, to support transparent and reproducible benchmarking.
-
-
-## 🛠 Installation
-
-### PyPI
-
-```bash
-pip3 install protenix
-```
-
-For development on a CPU-only machine, it is convenient to install with the `--cpu` flag in editable mode:
-```
-python3 setup.py develop --cpu
-```
-
-### Docker (Recommended for Training)
-
-Check the detailed guide: [<u> Docker Installation</u>](docs/docker_installation.md).
-
-
-## 🚀 Inference
-
-### Expected Input & Output Format
-For details on the input JSON format and expected outputs, please refer to the [Input/Output Documentation](docs/infer_json_format.md).
-
-
-### Prepare Inputs
-
-#### Convert PDB/CIF File to Input JSON
-
-If your input is a `.pdb` or `.cif` file, you can convert it into a JSON file for inference.
-
-
-```bash
-# ensure `release_data/ccd_cache/components.cif` or run:
-python scripts/gen_ccd_cache.py -c release_data/ccd_cache/ -n [num_cpu]
-
-# for PDB
-# download pdb file
-wget https://files.rcsb.org/download/7pzb.pdb
-# run with pdb/cif file, and convert it to json file for inference.
-protenix tojson --input examples/7pzb.pdb --out_dir ./output
-
-# for CIF (same process)
-# download cif file
-wget https://files.rcsb.org/download/7pzb.cif
-# run with pdb/cif file, and convert it to json file for inference.
-protenix tojson --input examples/7pzb.cif --out_dir ./output
-```
-
-
-#### (Optional) Prepare MSA Files
-
-We provide an independent MSA search utility. You can run it using either a JSON file or a protein FASTA file.
-```bash
-# run msa search with json file, it will write precomputed msa dir info to a new json file.
-protenix msa --input examples/example_without_msa.json --out_dir ./output
-
-# run msa search with fasta file which only contains protein.
-protenix msa --input examples/prot.fasta --out_dir ./output
-
-# use colabfold-like server
-export MMSEQS_SERVICE_HOST_URL=https://api.colabfold.com # or other in-house host url
-protenix msa --input examples/example_without_msa.json --out_dir ./output --msa_server_mode colabfold
-```
-
-### Inference via Command Line
-
-If you installed `Protenix` via `pip`, you can run the following command to perform model inference:
-
-
-```bash
-# 1. The default model_name is protenix_base_default_v0.5.0, you can modify it by passing --model_name xxxx
-# 2. We provide recommended default configuration parameters for each model. To customize cycle/step/use_msa settings, you must set --use_default_params false
-# 3. You can modify cycle/step/use_msa by passing --cycle x1 --step x2 --use_msa false
-
-# run with example.json, which contains precomputed msa dir.
-protenix predict --input examples/example.json --out_dir  ./output --seeds 101 --model_name "protenix_base_default_v0.5.0"
-
-# run with example.json, we use only esm feature.
-protenix predict --input examples/example.json --out_dir  ./output --seeds 101 --model_name "protenix_mini_esm_v0.5.0" --use_msa false
-
-# run with multiple json files, the default seed is 101.
-protenix predict --input ./jsons_dir/ --out_dir  ./output
-
-# if the json do not contain precomputed msa dir,
-# add --use_msa (default: true) to search msa and then predict.
-# if mutiple seeds are provided, split them by comma.
-protenix predict --input examples/example_without_msa.json --out_dir ./output --seeds 101,102 --use_msa true
-```
-
-### Inference via Bash Script
-Alternatively you can run inference by:
-Alternatively, run inference via script:
-
-```bash
-bash inference_demo.sh
-```
-
-The script accepts the following arguments:
-* `model_name`: Name of the model to use for inference.
-* `input_json_path`: Path to a JSON file that fully specifies the input structure.
-* `dump_dir`: Directory where inference results will be saved.
-* `dtype`: Data type used during inference. Supported options: `bf16` and `fp32`.
-* `use_msa`: Whether to enable MSA features (default: true).
-
-
-> **Note**: By default, layernorm and EvoformerAttention kernels are disabled for simplicity.
-> To enable them and speed up inference, see the [**Kernels Setup Guide**](docs/kernels.md).
-
-
-## 🧬 Training
-
-Refer to the [Training Documentation](docs/training.md) for setup and details.
-
-## Model Features
-###  📌 Constraint
-
-Protenix supports specifying ***contacts*** (at both residue and atom levels) and ***pocket constraints*** as extra guidance. Our benchmark results demonstrate that constraint-guided predictions are significantly more accurate.See our [doc](docs/infer_json_format.md#constraint) for input format details.
-
-![Constraint Metrics](assets/constraint_metrics.png)
-
-###  📌 Mini-Models
-We introduce Protenix-Mini, a lightweight variant of Protenix that uses reduced network blocks and few ODE steps (even as few as one or two steps) to enable efficient prediction of biomolecular complex structures. Experimental results show that Protenix-Mini achieves a favorable balance between efficiency and accuracy, with only a marginal 1–5% drop in evaluation metrics such as interface LDDT, complex LDDT, and ligand RMSD success rate. Protenix-Mini enables accurate structure prediction in high-throughput and resource-limited scenarios, making it well-suited for practical applications at scale. The following comparisons were performed on a subset of the RecentPDB dataset comprising sequences with fewer than 768 tokens.
-
-![Mini/Tiny Metrics](assets/mini_performance.png)
-
-
-## Training and Inference Cost
-
-For details on memory usage and runtime during training and inference, refer to the [Training & Inference Cost Documentation](docs/model_train_inference_cost.md).
-
+For detailed benchmark metrics on each dataset, please refer to [docs/model_1.0.0_benchmark.md](docs/model_1.0.0_benchmark.md).
 
 ## Citing Protenix
 

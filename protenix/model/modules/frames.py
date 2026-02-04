@@ -43,7 +43,7 @@ def expressCoordinatesInFrame(
     e2 = F.normalize(w2 - w1, dim=-1, eps=eps)
     e3 = torch.cross(e1, e2, dim=-1)  # [..., N_frame, 3]
     # Project onto frame basis
-    d = coordinate[..., None, :, :] - b[..., None, :]  #  [..., N_frame, N_atom, 3]
+    d = coordinate[..., None, :, :] - b[..., None, :]  # [..., N_frame, N_atom, 3]
     x_transformed = torch.cat(
         [
             torch.sum(d * e1[..., None, :], dim=-1, keepdim=True),
@@ -65,7 +65,7 @@ def gather_frame_atom_by_indices(
             [..., N_atom, 3]
         frame_atom_index (torch.Tensor): indices of three atoms in each frame
             [..., N_frame, 3] or [N_frame, 3]
-        dim (torch.Tensor): along which dimension to select the frame atoms
+        dim (int): along which dimension to select the frame atoms
     Returns:
         torch.Tensor: the constructed frames
             [..., N_frame, 3[three atom], 3[three coordinate]]

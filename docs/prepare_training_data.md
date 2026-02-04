@@ -28,13 +28,8 @@
 
     When running Protenix, it first uses 
     ```bash
-    `release_data/ccd_cache/components.cif`
-    `release_data/ccd_cache/components.cif.rdkit_mol.pkl`
-    ```
-    if unavailable, it switches to 
-    ```bash
-    `release_data/ccd_cache/components.v20240608.cif`
-    `release_data/ccd_cache/components.v20240608.cif.rdkit_mol.pkl`
+    `{PROTENIX_ROOT_DIR}/common/components.cif`
+    `{PROTENIX_ROOT_DIR}/common/components.cif.rdkit_mol.pkl`
     ```
     Notes:
     - The `-c` parameter is optional. If not specified, files will be saved in the "release_data/ccd_cache" folder within the Protenix code directory by default.

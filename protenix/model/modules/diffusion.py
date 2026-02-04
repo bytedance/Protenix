@@ -24,15 +24,20 @@ from protenix.model.modules.transformer import (
     AtomAttentionEncoder,
     DiffusionTransformer,
 )
-from protenix.model.utils import permute_final_dims
-from protenix.model.utils import expand_at_dim
-from protenix.openfold_local.model.primitives import LayerNorm
-from protenix.openfold_local.utils.checkpointing import get_checkpoint_fn
+from protenix.model.triangular.layers import LayerNorm
+from protenix.model.utils import expand_at_dim, get_checkpoint_fn, permute_final_dims
 
 
 class DiffusionConditioning(nn.Module):
     """
     Implements Algorithm 21 in AF3
+
+    Args:
+        sigma_data (float, optional): the standard deviation of the data. Defaults to 16.0.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
+        c_s_inputs (int, optional): input embedding dim from InputEmbedder. Defaults to 449.
+        c_noise_embedding (int, optional): noise embedding dim. Defaults to 256.
     """
 
     def __init__(
@@ -43,14 +48,6 @@ class DiffusionConditioning(nn.Module):
         c_s_inputs: int = 449,
         c_noise_embedding: int = 256,
     ) -> None:
-        """
-        Args:
-            sigma_data (torch.float, optional): the standard deviation of the data. Defaults to 16.0.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
-            c_s_inputs (int, optional): input embedding dim from InputEmbedder. Defaults to 449.
-            c_noise_embedding (int, optional): noise embedding dim. Defaults to 256.
-        """
         super(DiffusionConditioning, self).__init__()
         self.sigma_data = sigma_data
         self.c_z = c_z
@@ -91,7 +88,7 @@ class DiffusionConditioning(nn.Module):
         relp_feature: torch.Tensor,
         z_trunk: torch.Tensor,
         inplace_safe: bool = False,
-    ):
+    ) -> torch.Tensor:
         # Pair conditioning
         pair_z = torch.cat(
             tensors=[
@@ -181,6 +178,19 @@ class DiffusionConditioning(nn.Module):
 
 
 class DiffusionSchedule:
+    """
+    Diffusion schedule for training and inference.
+
+    Args:
+        sigma_data (float, optional): The standard deviation of the data. Defaults to 16.0.
+        s_max (float, optional): The maximum noise level. Defaults to 160.0.
+        s_min (float, optional): The minimum noise level. Defaults to 4e-4.
+        p (float, optional): The exponent for the noise schedule. Defaults to 7.0.
+        dt (float, optional): The time step size. Defaults to 1/200.
+        p_mean (float, optional): The mean of the log-normal distribution for noise level sampling. Defaults to -1.2.
+        p_std (float, optional): The standard deviation of the log-normal distribution for noise level sampling. Defaults to 1.5.
+    """
+
     def __init__(
         self,
         sigma_data: float = 16.0,
@@ -191,16 +201,6 @@ class DiffusionSchedule:
         p_mean: float = -1.2,
         p_std: float = 1.5,
     ) -> None:
-        """
-        Args:
-            sigma_data (float, optional): The standard deviation of the data. Defaults to 16.0.
-            s_max (float, optional): The maximum noise level. Defaults to 160.0.
-            s_min (float, optional): The minimum noise level. Defaults to 4e-4.
-            p (float, optional): The exponent for the noise schedule. Defaults to 7.0.
-            dt (float, optional): The time step size. Defaults to 1/200.
-            p_mean (float, optional): The mean of the log-normal distribution for noise level sampling. Defaults to -1.2.
-            p_std (float, optional): The standard deviation of the log-normal distribution for noise level sampling. Defaults to 1.5.
-        """
         self.sigma_data = sigma_data
         self.s_max = s_max
         self.s_min = s_min
@@ -231,6 +231,24 @@ class DiffusionSchedule:
 class DiffusionModule(nn.Module):
     """
     Implements Algorithm 20 in AF3
+
+    Args:
+        sigma_data (torch.float, optional): the standard deviation of the data. Defaults to 16.0.
+        c_atom (int, optional): embedding dim for atom feature. Defaults to 128.
+        c_atompair (int, optional): embedding dim for atompair feature. Defaults to 16.
+        c_token (int, optional): feature channel of token (single a). Defaults to 768.
+        c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        c_s_inputs (int, optional): hidden dim [for single input embedding]. Defaults to 449.
+        atom_encoder (dict[str, int], optional): configs in AtomAttentionEncoder. Defaults to {"n_blocks": 3, "n_heads": 4}.
+        transformer (dict[str, int], optional): configs in DiffusionTransformer. Defaults to {"n_blocks": 24, "n_heads": 16}.
+        atom_decoder (dict[str, int], optional): configs in AtomAttentionDecoder. Defaults to {"n_blocks": 3, "n_heads": 4}.
+        drop_path_rate (float, optional): drop path rate. Defaults to 0.0.
+        blocks_per_ckpt: number of atom_encoder/transformer/atom_decoder blocks in each activation checkpoint
+            Size of each chunk. A higher value corresponds to fewer
+            checkpoints, and trades memory for speed. If None, no checkpointing is performed.
+        use_fine_grained_checkpoint: whether use fine-gained checkpoint for finetuning stage 2
+            only effective if blocks_per_ckpt is not None.
     """
 
     def __init__(
@@ -253,25 +271,6 @@ class DiffusionModule(nn.Module):
         blocks_per_ckpt: Optional[int] = None,
         use_fine_grained_checkpoint: bool = False,
     ) -> None:
-        """
-        Args:
-            sigma_data (torch.float, optional): the standard deviation of the data. Defaults to 16.0.
-            c_atom (int, optional): embedding dim for atom feature. Defaults to 128.
-            c_atompair (int, optional): embedding dim for atompair feature. Defaults to 16.
-            c_token (int, optional): feature channel of token (single a). Defaults to 768.
-            c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            c_s_inputs (int, optional): hidden dim [for single input embedding]. Defaults to 449.
-            atom_encoder (dict[str, int], optional): configs in AtomAttentionEncoder. Defaults to {"n_blocks": 3, "n_heads": 4}.
-            transformer (dict[str, int], optional): configs in DiffusionTransformer. Defaults to {"n_blocks": 24, "n_heads": 16}.
-            atom_decoder (dict[str, int], optional): configs in AtomAttentionDecoder. Defaults to {"n_blocks": 3, "n_heads": 4}.
-            blocks_per_ckpt: number of atom_encoder/transformer/atom_decoder blocks in each activation checkpoint
-                Size of each chunk. A higher value corresponds to fewer
-                checkpoints, and trades memory for speed. If None, no checkpointing is performed.
-            use_fine_grained_checkpoint: whether use fine-gained checkpoint for finetuning stage 2
-                only effective if blocks_per_ckpt is not None.
-        """
-
         super(DiffusionModule, self).__init__()
         self.sigma_data = sigma_data
         self.c_atom = c_atom
@@ -355,9 +354,16 @@ class DiffusionModule(nn.Module):
                 [..., N_tokens, c_s]
             z_trunk (torch.Tensor): pair feature embedding from PairFormer (Alg17)
                 [..., N_tokens, N_tokens, c_z]
+            pair_z (torch.Tensor): diffusion pair embedding
+                [..., N_tokens, N_tokens, c_z]
+            p_lm (torch.Tensor): MSA embedding
+                [..., N_tokens, c_p_lm]
+            c_l (torch.Tensor): ligand embedding
+                [..., N_tokens, c_c_l]
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
             use_conditioning (bool): Whether to drop the s/z embeddings in DiffusionConditioning.
+            enable_efficient_fusion (bool): Whether to enable efficient fusion. Defaults to False.
 
         Returns:
             torch.Tensor: coordinates update
@@ -529,9 +535,16 @@ class DiffusionModule(nn.Module):
                 [..., N_tokens, c_s]
             z_trunk (torch.Tensor): pair feature embedding from PairFormer (Alg17)
                 [..., N_tokens, N_tokens, c_z]
+            pair_z (torch.Tensor): diffusion pair embedding
+                [..., N_tokens, N_tokens, c_z]
+            p_lm (torch.Tensor): MSA embedding
+                [..., N_tokens, c_p_lm]
+            c_l (torch.Tensor): ligand embedding
+                [..., N_tokens, c_c_l]
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
             use_conditioning (bool): Whether to drop the s/z embeddings in DiffusionConditioning.
+            enable_efficient_fusion (bool): Whether to enable efficient fusion. Defaults to False.
 
         Returns:
             torch.Tensor: the denoised coordinates of x
@@ -579,7 +592,9 @@ class DiffusionModule(nn.Module):
         )
         x_denoised = (
             1 / (1 + s_ratio**2) * x_noisy
-            + t_hat_noise_level[..., None, None] / torch.sqrt(1 + s_ratio**2) * r_update
+            + t_hat_noise_level[..., None, None]
+            / torch.sqrt(1 + s_ratio**2)
+            * r_update
         ).to(r_update.dtype)
 
         return x_denoised

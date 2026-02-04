@@ -12,16 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
 import math
+from typing import Any, Optional
+
+import torch
 import triton
-from protenix.model.tri_attention.forward import _attention_fwd
+
 from protenix.model.tri_attention.backward import (
-    _attention_bwd_preprocess,
+    _attention_bwd_dbias2,
     _attention_bwd_dkdv,
     _attention_bwd_dq,
-    _attention_bwd_dbias2,
+    _attention_bwd_preprocess,
 )
+from protenix.model.tri_attention.forward import _attention_fwd
 
 
 def get_tag(x: int) -> int:
@@ -31,9 +34,16 @@ def get_tag(x: int) -> int:
 
 
 class TriAttentionFunction(torch.autograd.Function):
-
     @staticmethod
-    def forward(ctx, Q, K, V, Bias1, Bias2, deterministic=False):
+    def forward(
+        ctx: Any,
+        Q: torch.Tensor,
+        K: torch.Tensor,
+        V: torch.Tensor,
+        Bias1: torch.Tensor,
+        Bias2: torch.Tensor,
+        deterministic: bool = False,
+    ) -> torch.Tensor:
         Q = Q.contiguous()
         K = K.contiguous()
         V = V.contiguous()
@@ -66,7 +76,17 @@ class TriAttentionFunction(torch.autograd.Function):
         ctx.deterministic = deterministic
         return O
 
-    def backward(ctx, DO):
+    @staticmethod
+    def backward(
+        ctx: Any, DO: torch.Tensor
+    ) -> tuple[
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        None,
+    ]:
         Q, K, V, Bias1, Bias2, O, M = ctx.saved_tensors
         deterministic = ctx.deterministic
         B, N, S, H, D = Q.shape
@@ -145,11 +165,18 @@ class TriAttentionFunction(torch.autograd.Function):
 
 
 class TriAttention(torch.nn.Module):
-    def __init__(self, deterministic=False):
+    def __init__(self, deterministic: bool = False) -> None:
         super(TriAttention, self).__init__()
         self.deterministic = deterministic
 
-    def forward(self, Q, K, V, Bias1, Bias2):
+    def forward(
+        self,
+        Q: torch.Tensor,
+        K: torch.Tensor,
+        V: torch.Tensor,
+        Bias1: torch.Tensor,
+        Bias2: torch.Tensor,
+    ) -> torch.Tensor:
         """
         Args:
             Q: (B, S, S, H, D)

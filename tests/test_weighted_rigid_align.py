@@ -22,7 +22,6 @@ from protenix.utils.seed import seed_everything
 
 
 class TestWeightedRigidAlign(unittest.TestCase):
-
     def setUp(self) -> None:
         self._start_time = time.time()
         self.device = "cpu"

@@ -117,7 +117,7 @@ std::vector<at::Tensor> layer_norm_gradient_affine(at::Tensor dout, at::Tensor m
         grad_gamma = at::empty_like(*gamma);
     if (beta != NULL)
         grad_beta = at::empty_like(*beta);
-    
+
     if (gamma != NULL) {
         if(beta != NULL) {
             cuda_layer_norm_gradient(&dout, &mean, &invvar, &input, n1, n2, normalized_shape, gamma, beta,
@@ -143,19 +143,19 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("forward_none_affine", [](at::Tensor input, at::IntArrayRef normalized_shape, double epsilon) {
         return layer_norm_affine(input, normalized_shape, NULL, NULL, epsilon);
     }, "LayerNorm forward (CUDA)");
-    
+
     m.def("forward_with_bias_affine", [](at::Tensor input, at::IntArrayRef normalized_shape, at::Tensor *beta, double epsilon) {
         return layer_norm_affine(input, normalized_shape, NULL, beta, epsilon);
     }, "LayerNorm forward (CUDA)");
-    
+
     m.def("forward_with_weight_affine", [](at::Tensor input, at::IntArrayRef normalized_shape, at::Tensor *gamma, double epsilon) {
         return layer_norm_affine(input, normalized_shape, gamma, NULL, epsilon);
     }, "LayerNorm forward (CUDA)");
-    
+
     m.def("forward_with_both_affine", [](at::Tensor input, at::IntArrayRef normalized_shape, at::Tensor *gamma, at::Tensor *beta, double epsilon) {
         return layer_norm_affine(input, normalized_shape, gamma, beta, epsilon);
     }, "LayerNorm forward (CUDA)");
-    
+
     m.def("backward_none_affine", [](at::Tensor dout, at::Tensor mean, at::Tensor invvar, at::Tensor input,
                                      at::IntArrayRef normalized_shape, double epsilon) {
         return layer_norm_gradient_affine(dout, mean, invvar, input, normalized_shape, NULL, NULL, epsilon);

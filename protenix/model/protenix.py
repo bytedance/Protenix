@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import random
 import time
 from typing import Any, Optional
@@ -19,35 +20,46 @@ from typing import Any, Optional
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from protenix.model import sample_confidence
 from protenix.model.generator import (
     InferenceNoiseScheduler,
-    TrainingNoiseSampler,
     sample_diffusion,
     sample_diffusion_training,
+    TrainingNoiseSampler,
 )
-from protenix.model.utils import simple_merge_dict_list
-from protenix.openfold_local.model.primitives import LayerNorm
-from protenix.utils.logger import get_logger
-from protenix.utils.permutation.permutation import SymmetricPermutation
-from protenix.utils.torch_utils import autocasting_disable_decorator
-
-from .modules.confidence import ConfidenceHead
-from .modules.diffusion import DiffusionModule
-from .modules.embedders import (
+from protenix.model.modules.confidence import ConfidenceHead
+from protenix.model.modules.diffusion import DiffusionModule
+from protenix.model.modules.embedders import (
     ConstraintEmbedder,
     InputFeatureEmbedder,
     RelativePositionEncoding,
 )
-from .modules.head import DistogramHead
-from .modules.pairformer import MSAModule, PairformerStack, TemplateEmbedder
-from .modules.primitives import LinearNoBias
+from protenix.model.modules.head import DistogramHead
+from protenix.model.modules.pairformer import (
+    MSAModule,
+    PairformerStack,
+    TemplateEmbedder,
+)
+from protenix.model.modules.primitives import LinearNoBias
+from protenix.model.triangular.layers import LayerNorm
+from protenix.model.utils import simple_merge_dict_list
+from protenix.utils.logger import get_logger
+from protenix.utils.permutation.permutation import SymmetricPermutation
+from protenix.utils.torch_utils import autocasting_disable_decorator
 
 logger = get_logger(__name__)
 
 
-def update_input_feature_dict(input_feature_dict):
+def update_input_feature_dict(input_feature_dict: dict[str, Any]) -> dict[str, Any]:
+    """
+    Lines 1-3 of Algorithm 5 compute d_lm, v_lm, and pad_info utilized in the AtomAttentionEncoder.
+    Args:
+            input_feature_dict (dict[str, Any]): input features
+    Returns:
+            input_feature_dict (dict[str, Any]): input features
+    """
     from protenix.model.modules.transformer import rearrange_qk_to_dense_trunk
 
     with torch.no_grad():
@@ -81,7 +93,7 @@ class Protenix(nn.Module):
     Implements Algorithm 1 [Main Inference/Train Loop] in AF3
     """
 
-    def __init__(self, configs) -> None:
+    def __init__(self, configs: Any) -> None:
         super(Protenix, self).__init__()
         self.configs = configs
         torch.backends.cuda.matmul.allow_tf32 = self.configs.enable_tf32
@@ -161,6 +173,8 @@ class Protenix(nn.Module):
         N_cycle: int,
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
+        mc_dropout: bool = False,
+        mc_dropout_rate: float = 0.4,
     ) -> tuple[torch.Tensor, ...]:
         """
         The forward pass from the input to pairformer output
@@ -191,11 +205,11 @@ class Protenix(nn.Module):
                 input_feature_dict["constraint_feature"]
             )
 
-        s_init = self.linear_no_bias_sinit(s_inputs)  #  [..., N_token, c_s]
+        s_init = self.linear_no_bias_sinit(s_inputs)  # [..., N_token, c_s]
         z_init = (
             self.linear_no_bias_zinit1(s_init)[..., None, :]
             + self.linear_no_bias_zinit2(s_init)[..., None, :, :]
-        )  #  [..., N_token, N_token, c_z]
+        )  # [..., N_token, N_token, c_z]
         if inplace_safe:
             z_init += self.relative_position_encoding(input_feature_dict["relp"])
             z_init += self.linear_no_bias_token_bond(
@@ -223,7 +237,13 @@ class Protenix(nn.Module):
                 and (not self.train_confidence_only)
                 and cycle_no == (N_cycle - 1)
             ):
-                z = z_init + self.linear_no_bias_z_cycle(self.layernorm_z_cycle(z))
+                if mc_dropout:
+                    z = z_init + F.dropout(
+                        self.linear_no_bias_z_cycle(self.layernorm_z_cycle(z)),
+                        p=self.configs.mc_dropout_rate,
+                    )
+                else:
+                    z = z_init + self.linear_no_bias_z_cycle(self.layernorm_z_cycle(z))
                 if inplace_safe:
                     if self.template_embedder.n_blocks > 0:
                         z += self.template_embedder(
@@ -283,7 +303,7 @@ class Protenix(nn.Module):
 
         return s_inputs, s, z
 
-    def sample_diffusion(self, **kwargs) -> torch.Tensor:
+    def sample_diffusion(self, **kwargs: Any) -> torch.Tensor:
         """
         Samples diffusion process based on the provided configurations.
 
@@ -315,7 +335,7 @@ class Protenix(nn.Module):
             sample_diffusion
         )(**_configs, **kwargs)
 
-    def run_confidence_head(self, *args, **kwargs):
+    def run_confidence_head(self, *args: Any, **kwargs: Any) -> Any:
         """
         Runs the confidence head with optional automatic mixed precision (AMP) disabled.
 
@@ -336,6 +356,7 @@ class Protenix(nn.Module):
         chunk_size: Optional[int] = 4,
         N_model_seed: int = 1,
         symmetric_permutation: SymmetricPermutation = None,
+        mc_dropout_apply_rate: float = 0.4,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
         """
         Main inference loop (multiple model seeds) for the Alphafold3 model.
@@ -349,15 +370,59 @@ class Protenix(nn.Module):
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to 4.
             N_model_seed (int): Number of model seeds. Defaults to 1.
             symmetric_permutation (SymmetricPermutation): Symmetric permutation object. Defaults to None.
+            mc_dropout_apply_rate (float): Only for inference mode
 
         Returns:
             tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]: Prediction, log, and time dictionaries.
         """
-        pred_dicts = []
-        log_dicts = []
-        time_trackers = []
-        for _ in range(N_model_seed):
-            pred_dict, log_dict, time_tracker = self._main_inference_loop(
+        # For backward compatibility, if N_model_seed > 1, process multiple seeds here
+        # But in evaluation mode, this should be handled externally
+        if N_model_seed > 1 and mode in ["inference"]:
+            pred_dicts = []
+            log_dicts = []
+            time_trackers = []
+            for _ in range(N_model_seed):
+                pred_dict, log_dict, time_tracker = self._main_inference_loop(
+                    input_feature_dict=(
+                        copy.deepcopy(input_feature_dict)
+                        if (N_model_seed > 1 and mode == "inference")
+                        else input_feature_dict
+                    ),  # the input_feature_dict is modified when mode is "inference"
+                    label_dict=label_dict,
+                    N_cycle=N_cycle,
+                    mode=mode,
+                    inplace_safe=inplace_safe,
+                    chunk_size=chunk_size,
+                    symmetric_permutation=symmetric_permutation,
+                    mc_dropout=random.random() < mc_dropout_apply_rate,
+                )
+                pred_dicts.append(pred_dict)
+                log_dicts.append(log_dict)
+                time_trackers.append(time_tracker)
+
+            # Combine outputs of multiple models
+            def _cat(dict_list, key):
+                return torch.cat([x[key] for x in dict_list], dim=0)
+
+            def _list_join(dict_list, key):
+                return sum([x[key] for x in dict_list], [])
+
+            all_pred_dict = {
+                "coordinate": _cat(pred_dicts, "coordinate"),
+                "summary_confidence": _list_join(pred_dicts, "summary_confidence"),
+                "full_data": _list_join(pred_dicts, "full_data"),
+                "plddt": _cat(pred_dicts, "plddt"),
+                "pae": _cat(pred_dicts, "pae"),
+                "pde": _cat(pred_dicts, "pde"),
+                "resolved": _cat(pred_dicts, "resolved"),
+            }
+
+            all_log_dict = simple_merge_dict_list(log_dicts)
+            all_time_dict = simple_merge_dict_list(time_trackers)
+            return all_pred_dict, all_log_dict, all_time_dict
+        else:
+            # Single seed inference - delegate to _main_inference_loop
+            return self._main_inference_loop(
                 input_feature_dict=input_feature_dict,
                 label_dict=label_dict,
                 N_cycle=N_cycle,
@@ -365,31 +430,35 @@ class Protenix(nn.Module):
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
                 symmetric_permutation=symmetric_permutation,
+                mc_dropout=random.random() < mc_dropout_apply_rate,
             )
-            pred_dicts.append(pred_dict)
-            log_dicts.append(log_dict)
-            time_trackers.append(time_tracker)
 
-        # Combine outputs of multiple models
-        def _cat(dict_list, key):
-            return torch.cat([x[key] for x in dict_list], dim=0)
+    def _get_dynamic_chunk_size(self, N_token: int) -> Optional[int]:
+        """
+        Get dynamic chunk_size based on token count
 
-        def _list_join(dict_list, key):
-            return sum([x[key] for x in dict_list], [])
+        Args:
+            N_token (int): Number of tokens
 
-        all_pred_dict = {
-            "coordinate": _cat(pred_dicts, "coordinate"),
-            "summary_confidence": _list_join(pred_dicts, "summary_confidence"),
-            "full_data": _list_join(pred_dicts, "full_data"),
-            "plddt": _cat(pred_dicts, "plddt"),
-            "pae": _cat(pred_dicts, "pae"),
-            "pde": _cat(pred_dicts, "pde"),
-            "resolved": _cat(pred_dicts, "resolved"),
-        }
+        Returns:
+            Optional[int]: Optimal chunk_size for the given token count
+        """
+        if not hasattr(self.configs.infer_setting, "chunk_size_thresholds"):
+            return self.configs.infer_setting.chunk_size
 
-        all_log_dict = simple_merge_dict_list(log_dicts)
-        all_time_dict = simple_merge_dict_list(time_trackers)
-        return all_pred_dict, all_log_dict, all_time_dict
+        thresholds = self.configs.infer_setting.chunk_size_thresholds
+
+        # Convert string keys to integers and sort in ascending order
+        threshold_pairs = [(int(k), v) for k, v in thresholds.items()]
+        sorted_thresholds = sorted(threshold_pairs, key=lambda x: x[0])
+
+        # Find the appropriate chunk_size for the given token count
+        for threshold, chunk_size in sorted_thresholds:
+            if N_token <= threshold:
+                return None if chunk_size == -1 else chunk_size
+
+        # For token counts larger than the largest threshold, use smallest chunk_size
+        return 32  # extreme case for very large proteins
 
     def _main_inference_loop(
         self,
@@ -400,15 +469,25 @@ class Protenix(nn.Module):
         inplace_safe: bool = True,
         chunk_size: Optional[int] = 4,
         symmetric_permutation: SymmetricPermutation = None,
+        mc_dropout: bool = False,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
         """
         Main inference loop (single model seed) for the Alphafold3 model.
+        mc_dropout: do not use by default
 
         Returns:
             tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]: Prediction, log, and time dictionaries.
         """
         step_st = time.time()
-        N_token = input_feature_dict["token_index"].shape[-1]
+        N_token = input_feature_dict["residue_index"].shape[-1]
+
+        # Apply dynamic chunk_size if enabled (otherwise keep the passed chunk_size)
+        if (
+            hasattr(self.configs.infer_setting, "dynamic_chunk_size")
+            and self.configs.infer_setting.dynamic_chunk_size
+        ):
+            chunk_size = self._get_dynamic_chunk_size(N_token)
+        # If dynamic chunking is disabled, chunk_size keeps its original value from the function parameter
 
         log_dict = {}
         pred_dict = {}
@@ -419,22 +498,23 @@ class Protenix(nn.Module):
             N_cycle=N_cycle,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
+            mc_dropout=mc_dropout,
         )
-        if mode == "inference":
-            keys_to_delete = []
-            for key in input_feature_dict.keys():
-                if "template_" in key or key in [
-                    "msa",
-                    "has_deletion",
-                    "deletion_value",
-                    "profile",
-                    "deletion_mean",
-                    "token_bonds",
-                ]:
-                    keys_to_delete.append(key)
 
-            for key in keys_to_delete:
-                del input_feature_dict[key]
+        keys_to_delete = []
+        for key in input_feature_dict.keys():
+            if "template_" in key or key in [
+                "msa",
+                "has_deletion",
+                "deletion_value",
+                "profile",
+                "deletion_mean",
+                # "token_bonds",
+            ]:
+                keys_to_delete.append(key)
+
+        for key in keys_to_delete:
+            del input_feature_dict[key]
         step_trunk = time.time()
         time_tracker.update({"pairformer": step_trunk - step_st})
         # Sample diffusion
@@ -447,6 +527,7 @@ class Protenix(nn.Module):
         )
         cache = dict()
         if self.enable_diffusion_shared_vars_cache:
+            # line 1-5 of algorithm 21 calculate z in diffusion conditioning
             cache["pair_z"] = autocasting_disable_decorator(
                 self.configs.skip_amp.sample_diffusion
             )(self.diffusion_module.diffusion_conditioning.prepare_cache)(
@@ -455,18 +536,18 @@ class Protenix(nn.Module):
             cache["p_lm/c_l"] = autocasting_disable_decorator(
                 self.configs.skip_amp.sample_diffusion
             )(self.diffusion_module.atom_attention_encoder.prepare_cache)(
-                input_feature_dict["ref_pos"],
-                input_feature_dict["ref_charge"],
-                input_feature_dict["ref_mask"],
-                input_feature_dict["ref_element"],
-                input_feature_dict["ref_atom_name_chars"],
-                input_feature_dict["atom_to_token_idx"],
-                input_feature_dict["d_lm"],
-                input_feature_dict["v_lm"],
-                input_feature_dict["pad_info"],
-                "",
-                cache["pair_z"],
-                False,
+                ref_pos=input_feature_dict["ref_pos"],
+                ref_charge=input_feature_dict["ref_charge"],
+                ref_mask=input_feature_dict["ref_mask"],
+                ref_element=input_feature_dict["ref_element"],
+                ref_atom_name_chars=input_feature_dict["ref_atom_name_chars"],
+                atom_to_token_idx=input_feature_dict["atom_to_token_idx"],
+                d_lm=input_feature_dict["d_lm"],
+                v_lm=input_feature_dict["v_lm"],
+                pad_info=input_feature_dict["pad_info"],
+                r_l=True,
+                z=cache["pair_z"],
+                inplace_safe=False,
             )
         else:
             cache["pair_z"] = None
@@ -570,7 +651,7 @@ class Protenix(nn.Module):
         self,
         input_feature_dict: dict[str, Any],
         label_full_dict: dict[str, Any],
-        label_dict: dict,
+        label_dict: dict[str, Any],
         N_cycle: int,
         symmetric_permutation: SymmetricPermutation,
         inplace_safe: bool = False,
@@ -592,7 +673,6 @@ class Protenix(nn.Module):
             tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
                 Prediction, updated label, and log dictionaries.
         """
-        N_token = input_feature_dict["token_index"].shape[-1]
 
         s_inputs, s, z = self.get_pairformer_output(
             input_feature_dict=input_feature_dict,
@@ -614,18 +694,18 @@ class Protenix(nn.Module):
             cache["p_lm/c_l"] = autocasting_disable_decorator(
                 self.configs.skip_amp.sample_diffusion
             )(self.diffusion_module.atom_attention_encoder.prepare_cache)(
-                input_feature_dict["ref_pos"],
-                input_feature_dict["ref_charge"],
-                input_feature_dict["ref_mask"],
-                input_feature_dict["ref_element"],
-                input_feature_dict["ref_atom_name_chars"],
-                input_feature_dict["atom_to_token_idx"],
-                input_feature_dict["d_lm"],
-                input_feature_dict["v_lm"],
-                input_feature_dict["pad_info"],
-                "",
-                cache["pair_z"],
-                False,
+                ref_pos=input_feature_dict["ref_pos"],
+                ref_charge=input_feature_dict["ref_charge"],
+                ref_mask=input_feature_dict["ref_mask"],
+                ref_element=input_feature_dict["ref_element"],
+                ref_atom_name_chars=input_feature_dict["ref_atom_name_chars"],
+                atom_to_token_idx=input_feature_dict["atom_to_token_idx"],
+                d_lm=input_feature_dict["d_lm"],
+                v_lm=input_feature_dict["v_lm"],
+                pad_info=input_feature_dict["pad_info"],
+                r_l=True,
+                z=cache["pair_z"],
+                inplace_safe=False,
             )
         else:
             cache["pair_z"] = None
@@ -637,7 +717,7 @@ class Protenix(nn.Module):
                 "N_sample_mini_rollout"
             ]  # =1
             N_step_mini_rollout = self.configs.sample_diffusion["N_step_mini_rollout"]
-
+            self.diffusion_module.eval()  # use eval mode for mini-rollout
             coordinate_mini = self.sample_diffusion(
                 denoise_net=self.diffusion_module,
                 input_feature_dict=input_feature_dict,
@@ -663,17 +743,19 @@ class Protenix(nn.Module):
                 ),
                 enable_efficient_fusion=self.enable_efficient_fusion,
             )
+            self.diffusion_module.train()
             coordinate_mini.detach_()
             pred_dict["coordinate_mini"] = coordinate_mini
 
             # Permute ground truth to match mini-rollout prediction
-            label_dict, perm_log_dict = (
-                symmetric_permutation.permute_label_to_match_mini_rollout(
-                    coordinate_mini,
-                    input_feature_dict,
-                    label_dict,
-                    label_full_dict,
-                )
+            (
+                label_dict,
+                perm_log_dict,
+            ) = symmetric_permutation.permute_label_to_match_mini_rollout(
+                coordinate_mini,
+                input_feature_dict,
+                label_dict,
+                label_full_dict,
             )
             log_dict.update(perm_log_dict)
 
@@ -745,12 +827,16 @@ class Protenix(nn.Module):
 
         # Permute symmetric atom/chain in each sample to match true structure
         # Note: currently chains cannot be permuted since label is cropped
-        pred_dict, perm_log_dict, _, _ = (
-            symmetric_permutation.permute_diffusion_sample_to_match_label(
-                input_feature_dict, pred_dict, label_dict, stage="train"
-            )
+        (
+            pred_dict,
+            perm_log_dict,
+            _,
+            _,
+        ) = symmetric_permutation.permute_diffusion_sample_to_match_label(
+            input_feature_dict, pred_dict, label_dict, stage="train"
         )
         log_dict.update(perm_log_dict)
+        log_dict.update({"noise_level": x_noise_level})
 
         return pred_dict, label_dict, log_dict
 
@@ -762,6 +848,8 @@ class Protenix(nn.Module):
         mode: str = "inference",
         current_step: Optional[int] = None,
         symmetric_permutation: SymmetricPermutation = None,
+        disable_inplace: bool = False,
+        mc_dropout_apply_rate: float = 0.4,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
         """
         Forward pass of the Alphafold3 model.
@@ -779,9 +867,10 @@ class Protenix(nn.Module):
                 Prediction, updated label, and log dictionaries.
         """
 
-        assert mode in ["train", "inference", "eval"]
-        inplace_safe = not (self.training or torch.is_grad_enabled())
-        chunk_size = self.configs.infer_setting.chunk_size if inplace_safe else None
+        assert mode in ["train", "eval", "inference"]
+        not_use_gradient = not (self.training or torch.is_grad_enabled())
+        inplace_safe = not_use_gradient and (not disable_inplace)
+
         input_feature_dict = self.relative_position_encoding.generate_relp(
             input_feature_dict
         )
@@ -801,8 +890,9 @@ class Protenix(nn.Module):
                 N_cycle=N_cycle,
                 symmetric_permutation=symmetric_permutation,
                 inplace_safe=inplace_safe,
-                chunk_size=chunk_size,
+                chunk_size=None,
             )
+            log_dict["N_cycle"] = N_cycle
         elif mode == "inference":
             pred_dict, log_dict, time_tracker = self.main_inference_loop(
                 input_feature_dict=input_feature_dict,
@@ -810,9 +900,10 @@ class Protenix(nn.Module):
                 N_cycle=self.N_cycle,
                 mode=mode,
                 inplace_safe=inplace_safe,
-                chunk_size=chunk_size,
+                chunk_size=self.configs.infer_setting.chunk_size,
                 N_model_seed=self.N_model_seed,
                 symmetric_permutation=None,
+                mc_dropout_apply_rate=mc_dropout_apply_rate,
             )
             log_dict.update({"time": time_tracker})
         elif mode == "eval":
@@ -829,9 +920,10 @@ class Protenix(nn.Module):
                 N_cycle=self.N_cycle,
                 mode=mode,
                 inplace_safe=inplace_safe,
-                chunk_size=chunk_size,
-                N_model_seed=self.N_model_seed,
+                chunk_size=self.configs.infer_setting.chunk_size,
+                N_model_seed=1,
                 symmetric_permutation=symmetric_permutation,
+                mc_dropout_apply_rate=mc_dropout_apply_rate,
             )
             log_dict.update({"time": time_tracker})
 

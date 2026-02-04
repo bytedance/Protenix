@@ -18,10 +18,10 @@ from pathlib import Path
 
 import biotite.structure as struc
 import pandas as pd
-from joblib import Parallel, delayed
+from joblib import delayed, Parallel
 
-from protenix.data.ccd import get_one_letter_code
-from protenix.data.parser import MMCIFParser
+from protenix.data.core.ccd import get_one_letter_code
+from protenix.data.core.parser import MMCIFParser
 
 pd.options.mode.copy_on_write = True
 
@@ -64,7 +64,7 @@ def get_seqs(mmcif_file):
 
     if mmcif_parser.release_date:
         info_df["release_date_retrace_obsolete"] = mmcif_parser.release_date
-    else:   
+    else:
         # Handle non-official mmcif file which transform from pdb file
         info_df["release_date_retrace_obsolete"] = datetime.now().strftime("%Y-%m-%d")
 
@@ -198,12 +198,12 @@ def mapping_seqs_to_integer_identifiers(
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--cif_dir", type=str, default="./scripts/msa/data/mmcif")
     parser.add_argument("--out_dir", type=str, default="./scripts/msa/data/pdb_seqs")
     args = parser.parse_args()
-    
+
     cif_dir = Path(args.cif_dir)
     cif_files = [x for x in cif_dir.iterdir() if x.is_file()]
 

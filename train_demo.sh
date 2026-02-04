@@ -11,14 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-export LAYERNORM_TYPE=fast_layernorm # fast_layernorm, torch
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+# fast_layernorm is used by default, no need to set explicitly. Set LAYERNORM_TYPE=torch to disable.
+# export LAYERNORM_TYPE=fast_layernorm
 # Kernel options:
 # - triangle_attention: supports 'triattention', 'cuequivariance', 'deepspeed', 'torch'
 # - triangle_multiplicative: supports 'cuequivariance', 'torch'
 
+# Specify your data root directory by uncommenting the following line.
+# export PROTENIX_ROOT_DIR="/modify/to/your/data_root_dir"
+
 python3 ./runner/train.py \
 --run_name protenix_train \
+--model_name "protenix_base_default_v1.0.0" \
 --seed 42 \
 --base_dir ./output \
 --dtype bf16 \
@@ -33,8 +38,9 @@ python3 ./runner/train.py \
 --max_steps 100000 \
 --warmup_steps 2000 \
 --lr 0.001 \
+--model.N_cycle 4 \
 --sample_diffusion.N_step 20 \
---triangle_attention "triattention" \
+--triangle_attention "cuequivariance" \
 --triangle_multiplicative "cuequivariance" \
 --data.train_sets weightedPDB_before2109_wopb_nometalc_0925 \
 --data.test_sets recentPDB_1536_sample384_0925,posebusters_0925 \

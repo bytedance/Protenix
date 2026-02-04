@@ -1,0 +1,16 @@
+[
+    {
+        "sequences": [
+            {
+                "rnaSequence": {
+                    "sequence": "ACCAGGAUGGCCGAGUGGUUAAGGCGUUGGACUUAAGAUCCAAUGGACAUAUGUCCGCGUGGGUUCGAACCCCACUCCUGGUACCA",
+                    "count": 1,
+                    "unpairedMsaPath": "./examples/examples_with_rna_msa/9gmw/9gmw_2_all.a3m"
+                }
+            }
+        ],
+        "modelSeeds": [],
+        "assembly_id": "1",
+        "name": "9gmw_2"
+    }
+]

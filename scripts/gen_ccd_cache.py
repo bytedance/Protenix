@@ -144,7 +144,7 @@ def _get_component_rdkit_mol_processing(
         ref_mask[atom_idx] = x_ideal != "?"
     mol.ref_mask = ref_mask
 
-    if mol.sanitized == False:
+    if not mol.sanitized:
         return mol
     options = rdkit.Chem.AllChem.ETKDGv3()
     options.clearConfs = False

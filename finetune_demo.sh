@@ -11,17 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-export LAYERNORM_TYPE=fast_layernorm # fast_layernorm, torch
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
+# fast_layernorm is used by default, no need to set explicitly. Set LAYERNORM_TYPE=torch to disable.
+# export LAYERNORM_TYPE=fast_layernorm
 # Kernel options:
 # - triangle_attention: supports 'triattention', 'cuequivariance', 'deepspeed', 'torch'
 # - triangle_multiplicative: supports 'cuequivariance', 'torch'
 
-# wget -P /af3-dev/release_model/ https://af3-dev.tos-cn-beijing.volces.com/release_model/protenix_base_default_v0.5.0.pt
-checkpoint_path="/af3-dev/release_model/protenix_base_default_v0.5.0.pt"
+# Specify your data root directory by uncommenting the following line.
+# export PROTENIX_ROOT_DIR="/modify/to/your/data_root_dir"
+# wget -P $PROTENIX_ROOT_DIR/checkpoint/ https://protenix.tos-cn-beijing.volces.com/checkpoint/protenix_base_default_v1.0.0.pt
+checkpoint_path="${PROTENIX_ROOT_DIR}/checkpoint/protenix_base_default_v1.0.0.pt"
 
 python3 ./runner/train.py \
---model_name "protenix_base_constraint_v0.5.0" \
+--model_name "protenix_base_default_v1.0.0" \
 --run_name protenix_finetune \
 --seed 42 \
 --base_dir ./output \
@@ -37,8 +40,9 @@ python3 ./runner/train.py \
 --max_steps 100000 \
 --warmup_steps 2000 \
 --lr 0.001 \
+--model.N_cycle 4 \
 --sample_diffusion.N_step 20 \
---triangle_attention "triattention" \
+--triangle_attention "cuequivariance" \
 --triangle_multiplicative "cuequivariance" \
 --load_checkpoint_path ${checkpoint_path} \
 --load_ema_checkpoint_path ${checkpoint_path} \

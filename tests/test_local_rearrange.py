@@ -44,15 +44,19 @@ class TestUtils(unittest.TestCase):
 
         torch.random.manual_seed(42)
         q, k, v = create_qkv(batch_size_dims, n, n, d)
-        q_trunked, k_trunked, _, attn_bias_trunked, q_pad_length = (
-            rearrange_to_dense_trunk(
-                q,
-                k,
-                v,
-                n_queries,
-                n_keys,
-                inf=inf,
-            )
+        (
+            q_trunked,
+            k_trunked,
+            _,
+            attn_bias_trunked,
+            q_pad_length,
+        ) = rearrange_to_dense_trunk(
+            q,
+            k,
+            v,
+            n_queries,
+            n_keys,
+            inf=inf,
         )
 
         q_b, k_b, padding_info = rearrange_qk_to_dense_trunk(

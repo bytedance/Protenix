@@ -17,10 +17,10 @@ import triton.language as tl
 
 from protenix.model.tri_attention.autotune import autotune
 from protenix.model.tri_attention.autotune_helpers import (
-    _attention_bwd_dq_configs,
-    _attention_bwd_dkdv_configs,
-    _attention_bwd_preprocess_configs,
     _attention_bwd_dbias2_configs,
+    _attention_bwd_dkdv_configs,
+    _attention_bwd_dq_configs,
+    _attention_bwd_preprocess_configs,
 )
 
 

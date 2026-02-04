@@ -21,16 +21,16 @@ from protenix.model.modules.primitives import Linear
 # Adapted From openfold.model.heads
 class DistogramHead(nn.Module):
     """Implements Algorithm 1 [Line17] in AF3
+
     Computes a distogram probability distribution.
     For use in computation of distogram loss, subsection 1.9.8 (AF2)
+
+    Args:
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        no_bins (int, optional): Number of distogram bins. Defaults to 64.
     """
 
     def __init__(self, c_z: int = 128, no_bins: int = 64) -> None:
-        """
-        Args:
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            no_bins (int, optional): Number of distogram bins. Defaults to 64.
-        """
         super(DistogramHead, self).__init__()
 
         self.c_z = c_z

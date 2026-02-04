@@ -261,9 +261,7 @@ def parse_args():
     parser.add_argument(
         "--gpu_server", help="GPU server ID", type=int, default=0, choices=[0, 1]
     )
-    parser.add_argument(
-        "--gpu", help="GPU ID", type=int, default=0, choices=[0, 1]
-    )
+    parser.add_argument("--gpu", help="GPU ID", type=int, default=0, choices=[0, 1])
 
     return parser.parse_args()
 
@@ -285,7 +283,7 @@ if __name__ == "__main__":
         filter=args.filter,
         db_load_mode=args.db_load_mode,
         gpu_server=args.gpu_server,
-        gpu=args.gpu
+        gpu=args.gpu,
     )
 
     # Run search
@@ -294,4 +292,3 @@ if __name__ == "__main__":
     processor = A3MProcessor(results_a3m, args.results_dir)
     if len(processor.chain_info) == 2:
         processor.split_sequences()
-

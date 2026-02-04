@@ -1,5 +1,5 @@
 # originally from: https://github.com/pytorch/torchtune/blob/main/.pre-commit-config.yaml
-exclude: 'build'
+exclude: 'build|LICENSE|__init__\.py|\.(md|txt|hmm|smi|hhr|cif|a3m|json|yml|fasta|pdb)$'
 
 default_language_version:
     python: python3
@@ -14,7 +14,7 @@ repos:
     -   id: no-commit-to-branch
         args: ['--branch=main']
     -   id: check-added-large-files
-        args: ['--maxkb=1000']
+        args: ['--maxkb=10000']
     -   id: end-of-file-fixer
         exclude: '^(.*\.svg)$'
 
@@ -45,7 +45,7 @@ repos:
           - black == 22.12.0
           - usort == 1.0.5
 
-- repo: https://github.com/jsh9/pydoclint
-  rev: d88180a8632bb1602a4d81344085cf320f288c5a
-  hooks:
-    - id: pydoclint
+-   repo: https://github.com/jsh9/pydoclint
+    rev: d88180a8632bb1602a4d81344085cf320f288c5a
+    hooks:
+    -   id: pydoclint

@@ -14,6 +14,7 @@
 
 import os
 from pathlib import Path
+from typing import Any
 
 import torch
 import triton
@@ -42,7 +43,7 @@ def get_config_dir() -> Path:
 config_dir = get_config_dir()
 
 
-def config_to_dict(config: triton.Config) -> dict:
+def config_to_dict(config: triton.Config) -> dict[str, Any]:
     # This assume we are not making use of `pre_hook` in the `triton.Config`
     return {
         "kwargs": config.kwargs,
@@ -51,7 +52,7 @@ def config_to_dict(config: triton.Config) -> dict:
     }
 
 
-def dict_to_config(d: dict) -> triton.Config:
+def dict_to_config(d: dict[str, Any]) -> triton.Config:
     return triton.Config(
         kwargs=d["kwargs"],
         num_warps=d["num_warps"],

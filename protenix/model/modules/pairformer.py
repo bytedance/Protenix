@@ -18,36 +18,44 @@ from typing import Any, Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
+from protenix.data.constants import STD_RESIDUES_WITH_GAP
 from protenix.model.modules.primitives import LinearNoBias, Transition
 from protenix.model.modules.transformer import AttentionPairBias
+from protenix.model.triangular.layers import DropoutRowwise, LayerNorm, OuterProductMean
+from protenix.model.triangular.triangular import (
+    TriangleAttention,
+    TriangleMultiplicationIncoming,
+    TriangleMultiplicationOutgoing,
+)
 from protenix.model.utils import (
+    checkpoint_blocks,
+    expand_at_dim,
+    get_checkpoint_fn,
     pad_at_dim,
     sample_msa_feature_dict_random_without_replacement,
-)
-from protenix.openfold_local.model.dropout import DropoutRowwise
-from protenix.openfold_local.model.outer_product_mean import (
-    OuterProductMean,  # Alg 9 in AF3
-)
-from protenix.openfold_local.model.primitives import LayerNorm
-from protenix.openfold_local.model.triangular_attention import TriangleAttention
-from protenix.openfold_local.model.triangular_multiplicative_update import (
-    TriangleMultiplicationIncoming,  # Alg 13 in AF3
-)
-from protenix.openfold_local.model.triangular_multiplicative_update import (
-    TriangleMultiplicationOutgoing,  # Alg 12 in AF3
-)
-from protenix.openfold_local.utils.checkpointing import (
-    checkpoint_blocks,
-    get_checkpoint_fn,
 )
 
 
 class PairformerBlock(nn.Module):
     """Implements Algorithm 17 [Line2-Line8] in AF3
+
     c_hidden_mul is set as openfold
     Ref to:
     https://github.com/aqlaboratory/openfold/blob/feb45a521e11af1db241a33d58fb175e207f8ce0/openfold/model/evoformer.py#L123
+
+    Args:
+        n_heads (int, optional): number of head [for AttentionPairBias]. Defaults to 16.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
+        c_hidden_mul (int, optional): hidden dim [for TriangleMultiplicationOutgoing].
+            Defaults to 128.
+        c_hidden_pair_att (int, optional): hidden dim [for TriangleAttention]. Defaults to 32.
+        no_heads_pair (int, optional): number of head [for TriangleAttention]. Defaults to 4.
+        num_intermediate_factor (int, optional): number of intermediate factor for pair_transition. Defaults to 4.
+        dropout (float, optional): dropout ratio [for TriangleUpdate]. Defaults to 0.25.
+        hidden_scale_up (bool, optional): whether scale up the hidden if c_z scales. Defaults to False.
     """
 
     def __init__(
@@ -58,21 +66,15 @@ class PairformerBlock(nn.Module):
         c_hidden_mul: int = 128,
         c_hidden_pair_att: int = 32,
         no_heads_pair: int = 4,
+        num_intermediate_factor: int = 4,
         dropout: float = 0.25,
+        hidden_scale_up: bool = False,
     ) -> None:
-        """
-        Args:
-            n_heads (int, optional): number of head [for AttentionPairBias]. Defaults to 16.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
-            c_hidden_mul (int, optional): hidden dim [for TriangleMultiplicationOutgoing].
-                Defaults to 128.
-            c_hidden_pair_att (int, optional): hidden dim [for TriangleAttention]. Defaults to 32.
-            no_heads_pair (int, optional): number of head [for TriangleAttention]. Defaults to 4.
-            dropout (float, optional): dropout ratio [for TriangleUpdate]. Defaults to 0.25.
-        """
         super(PairformerBlock, self).__init__()
         self.n_heads = n_heads
+        if hidden_scale_up:
+            no_heads_pair = c_z // c_hidden_pair_att
+            c_hidden_mul = c_z
         self.tri_mul_out = TriangleMultiplicationOutgoing(
             c_z=c_z, c_hidden=c_hidden_mul
         )
@@ -88,7 +90,7 @@ class PairformerBlock(nn.Module):
             no_heads=no_heads_pair,
         )
         self.dropout_row = DropoutRowwise(dropout)
-        self.pair_transition = Transition(c_in=c_z, n=4)
+        self.pair_transition = Transition(c_in=c_z, n=num_intermediate_factor)
         self.c_s = c_s
         if self.c_s > 0:
             self.attention_pair_bias = AttentionPairBias(
@@ -217,6 +219,16 @@ class PairformerBlock(nn.Module):
 class PairformerStack(nn.Module):
     """
     Implements Algorithm 17 [PairformerStack] in AF3
+
+    Args:
+        n_blocks (int, optional): number of blocks [for PairformerStack]. Defaults to 48.
+        n_heads (int, optional): number of head [for AttentionPairBias]. Defaults to 16.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
+        num_intermediate_factor (int, optional): number of intermediate factor for transition. Defaults to 4.
+        dropout (float, optional): dropout ratio. Defaults to 0.25.
+        blocks_per_ckpt (int, optional): number of Pairformer blocks in each activation checkpoint. Defaults to None.
+        hidden_scale_up (bool, optional): whether scale up the hidden if c_z scales. Defaults to False.
     """
 
     def __init__(
@@ -225,21 +237,11 @@ class PairformerStack(nn.Module):
         n_heads: int = 16,
         c_z: int = 128,
         c_s: int = 384,
+        num_intermediate_factor: int = 4,
         dropout: float = 0.25,
         blocks_per_ckpt: Optional[int] = None,
+        hidden_scale_up: bool = False,
     ) -> None:
-        """
-        Args:
-            n_blocks (int, optional): number of blocks [for PairformerStack]. Defaults to 48.
-            n_heads (int, optional): number of head [for AttentionPairBias]. Defaults to 16.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
-            dropout (float, optional): dropout ratio. Defaults to 0.25.
-            blocks_per_ckpt: number of Pairformer blocks in each activation checkpoint
-                Size of each chunk. A higher value corresponds to fewer
-                checkpoints, and trades memory for speed. If None, no checkpointing
-                is performed.
-        """
         super(PairformerStack, self).__init__()
         self.n_blocks = n_blocks
         self.n_heads = n_heads
@@ -247,7 +249,14 @@ class PairformerStack(nn.Module):
         self.blocks = nn.ModuleList()
 
         for _ in range(n_blocks):
-            block = PairformerBlock(n_heads=n_heads, c_z=c_z, c_s=c_s, dropout=dropout)
+            block = PairformerBlock(
+                n_heads=n_heads,
+                c_z=c_z,
+                c_s=c_s,
+                num_intermediate_factor=num_intermediate_factor,
+                dropout=dropout,
+                hidden_scale_up=hidden_scale_up,
+            )
             self.blocks.append(block)
 
     def _prep_blocks(
@@ -289,8 +298,13 @@ class PairformerStack(nn.Module):
                 [..., N_token, N_token, c_z]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            triangle_multiplicative (str): triangle multiplicative. Defaults to "torch".
-            triangle_attention (str): triangle attention. Defaults to "torch".
+            triangle_multiplicative: Triangle multiplicative implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "cuequivariance": cuequivariance implementation
+            triangle_attention: Triangle attention implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "triattention": Optimized tri-attention module
+                - "deepspeed": DeepSpeed's fused attention kernel
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
 
@@ -321,17 +335,17 @@ class PairformerStack(nn.Module):
 class MSAPairWeightedAveraging(nn.Module):
     """
     Implements Algorithm 10 [MSAPairWeightedAveraging] in AF3
+
+    Args:
+        c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
+        c (int, optional): hidden dim [for MSAPairWeightedAveraging]. Defaults to 32.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        n_heads (int, optional): number of heads [for MSAPairWeightedAveraging]. Defaults to 8.
     """
 
-    def __init__(self, c_m: int = 64, c: int = 32, c_z: int = 128, n_heads=8) -> None:
-        """
-
-        Args:
-            c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
-            c (int, optional): hidden dim [for MSAPairWeightedAveraging]. Defaults to 32.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            n_heads (int, optional): number of heads [for MSAPairWeightedAveraging]. Defaults to 8.
-        """
+    def __init__(
+        self, c_m: int = 64, c: int = 32, c_z: int = 128, n_heads: int = 8
+    ) -> None:
         super(MSAPairWeightedAveraging, self).__init__()
         self.c_m = c_m
         self.c = c
@@ -403,25 +417,30 @@ class MSAPairWeightedAveraging(nn.Module):
 class MSAStack(nn.Module):
     """
     Implements MSAStack Line7-Line8 in Algorithm 8
+
+    Args:
+        c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        c (int, optional): hidden [for MSAStack] dim. Defaults to 8.
+        dropout (float, optional): dropout ratio. Defaults to 0.15.
+        msa_chunk_size (int, optional): chunk size for msa. Defaults to 2048.
+        msa_max_size (int, optional): max size for msa. Defaults to 16384.
     """
 
     def __init__(
         self,
         c_m: int = 64,
+        c_z: int = 128,
         c: int = 8,
         dropout: float = 0.15,
         msa_chunk_size: Optional[int] = 2048,
         msa_max_size: Optional[int] = 16384,
     ) -> None:
-        """
-        Args:
-            c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
-            c (int, optional): hidden [for MSAStack] dim. Defaults to 8.
-            dropout (float, optional): dropout ratio. Defaults to 0.15.
-        """
         super(MSAStack, self).__init__()
         self.c = c
-        self.msa_pair_weighted_averaging = MSAPairWeightedAveraging(c=self.c)
+        self.msa_pair_weighted_averaging = MSAPairWeightedAveraging(
+            c_m=c_m, c=self.c, c_z=c_z
+        )
         self.dropout_row = DropoutRowwise(dropout)
         self.transition_m = Transition(c_in=c_m, n=4)
         self.msa_chunk_size = msa_chunk_size
@@ -548,6 +567,17 @@ class MSAStack(nn.Module):
 class MSABlock(nn.Module):
     """
     Base MSA Block, Line6-Line13 in Algorithm 8
+
+    Args:
+        c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        c_hidden (int, optional): hidden dim [for MSABlock]. Defaults to 32.
+        is_last_block (bool, optional): if this is the last block of MSAModule. Defaults to False.
+        msa_dropout (float, optional): dropout ratio for msa block. Defaults to 0.15.
+        pair_dropout (float, optional): dropout ratio for pair stack. Defaults to 0.25.
+        msa_chunk_size (int, optional): chunk size for msa. Defaults to 2048.
+        msa_max_size (int, optional): max size for msa. Defaults to 16384.
+        hidden_scale_up (bool, optional): whether scale up the hidden if c_z scales. Defaults to False.
     """
 
     def __init__(
@@ -560,16 +590,8 @@ class MSABlock(nn.Module):
         pair_dropout: float = 0.25,
         msa_chunk_size: Optional[int] = 2048,
         msa_max_size: Optional[int] = 16384,
+        hidden_scale_up: bool = False,
     ) -> None:
-        """
-        Args:
-            c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            c_hidden (int, optional): hidden dim [for MSABlock]. Defaults to 32.
-            is_last_block (int): if this is the last block of MSAModule. Defaults to False.
-            msa_dropout (float, optional): dropout ratio for msa block. Defaults to 0.15.
-            pair_dropout (float, optional): dropout ratio for pair stack. Defaults to 0.25.
-        """
         super(MSABlock, self).__init__()
         self.c_m = c_m
         self.c_z = c_z
@@ -583,12 +605,15 @@ class MSABlock(nn.Module):
             # MSA stack
             self.msa_stack = MSAStack(
                 c_m=self.c_m,
+                c_z=self.c_z,
                 dropout=msa_dropout,
                 msa_chunk_size=msa_chunk_size,
                 msa_max_size=msa_max_size,
             )
         # Pair stack
-        self.pair_stack = PairformerBlock(c_z=c_z, c_s=0, dropout=pair_dropout)
+        self.pair_stack = PairformerBlock(
+            c_z=c_z, c_s=0, dropout=pair_dropout, hidden_scale_up=hidden_scale_up
+        )
 
     def forward(
         self,
@@ -608,8 +633,13 @@ class MSABlock(nn.Module):
                 [...,n_token, n_token, c_z]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            triangle_multiplicative (str): triangle multiplicative. Defaults to "torch".
-            triangle_attention (str): triangle attention. Defaults to "torch".
+            triangle_multiplicative: Triangle multiplicative implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "cuequivariance": cuequivariance implementation
+            triangle_attention: Triangle attention implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "triattention": Optimized tri-attention module
+                - "deepspeed": DeepSpeed's fused attention kernel
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
 
@@ -644,6 +674,20 @@ class MSABlock(nn.Module):
 class MSAModule(nn.Module):
     """
     Implements Algorithm 8 [MSAModule] in AF3
+
+    Args:
+        n_blocks (int, optional): number of blocks [for MSAModule]. Defaults to 4.
+        c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        c_s_inputs (int, optional):
+            hidden dim for single embedding from InputFeatureEmbedder. Defaults to 449.
+        msa_dropout (float, optional): dropout ratio for msa block. Defaults to 0.15.
+        pair_dropout (float, optional): dropout ratio for pair stack. Defaults to 0.25.
+        blocks_per_ckpt: number of MSAModule blocks in each activation checkpoint. Defaults to 1.
+        msa_chunk_size (int, optional): chunk size for msa. Defaults to 2048.
+        msa_max_size (int, optional): max size for msa. Defaults to 16384.
+        msa_configs (dict, optional): a dictionary containing keys: "enable", "strategy", etc. Defaults to None.
+        hidden_scale_up (bool, optional): whether scale up the hidden if c_z scales. Defaults to False.
     """
 
     def __init__(
@@ -657,25 +701,9 @@ class MSAModule(nn.Module):
         blocks_per_ckpt: Optional[int] = 1,
         msa_chunk_size: Optional[int] = 2048,
         msa_max_size: Optional[int] = 16384,
-        msa_configs: dict = None,
+        msa_configs: Optional[dict[str, Any]] = None,
+        hidden_scale_up: bool = False,
     ) -> None:
-        """Main Entry of MSAModule
-
-        Args:
-            n_blocks (int, optional): number of blocks [for MSAModule]. Defaults to 4.
-            c_m (int, optional): hidden dim [for msa embedding]. Defaults to 64.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            c_s_inputs (int, optional):
-                hidden dim for single embedding from InputFeatureEmbedder. Defaults to 449.
-            msa_dropout (float, optional): dropout ratio for msa block. Defaults to 0.15.
-            pair_dropout (float, optional): dropout ratio for pair stack. Defaults to 0.25.
-            blocks_per_ckpt: number of MSAModule blocks in each activation checkpoint
-                Size of each chunk. A higher value corresponds to fewer
-                checkpoints, and trades memory for speed. If None, no checkpointing
-                is performed.
-            msa_configs (dict, optional): a dictionary containing keys:
-                "enable": whether using msa embedding.
-        ]"""
         super(MSAModule, self).__init__()
         self.n_blocks = n_blocks
         self.c_m = c_m
@@ -724,6 +752,7 @@ class MSAModule(nn.Module):
                 pair_dropout=pair_dropout,
                 msa_chunk_size=self.msa_chunk_size,
                 msa_max_size=self.msa_max_size,
+                hidden_scale_up=hidden_scale_up,
             )
             self.blocks.append(block)
 
@@ -790,8 +819,13 @@ class MSAModule(nn.Module):
                 [..., N_token, c_s_inputs]
             pair_mask (torch.Tensor): pair mask
                 [..., N_token, N_token]
-            triangle_multiplicative (str): the multiplicative function for triangle attention. Defaults to "torch".
-            triangle_attention (str): the attention function for triangle attention. Defaults to "torch".
+            triangle_multiplicative: Triangle multiplicative implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "cuequivariance": cuequivariance implementation
+            triangle_attention: Triangle attention implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "triattention": Optimized tri-attention module
+                - "deepspeed": DeepSpeed's fused attention kernel
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
 
@@ -877,6 +911,17 @@ class MSAModule(nn.Module):
 class TemplateEmbedder(nn.Module):
     """
     Implements Algorithm 16 in AF3
+
+    Args:
+        n_blocks (int, optional): number of blocks for TemplateEmbedder. Defaults to 2.
+        c (int, optional): hidden dim of TemplateEmbedder. Defaults to 64.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        num_intermediate_factor (int, optional): number of intermediate factor for transition. Defaults to 2.
+        dropout (float, optional): dropout ratio for PairformerStack. Defaults to 0.25.
+            Note this value is missed in Algorithm 16, so we use default ratio for Pairformer
+        blocks_per_ckpt (int, optional): number of TemplateEmbedder/Pairformer blocks in each activation
+            checkpoint. Defaults to None.
+        hidden_scale_up (bool, optional): whether scale up the hidden if c_z scales. Defaults to False.
     """
 
     def __init__(
@@ -884,30 +929,20 @@ class TemplateEmbedder(nn.Module):
         n_blocks: int = 2,
         c: int = 64,
         c_z: int = 128,
+        num_intermediate_factor: int = 2,
         dropout: float = 0.25,
         blocks_per_ckpt: Optional[int] = None,
+        hidden_scale_up: bool = False,
     ) -> None:
-        """
-        Args:
-            n_blocks (int, optional): number of blocks for TemplateEmbedder. Defaults to 2.
-            c (int, optional): hidden dim of TemplateEmbedder. Defaults to 64.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            dropout (float, optional): dropout ratio for PairformerStack. Defaults to 0.25.
-                Note this value is missed in Algorithm 16, so we use default ratio for Pairformer
-            blocks_per_ckpt: number of TemplateEmbedder/Pairformer blocks in each activation
-                checkpoint Size of each chunk. A higher value corresponds to fewer
-                checkpoints, and trades memory for speed. If None, no checkpointing
-                is performed.
-        """
         super(TemplateEmbedder, self).__init__()
         self.n_blocks = n_blocks
         self.c = c
         self.c_z = c_z
         self.input_feature1 = {
             "template_distogram": 39,
-            "b_template_backbone_frame_mask": 1,
+            "template_backbone_frame_mask": 1,
             "template_unit_vector": 3,
-            "b_template_pseudo_beta_mask": 1,
+            "template_pseudo_beta_mask": 1,
         }
         self.input_feature2 = {
             "template_restype_i": 32,
@@ -927,21 +962,24 @@ class TemplateEmbedder(nn.Module):
             c_s=0,
             c_z=c,
             n_blocks=self.n_blocks,
+            num_intermediate_factor=num_intermediate_factor,
             dropout=dropout,
             blocks_per_ckpt=blocks_per_ckpt,
+            hidden_scale_up=hidden_scale_up,
         )
         self.layernorm_v = LayerNorm(self.c)
+        self.relu = nn.ReLU()
         self.linear_no_bias_u = LinearNoBias(in_features=self.c, out_features=self.c_z)
 
     def forward(
         self,
         input_feature_dict: dict[str, Any],
-        z: torch.Tensor,  # pylint: disable=W0613
-        pair_mask: torch.Tensor = None,  # pylint: disable=W0613
-        triangle_multiplicative: str = "torch",
+        z: torch.Tensor,
+        pair_mask: torch.Tensor = None,
         triangle_attention: str = "torch",
-        inplace_safe: bool = False,  # pylint: disable=W0613
-        chunk_size: Optional[int] = None,  # pylint: disable=W0613
+        triangle_multiplicative: str = "torch",
+        inplace_safe: bool = False,
+        chunk_size: Optional[int] = None,
     ) -> torch.Tensor:
         """
         Args:
@@ -950,12 +988,103 @@ class TemplateEmbedder(nn.Module):
                 [..., N_token, N_token, c_z]
             pair_mask (torch.Tensor, optional): pair masking. Default to None.
                 [..., N_token, N_token]
+            triangle_attention: Triangle attention implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "triattention": Optimized tri-attention module
+                - "deepspeed": DeepSpeed's fused attention kernel
 
         Returns:
             torch.Tensor: the template feature
                 [..., N_token, N_token, c_z]
         """
-        # In this version, we do not use TemplateEmbedder by setting n_blocks=0
-        if "template_restype" not in input_feature_dict or self.n_blocks < 1:
+        # Do not use TemplateEmbedder by setting n_blocks=0
+        if "template_aatype" not in input_feature_dict or self.n_blocks < 1:
+            # Compatible with the Protenix 0.5.0 model series
             return 0
-        return 0
+        asym_id = input_feature_dict["asym_id"]
+        multichain_mask = (asym_id[:, None] == asym_id[None, :]).to(z.dtype)
+
+        num_residues = z.shape[0]
+        # determine whether the number of templates is the configured maximum value, otherwise error out
+        num_templates = input_feature_dict["template_aatype"].shape[0]
+        query_num_channels = z.shape[-1]
+
+        if pair_mask is None:
+            pair_mask = z.new_ones(z.shape[:-1])
+
+        z = self.layernorm_z(z)
+        u = 0
+        for template_id in range(num_templates):
+            u = u + self.single_template_forward(
+                template_id=template_id,
+                input_feature_dict=input_feature_dict,
+                z=z,
+                pair_mask=pair_mask,
+                multichain_mask=multichain_mask,
+                triangle_attention=triangle_attention,
+                triangle_multiplicative=triangle_multiplicative,
+                inplace_safe=inplace_safe,
+                chunk_size=chunk_size,
+            )
+        u = u / (1e-7 + num_templates)
+        u = self.linear_no_bias_u(self.relu(u))
+        assert u.shape == (num_residues, num_residues, query_num_channels)
+        return u
+
+    def single_template_forward(
+        self,
+        template_id: int,
+        input_feature_dict: dict[str, Any],
+        z: torch.Tensor,
+        pair_mask: Optional[torch.Tensor] = None,
+        multichain_mask: Optional[torch.Tensor] = None,
+        triangle_attention: str = "torch",
+        triangle_multiplicative: str = "torch",
+        inplace_safe: bool = False,
+        chunk_size: Optional[int] = None,
+    ) -> torch.Tensor:
+        to_concat = []
+
+        dgram = input_feature_dict["template_distogram"][
+            template_id
+        ]  # [N_token, N_token, 39]
+        pseudo_beta_mask_2d = input_feature_dict["template_pseudo_beta_mask"][
+            template_id
+        ]
+        dgram = dgram * multichain_mask[..., None] * pair_mask[..., None]
+        pseudo_beta_mask_2d = (
+            pseudo_beta_mask_2d * multichain_mask * pair_mask
+        )  # [N_token, N_token]
+        to_concat.append(dgram)
+        to_concat.append(pseudo_beta_mask_2d.unsqueeze(-1))
+
+        aatype = input_feature_dict["template_aatype"][template_id]  # [N_token]
+        aatype = F.one_hot(aatype, num_classes=len(STD_RESIDUES_WITH_GAP))
+        to_concat.append(expand_at_dim(aatype, dim=-3, n=z.shape[0]))
+        to_concat.append(expand_at_dim(aatype, dim=-2, n=z.shape[0]))
+
+        unit_vector = input_feature_dict["template_unit_vector"][template_id]
+        unit_vector = (
+            unit_vector * multichain_mask[..., None] * pair_mask[..., None]
+        )  # [N_token, N_token, 3]
+        to_concat.append(unit_vector)
+
+        backbone_mask_2d = input_feature_dict["template_backbone_frame_mask"][
+            template_id
+        ]
+        backbone_mask_2d = backbone_mask_2d * multichain_mask * pair_mask
+        to_concat.append(backbone_mask_2d.unsqueeze(-1))
+
+        at = torch.concat(to_concat, dim=-1)
+        v = self.linear_no_bias_z(z) + self.linear_no_bias_a(at)
+        _, v = self.pairformer_stack(
+            s=None,
+            z=v,
+            pair_mask=pair_mask,
+            triangle_multiplicative=triangle_multiplicative,
+            triangle_attention=triangle_attention,
+            inplace_safe=inplace_safe,
+            chunk_size=chunk_size,
+        )
+        v = self.layernorm_v(v)
+        return v

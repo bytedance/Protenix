@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Set
+from typing import Final
+
+import numpy as np
 from rdkit.Chem import GetPeriodicTable
 
 EvaluationChainInterface = [
@@ -46,7 +50,7 @@ CRYSTALLIZATION_METHODS = {
     "FIBER DIFFRACTION",
 }
 
-### Protein Constants ###
+# Protein Constants
 # https://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v40.dic/Items/_entity_poly.pdbx_seq_one_letter_code_can.html
 
 mmcif_restype_1to3 = {
@@ -205,7 +209,7 @@ rdkit_vdws = [
 
 
 """
-atom37 vdw table. Orders match atom37 indices. Note: the vdw's for N and O are different from rdkit_van_der_waals in this file. 
+atom37 vdw table. Orders match atom37 indices. Note: the vdw's for N and O are different from rdkit_van_der_waals in this file.
 We used the rdkit values for consistency.
 Ref to https://github.com/aqlaboratory/openfold/blob/80c85b54e1a81d9a66df3f1b6c257ff97f10acd3/openfold/utils/loss.py#L1208C5-L1211C6
 rdkit_van_der_waals_radius = {
@@ -303,6 +307,9 @@ DNA_STD_RESIDUES = {
     "DN": 30,
 }
 
+RNA_START_INDEX = 21
+DNA_START_INDEX = 26
+
 GAP = {"-": 31}
 STD_RESIDUES = PRO_STD_RESIDUES | RNA_STD_RESIDUES | DNA_STD_RESIDUES
 STD_RESIDUES_WITH_GAP = STD_RESIDUES | GAP
@@ -310,44 +317,77 @@ STD_RESIDUES_WITH_GAP_ID_TO_NAME = {
     idx: res_type for res_type, idx in STD_RESIDUES_WITH_GAP.items()
 }
 
-rna_order_with_x = {
+# MSA mapping dict for all types
+MSA_PROTEIN_SEQ_TO_ID = {
     "A": 0,
-    "G": 1,
-    "C": 2,
-    "U": 3,
-    "N": 4,
+    "B": 3,  # Same as D.
+    "C": 4,
+    "D": 3,
+    "E": 6,
+    "F": 13,
+    "G": 7,
+    "H": 8,
+    "I": 9,
+    "J": 20,  # Same as unknown (X).
+    "K": 11,
+    "L": 10,
+    "M": 12,
+    "N": 2,
+    "O": 20,  # Same as unknown (X).
+    "P": 14,
+    "Q": 5,
+    "R": 1,
+    "S": 15,
+    "T": 16,
+    "U": 4,  # Same as C.
+    "V": 19,
+    "W": 17,
+    "X": 20,
+    "Y": 18,
+    "Z": 6,  # Same as E.
+    "-": 31,
+}
+MSA_RNA_SEQ_TO_ID = {
+    # Map non-standard residues to UNK_NUCLEIC (N) -> 25
+    **{chr(i): 25 for i in range(ord("A"), ord("Z") + 1)},
+    # Continue the RNA indices from where Protein indices left off.
+    "-": 31,
+    "A": 21,
+    "G": 22,
+    "C": 23,
+    "U": 24,
+}
+MSA_DNA_SEQ_TO_ID = {
+    # Map non-standard residues to UNK_NUCLEIC (N) -> 30
+    **{chr(i): 30 for i in range(ord("A"), ord("Z") + 1)},
+    # Continue the DNA indices from where DNA indices left off.
+    "-": 31,
+    "A": 26,
+    "G": 27,
+    "C": 28,
+    "T": 29,
 }
 
-RNA_NT_TO_ID = {
-    "A": 0,
-    "G": 1,
-    "C": 2,
-    "U": 3,
-    "N": 4,
-    "R": 4,  # A or G
-    "Y": 4,  # C or U
-    "S": 4,  # G or C
-    "W": 4,  # A or U
-    "K": 4,  # G or U
-    "M": 4,  # A or C
-    "B": 4,  # C, G, U
-    "D": 4,  # A, G, U
-    "H": 4,  # A, C, U
-    "V": 4,  # A, C, G
-    "X": 4,
-    "I": 4,
-    "T": 4,
-    "-": 5,
-}
+TEMPLATE_PROTEIN_SEQ_TO_ID = MSA_PROTEIN_SEQ_TO_ID
+TEMPLATE_RNA_SEQ_TO_ID = MSA_RNA_SEQ_TO_ID
+TEMPLATE_DNA_SEQ_TO_ID = MSA_DNA_SEQ_TO_ID
 
-# Partial inversion of RNA_NT_TO_ID
-RNA_ID_TO_NT = {
-    0: "A",
-    1: "G",
-    2: "C",
-    3: "U",
-    4: "N",  # Also R, Y, S, W, K, M, B, D, H
-    5: "-",
+PROTEIN_CHAIN: Final[str] = "polypeptide(L)"
+RNA_CHAIN: Final[str] = "polyribonucleotide"
+DNA_CHAIN: Final[str] = "polydeoxyribonucleotide"
+BRANCHED_CHAIN: Final[str] = "branched"
+MACROLIDE_CHAIN: Final[str] = "macrolide"
+NON_POLYMER_CHAIN: Final[str] = "non-polymer"
+LIGAND_CHAIN_TYPES: Final[Set[str]] = {
+    BRANCHED_CHAIN,
+    MACROLIDE_CHAIN,
+    NON_POLYMER_CHAIN,
+}
+# Most common _entity_poly.types.
+STANDARD_POLYMER_CHAIN_TYPES: Final[Set[str]] = {
+    PROTEIN_CHAIN,
+    DNA_CHAIN,
+    RNA_CHAIN,
 }
 
 
@@ -807,6 +847,7 @@ PROT_STD_RESIDUES_ONE_TO_THREE = {
     "Y": "TYR",
     "V": "VAL",
     "X": "UNK",
+    "-": "-",
 }
 
 CRYSTALLIZATION_AIDS = (
@@ -829,149 +870,664 @@ CRYSTALLIZATION_AIDS = (
 )
 
 
-### Molecule Constants ###
+PROTEIN_TYPES_ONE_LETTER = (
+    "A",
+    "R",
+    "N",
+    "D",
+    "C",
+    "Q",
+    "E",
+    "G",
+    "H",
+    "I",
+    "L",
+    "K",
+    "M",
+    "F",
+    "P",
+    "S",
+    "T",
+    "W",
+    "Y",
+    "V",
+)
+
+PROTEIN_COMMON_ONE_TO_THREE = {
+    "A": "ALA",
+    "R": "ARG",
+    "N": "ASN",
+    "D": "ASP",
+    "C": "CYS",
+    "Q": "GLN",
+    "E": "GLU",
+    "G": "GLY",
+    "H": "HIS",
+    "I": "ILE",
+    "L": "LEU",
+    "K": "LYS",
+    "M": "MET",
+    "F": "PHE",
+    "P": "PRO",
+    "S": "SER",
+    "T": "THR",
+    "W": "TRP",
+    "Y": "TYR",
+    "V": "VAL",
+}
+
+RNA_TYPES = ("A", "G", "C", "U")
+DNA_TYPES = ("DA", "DG", "DC", "DT")
+
+ATOM14 = {
+    "ALA": ("N", "CA", "C", "O", "CB"),
+    "ARG": ("N", "CA", "C", "O", "CB", "CG", "CD", "NE", "CZ", "NH1", "NH2"),
+    "ASN": ("N", "CA", "C", "O", "CB", "CG", "OD1", "ND2"),
+    "ASP": ("N", "CA", "C", "O", "CB", "CG", "OD1", "OD2"),
+    "CYS": ("N", "CA", "C", "O", "CB", "SG"),
+    "GLN": ("N", "CA", "C", "O", "CB", "CG", "CD", "OE1", "NE2"),
+    "GLU": ("N", "CA", "C", "O", "CB", "CG", "CD", "OE1", "OE2"),
+    "GLY": ("N", "CA", "C", "O"),
+    "HIS": ("N", "CA", "C", "O", "CB", "CG", "ND1", "CD2", "CE1", "NE2"),
+    "ILE": ("N", "CA", "C", "O", "CB", "CG1", "CG2", "CD1"),
+    "LEU": ("N", "CA", "C", "O", "CB", "CG", "CD1", "CD2"),
+    "LYS": ("N", "CA", "C", "O", "CB", "CG", "CD", "CE", "NZ"),
+    "MET": ("N", "CA", "C", "O", "CB", "CG", "SD", "CE"),
+    "PHE": ("N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ"),
+    "PRO": ("N", "CA", "C", "O", "CB", "CG", "CD"),
+    "SER": ("N", "CA", "C", "O", "CB", "OG"),
+    "THR": ("N", "CA", "C", "O", "CB", "OG1", "CG2"),
+    "TRP": (
+        "N",
+        "CA",
+        "C",
+        "O",
+        "CB",
+        "CG",
+        "CD1",
+        "CD2",
+        "NE1",
+        "CE2",
+        "CE3",
+        "CZ2",
+        "CZ3",
+        "CH2",
+    ),
+    "TYR": ("N", "CA", "C", "O", "CB", "CG", "CD1", "CD2", "CE1", "CE2", "CZ", "OH"),
+    "VAL": ("N", "CA", "C", "O", "CB", "CG1", "CG2"),
+    "UNK": (),
+}
+
+DENSE_ATOM = {
+    **ATOM14,
+    "A": (
+        "OP3",
+        "P",
+        "OP1",
+        "OP2",
+        "O5'",
+        "C5'",
+        "C4'",
+        "O4'",
+        "C3'",
+        "O3'",
+        "C2'",
+        "O2'",
+        "C1'",
+        "N9",
+        "C8",
+        "N7",
+        "C5",
+        "C6",
+        "N6",
+        "N1",
+        "C2",
+        "N3",
+        "C4",
+    ),
+    "C": (
+        "OP3",
+        "P",
+        "OP1",
+        "OP2",
+        "O5'",
+        "C5'",
+        "C4'",
+        "O4'",
+        "C3'",
+        "O3'",
+        "C2'",
+        "O2'",
+        "C1'",
+        "N1",
+        "C2",
+        "O2",
+        "N3",
+        "C4",
+        "N4",
+        "C5",
+        "C6",
+    ),
+    "G": (
+        "OP3",
+        "P",
+        "OP1",
+        "OP2",
+        "O5'",
+        "C5'",
+        "C4'",
+        "O4'",
+        "C3'",
+        "O3'",
+        "C2'",
+        "O2'",
+        "C1'",
+        "N9",
+        "C8",
+        "N7",
+        "C5",
+        "C6",
+        "O6",
+        "N1",
+        "C2",
+        "N2",
+        "N3",
+        "C4",
+    ),
+    "U": (
+        "OP3",
+        "P",
+        "OP1",
+        "OP2",
+        "O5'",
+        "C5'",
+        "C4'",
+        "O4'",
+        "C3'",
+        "O3'",
+        "C2'",
+        "O2'",
+        "C1'",
+        "N1",
+        "C2",
+        "O2",
+        "N3",
+        "C4",
+        "O4",
+        "C5",
+        "C6",
+    ),
+    "DA": (
+        "OP3",
+        "P",
+        "OP1",
+        "OP2",
+        "O5'",
+        "C5'",
+        "C4'",
+        "O4'",
+        "C3'",
+        "O3'",
+        "C2'",
+        "C1'",
+        "N9",
+        "C8",
+        "N7",
+        "C5",
+        "C6",
+        "N6",
+        "N1",
+        "C2",
+        "N3",
+        "C4",
+    ),
+    "DC": (
+        "OP3",
+        "P",
+        "OP1",
+        "OP2",
+        "O5'",
+        "C5'",
+        "C4'",
+        "O4'",
+        "C3'",
+        "O3'",
+        "C2'",
+        "C1'",
+        "N1",
+        "C2",
+        "O2",
+        "N3",
+        "C4",
+        "N4",
+        "C5",
+        "C6",
+    ),
+    "DG": (
+        "OP3",
+        "P",
+        "OP1",
+        "OP2",
+        "O5'",
+        "C5'",
+        "C4'",
+        "O4'",
+        "C3'",
+        "O3'",
+        "C2'",
+        "C1'",
+        "N9",
+        "C8",
+        "N7",
+        "C5",
+        "C6",
+        "O6",
+        "N1",
+        "C2",
+        "N2",
+        "N3",
+        "C4",
+    ),
+    "DT": (
+        "OP3",
+        "P",
+        "OP1",
+        "OP2",
+        "O5'",
+        "C5'",
+        "C4'",
+        "O4'",
+        "C3'",
+        "O3'",
+        "C2'",
+        "C1'",
+        "N1",
+        "C2",
+        "O2",
+        "N3",
+        "C4",
+        "O4",
+        "C5",
+        "C7",
+        "C6",
+    ),
+}
+
+ATOM14_PADDED = {k: list(v) + [""] * (14 - len(v)) for k, v in ATOM14.items()}
+
+ATOM37 = (
+    "N",
+    "CA",
+    "C",
+    "CB",
+    "O",
+    "CG",
+    "CG1",
+    "CG2",
+    "OG",
+    "OG1",
+    "SG",
+    "CD",
+    "CD1",
+    "CD2",
+    "ND1",
+    "ND2",
+    "OD1",
+    "OD2",
+    "SD",
+    "CE",
+    "CE1",
+    "CE2",
+    "CE3",
+    "NE",
+    "NE1",
+    "NE2",
+    "OE1",
+    "OE2",
+    "CH2",
+    "NH1",
+    "NH2",
+    "OH",
+    "CZ",
+    "CZ2",
+    "CZ3",
+    "NZ",
+    "OXT",
+)
+ATOM37_ORDER = {name: i for i, name in enumerate(ATOM37)}
+ATOM37_NUM = len(ATOM37)  # := 37.
+
+_CHI_ANGLES_MASK = (
+    (0.0, 0.0, 0.0, 0.0),
+    (1.0, 1.0, 1.0, 1.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 0.0, 0.0, 0.0),
+    (1.0, 1.0, 1.0, 0.0),
+    (1.0, 1.0, 1.0, 0.0),
+    (0.0, 0.0, 0.0, 0.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 1.0, 1.0, 1.0),
+    (1.0, 1.0, 1.0, 0.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 0.0, 0.0, 0.0),
+    (1.0, 0.0, 0.0, 0.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 1.0, 0.0, 0.0),
+    (1.0, 0.0, 0.0, 0.0),
+)
+
+_CHI_ANGLES_ATOMS = {
+    "ALA": [],
+    "ARG": [
+        ("N", "CA", "CB", "CG"),
+        ("CA", "CB", "CG", "CD"),
+        ("CB", "CG", "CD", "NE"),
+        ("CG", "CD", "NE", "CZ"),
+    ],
+    "ASN": [("N", "CA", "CB", "CG"), ("CA", "CB", "CG", "OD1")],
+    "ASP": [("N", "CA", "CB", "CG"), ("CA", "CB", "CG", "OD1")],
+    "CYS": [("N", "CA", "CB", "SG")],
+    "GLN": [
+        ("N", "CA", "CB", "CG"),
+        ("CA", "CB", "CG", "CD"),
+        ("CB", "CG", "CD", "OE1"),
+    ],
+    "GLU": [
+        ("N", "CA", "CB", "CG"),
+        ("CA", "CB", "CG", "CD"),
+        ("CB", "CG", "CD", "OE1"),
+    ],
+    "GLY": [],
+    "HIS": [("N", "CA", "CB", "CG"), ("CA", "CB", "CG", "ND1")],
+    "ILE": [("N", "CA", "CB", "CG1"), ("CA", "CB", "CG1", "CD1")],
+    "LEU": [("N", "CA", "CB", "CG"), ("CA", "CB", "CG", "CD1")],
+    "LYS": [
+        ("N", "CA", "CB", "CG"),
+        ("CA", "CB", "CG", "CD"),
+        ("CB", "CG", "CD", "CE"),
+        ("CG", "CD", "CE", "NZ"),
+    ],
+    "MET": [
+        ("N", "CA", "CB", "CG"),
+        ("CA", "CB", "CG", "SD"),
+        ("CB", "CG", "SD", "CE"),
+    ],
+    "PHE": [("N", "CA", "CB", "CG"), ("CA", "CB", "CG", "CD1")],
+    "PRO": [("N", "CA", "CB", "CG"), ("CA", "CB", "CG", "CD")],
+    "SER": [("N", "CA", "CB", "OG")],
+    "THR": [("N", "CA", "CB", "OG1")],
+    "TRP": [("N", "CA", "CB", "CG"), ("CA", "CB", "CG", "CD1")],
+    "TYR": [("N", "CA", "CB", "CG"), ("CA", "CB", "CG", "CD1")],
+    "VAL": [("N", "CA", "CB", "CG1")],
+}
+
+
+def _make_restype_rigidgroup_dense_atom_idx():
+    """Create Mapping from rigid_groups to dense_atom indices."""
+    num_restypes_with_unk_and_gap = len(STD_RESIDUES_WITH_GAP)
+    # Create an array with the atom names.
+    # shape (num_restypes, num_rigidgroups, 3_atoms):
+    # (32, 8, 3)
+    base_atom_indices = np.zeros((num_restypes_with_unk_and_gap, 8, 3), dtype=np.int32)
+    # Protein: 0 - 19
+    # 4,5,6,7: 'chi1,2,3,4-group'
+    for restype, restype_letter in enumerate(PROTEIN_TYPES_ONE_LETTER):
+        resname = PROTEIN_COMMON_ONE_TO_THREE[restype_letter]
+
+        dense_atom_names = ATOM14[resname]
+        # 0: backbone frame
+        base_atom_indices[restype, 0, :] = [
+            dense_atom_names.index(atom) for atom in ["C", "CA", "N"]
+        ]
+
+        # 3: 'psi-group'
+        base_atom_indices[restype, 3, :] = [
+            dense_atom_names.index(atom) for atom in ["CA", "C", "O"]
+        ]
+        for chi_idx in range(4):
+            if _CHI_ANGLES_MASK[restype][chi_idx]:
+                atom_names = _CHI_ANGLES_ATOMS[resname][chi_idx]
+                base_atom_indices[restype, chi_idx + 4, :] = [
+                    dense_atom_names.index(atom) for atom in atom_names[1:]
+                ]
+    dense_atom_names = DENSE_ATOM["A"]
+    nucleic_rigid_atoms = [
+        dense_atom_names.index(atom) for atom in ["C1'", "C3'", "C4'"]
+    ]
+
+    # RNA: 21-24
+    for nanum, _ in enumerate(RNA_TYPES):
+        # 0: backbone frame only.
+        # we have aa + unk + gap, so we want to start after those
+        resnum = nanum + RNA_START_INDEX
+        base_atom_indices[resnum, 0, :] = nucleic_rigid_atoms
+
+    # DNA: 26-30
+    for nanum, _ in enumerate(DNA_TYPES):
+        # 0: backbone frame only.
+        # we have aa + unk + gap, so we want to start after those
+        resnum = nanum + DNA_START_INDEX
+        base_atom_indices[resnum, 0, :] = nucleic_rigid_atoms
+
+    return base_atom_indices
+
+
+# Mapping from rigid_groups to dense_atom indices.
+# shape (num_restypes, num_rigidgroups, 3_atoms): (32, 8, 3)
+RESTYPE_RIGIDGROUP_DENSE_ATOM_IDX = _make_restype_rigidgroup_dense_atom_idx()
+
+
+def _make_restype_pseudobeta_idx():
+    """Returns indices of residue's pseudo-beta."""
+    num_restypes_with_unk_and_gap = len(STD_RESIDUES_WITH_GAP)
+    restype_pseudobeta_index = np.zeros(
+        (num_restypes_with_unk_and_gap,), dtype=np.int32
+    )
+    for restype, restype_letter in enumerate(PROTEIN_TYPES_ONE_LETTER):
+        restype_name = PROTEIN_COMMON_ONE_TO_THREE[restype_letter]
+        atom_names = list(ATOM14[restype_name])
+        if restype_name in {"GLY"}:
+            restype_pseudobeta_index[restype] = atom_names.index("CA")
+        else:
+            restype_pseudobeta_index[restype] = atom_names.index("CB")
+    for nanum, resname in enumerate(RNA_TYPES):
+        atom_names = list(DENSE_ATOM[resname])
+        # 0: backbone frame only.
+        # we have aa + unk , so we want to start after those
+        restype = nanum + RNA_START_INDEX
+        if resname in {"A", "G"}:
+            restype_pseudobeta_index[restype] = atom_names.index("C4")
+        else:
+            restype_pseudobeta_index[restype] = atom_names.index("C2")
+
+    for nanum, resname in enumerate(DNA_TYPES):
+        atom_names = list(DENSE_ATOM[resname])
+        # 0: backbone frame only.
+        # we have aa + unk , so we want to start after those
+        restype = nanum + DNA_START_INDEX
+        if resname in {"DA", "DG"}:
+            restype_pseudobeta_index[restype] = atom_names.index("C4")
+        else:
+            restype_pseudobeta_index[restype] = atom_names.index("C2")
+    return restype_pseudobeta_index
+
+
+# Returns indices of residue's pseudo-beta.
+RESTYPE_PSEUDOBETA_INDEX = _make_restype_pseudobeta_idx()
+
+
+def _make_aatype_dense_atom_to_atom37():
+    """Map from dense_atom to atom37 per residue type."""
+    num_dense = max(len(v) for v in DENSE_ATOM.values())
+    restype_dense_atom_to_atom37 = []  # mapping (restype, dense_atom) --> atom37
+    for rt in PROTEIN_TYPES_ONE_LETTER:
+        atom_names = ATOM14_PADDED[PROTEIN_COMMON_ONE_TO_THREE[rt]]
+        # Extend to num_dense
+        extended_atom_names = list(atom_names) + [""] * (num_dense - len(atom_names))
+        restype_dense_atom_to_atom37.append(
+            [(ATOM37_ORDER[name] if name else 0) for name in extended_atom_names]
+        )
+    # Add dummy mapping for restype 'UNK', and nucleics [N and DN], '-' (gap).
+    for _ in range(2 + len(RNA_STD_RESIDUES) + len(DNA_STD_RESIDUES)):
+        restype_dense_atom_to_atom37.append([0] * num_dense)
+
+    restype_dense_atom_to_atom37 = np.array(
+        restype_dense_atom_to_atom37, dtype=np.int32
+    )
+    return restype_dense_atom_to_atom37
+
+
+# Mapping from dense_atom to atom37 per residue type.
+# Used for template processing.
+PROTEIN_AATYPE_DENSE_ATOM_TO_ATOM37 = _make_aatype_dense_atom_to_atom37()
+
+# Molecule Constants
 # AlphaFold3 SI Tabel 9
-LIGAND_EXCLUSION = {'144', 'SEP', 'PG0', 'BEN', 'NH4', 'PO4', '3SY', 'BO3', 'UNL', 'MES', 'FLC', 'PGR', '15P', 'MYR', 
-                    'POL', 'CIT', 'N', 'SPD', 'CAQ', 'IPA', 'EGL', 'SAR', 'NO3', 'STU', 'NHE', 'BU1', 'OXA', 'TPO', 
-                    'EEE', 'CAD', 'CBM', 'SPM', 'BCN', 'FMT', 'PEP', 'CM', 'BAM', 'ETF', 'IOD', 'MLI', 'MRD', 'SCN', 
-                    'GSH', 'CCN', 'SR', '1PE', 'ACY', 'STE', '9JE', 'SEO', 'IHS', 'MLA', 'TBU', 'DEP', 'STO', 'ACE', 
-                    'NA', 'TRS', 'CPT', 'OHE', 'TME', 'CL', 'BME', 'DN', '3HR', 'LDA', 'SO4', 'MPD', 'OLC', 'DOD', 
-                    'PE4', 'DOX', 'CMO', 'POP', 'PG4', '2F2', 'DMS', 'IMD', 'NH2', 'EOX', 'IPH', 'ACT', '7PE', 'UNX', 
-                    'GTT', '7N5', 'AZI', 'FCY', 'SIN', 'AAE', 'BTB', 'BTC', 'PGE', 'PE3', 'MB3', 'EDO', 'PLM', 'BCT', 
-                    'EOH', 'P6G', 'ACN', 'D10', 'EPE', 'DIO', 'CO3', 'PVO', 'TAR', 'URE', 'BDN', 'GOL', 'MSE', 'HED', 
-                    'CLR', 'MEG', 'IHP', 'PEO', 'CXS', 'MOH', 'GYF', 'PEG', 'FJO', 'FW5', 'OLA', '2JC', 'ABA', 'O4B', 
+LIGAND_EXCLUSION = {'144', 'SEP', 'PG0', 'BEN', 'NH4', 'PO4', '3SY', 'BO3', 'UNL', 'MES', 'FLC', 'PGR', '15P', 'MYR',
+                    'POL', 'CIT', 'N', 'SPD', 'CAQ', 'IPA', 'EGL', 'SAR', 'NO3', 'STU', 'NHE', 'BU1', 'OXA', 'TPO',
+                    'EEE', 'CAD', 'CBM', 'SPM', 'BCN', 'FMT', 'PEP', 'CM', 'BAM', 'ETF', 'IOD', 'MLI', 'MRD', 'SCN',
+                    'GSH', 'CCN', 'SR', '1PE', 'ACY', 'STE', '9JE', 'SEO', 'IHS', 'MLA', 'TBU', 'DEP', 'STO', 'ACE',
+                    'NA', 'TRS', 'CPT', 'OHE', 'TME', 'CL', 'BME', 'DN', '3HR', 'LDA', 'SO4', 'MPD', 'OLC', 'DOD',
+                    'PE4', 'DOX', 'CMO', 'POP', 'PG4', '2F2', 'DMS', 'IMD', 'NH2', 'EOX', 'IPH', 'ACT', '7PE', 'UNX',
+                    'GTT', '7N5', 'AZI', 'FCY', 'SIN', 'AAE', 'BTB', 'BTC', 'PGE', 'PE3', 'MB3', 'EDO', 'PLM', 'BCT',
+                    'EOH', 'P6G', 'ACN', 'D10', 'EPE', 'DIO', 'CO3', 'PVO', 'TAR', 'URE', 'BDN', 'GOL', 'MSE', 'HED',
+                    'CLR', 'MEG', 'IHP', 'PEO', 'CXS', 'MOH', 'GYF', 'PEG', 'FJO', 'FW5', 'OLA', '2JC', 'ABA', 'O4B',
                     'UPL', 'OME', 'C8E', 'OMB', 'UNK'}  # fmt: skip
 
 
 # AlphaFold3 SI Tabel 11
-GLYCANS = {'79J', 'LXZ', 'KO1', 'Z57', 'XDX', '8OQ', 'G0S', '14T', 'ZB3', '9PG', 'BGL', 'GYU', 'AHG', 'SUC', 'ADA', 'NGR', 
-           '4R1', 'EBQ', 'GAF', 'NAA', 'GYP', 'NDG', 'U2D', 'ISL', '9GP', 'KDM', 'HSX', 'NYT', 'V3P', '4NN', 'Z3L', 'ZCZ', 
-           'D5E', 'RIP', '3LR', 'GL1', 'K99', 'MQG', 'RAM', 'TUP', 'KDB', 'SIO', 'Z5L', 'GUL', 'GU2', 'EQV', '0V4', 'ABD', 
-           'RY7', '5II', 'GAL', '2GL', 'DR5', '4RS', 'MNA', 'DFX', '0WK', 'HTG', 'RP5', 'A1Q', 'B1N', 'GUF', 'NGA', 'TMR', 
-           'C3X', '9S7', 'XLS', 'MAG', 'RST', 'SDY', 'HSH', 'GN4', 'GTR', 'KBA', '6YR', 'CKB', 'DDA', 'RHC', 'OPM', 'SIZ', 
-           'GE3', 'TS8', 'Z6W', 'BZD', '56N', 'RIB', 'GL6', '8GA', 'GLC', 'TAG', 'QIF', 'TA6', 'UAP', 'TVY', 'GC1', 'ARW', 
-           'GU3', 'LBS', 'KDD', 'NPF', '49V', 'CDR', '12E', '6LA', '2M4', 'SA0', 'HNW', 'AOG', 'G8Z', '8LR', 'GPH', 'XXX', 
-           'GPM', 'MTT', 'JFZ', 'LOG', 'LMO', '5TH', '8I4', 'GUP', '5KQ', 'R2G', 'SSG', 'P8E', 'RF5', 'TOC', 'CT3', '2FL', 
-           '73E', 'VJ4', '0H0', 'ERI', 'AMG', '3GR', 'BO1', 'AFD', 'FYJ', 'IDF', 'NBY', 'DOM', 'MBF', 'QDK', 'TDG', '6GR', 
-           'MAV', '1X4', 'AF1', 'EEN', 'ZB1', 'Z2D', '445', 'KHP', 'LKS', '10M', '491', 'OTU', 'BNG', 'AY9', 'KDR', 'LEC', 
-           'FFX', 'AFO', 'SGA', '16F', 'X34', 'SEJ', 'LAG', 'DNO', '6PZ', 'LBT', 'OSU', '3BU', '6K3', 'SFU', 'YDR', 'SIA', 
-           '2WP', '25E', 'SMD', 'NBG', 'DO8', 'LGU', 'S81', 'Z3Q', 'TWA', 'G6S', '2WS', 'G6D', '18D', 'IN1', '64K', 'QPS', 
-           'PTQ', 'FX1', 'RVM', '8GP', 'NLC', 'FCA', 'JLT', 'AH8', 'MFB', 'RRJ', 'SOL', 'TM5', 'TCB', 'GU5', 'TWY', 'ETT', 
-           '8YV', 'SG6', 'XMM', '17T', 'BGC', 'MLR', 'Z6J', '9SJ', 'R2B', 'BBK', 'BEM', 'LTG', '0NZ', 'DKZ', '3YW', 'ASO', 
-           'FUB', '4GL', 'GLT', 'KTU', 'CBF', 'ARI', 'FIF', 'LCN', 'SG5', 'AC1', 'SUP', 'ZMR', 'GU8', 'YYH', 'XKJ', 'JSV', 
-           'DQR', 'M6D', 'FBP', 'AFP', 'F6P', 'GLG', 'JZR', 'DLG', '9C1', 'AAL', 'RRY', 'ZDC', 'TVS', 'B1H', 'XXM', '8B7', 
-           'RCD', 'UBO', '7D1', 'XYT', 'WZ2', 'X1X', 'LRH', 'GDA', 'GLS', 'G6P', '49A', 'NM9', 'DVC', 'MG5', 'SCR', 'MAF', 
-           '149', 'LFC', 'FMF', 'FRU', 'BG8', 'GP4', 'GU1', 'XXR', '4V5', 'MA2', '293', '6KH', 'GAA', 'MXY', 'QV4', 'MSX', 
-           'GU6', '95Z', 'Z9M', 'ARB', 'FNY', 'H1S', 'VG1', 'VTB', 'Z61', 'H6Z', '7K3', 'XGP', 'SOE', 'Z6H', 'GYV', 'MLB', 
-           'DR3', 'ISD', 'BGN', 'AXR', 'SCG', 'Z8T', '6UD', 'KDF', 'GLA', 'BNX', '3MG', 'BDP', 'KFN', 'Z9N', '2FG', 'PNA', 
-           'MUB', 'ZDO', '9WJ', 'GMB', 'LER', 'TVM', '89Y', 'Z4Y', '9SM', 'NGS', 'LAO', 'KGM', 'FKD', 'M1F', 'BG6', 'LAK', 
-           '8GG', '6LS', 'GBH', 'CEG', 'BDR', 'RR7', 'SOG', 'AZC', 'AMU', 'BS7', '3S6', 'MXZ', 'Z3U', 'MDP', '6MJ', 'M3M', 
-           'DT6', 'PRP', 'TUG', 'Z16', 'IDG', 'TUR', 'Z4S', 'GM0', 'A0K', 'GCN', 'ZEE', 'UEA', 'HVC', 'CE5', 'FUD', 'NAG', 
-           'GPO', '22S', '3J4', 'DKX', 'FMO', 'BXP', 'NSQ', '50A', 'MAT', '5TM', '0MK', '9OK', 'RI2', 'SZZ', 'IDS', 'JRV', 
-           '18O', '1CF', 'RAO', 'P53', '27C', 'Z3K', 'Z4U', 'Z4R', 'B4G', '6KU', 'HBZ', '07E', 'KBG', '98U', 'GFP', 'LFR', 
-           'G2F', '51N', 'FUF', 'LGC', '6S2', 'E3M', 'G7P', 'OTN', 'MVP', 'TVD', 'BBV', 'E5G', 'MJJ', 'IEM', 'FSA', 'CE8', 
-           'U1Y', '1FT', 'HTM', 'DLD', 'YO5', 'W9T', '5N6', 'PNG', 'NGY', 'DSR', 'M3N', 'GP0', '3MK', 'RBL', 'GTM', 'FSW', 
-           '4JA', 'YYM', 'Z4V', '3HD', '2DR', 'AIG', 'GL0', 'BND', 'TM6', 'TUJ', 'DAN', '5GF', '4QY', '3FM', '6KW', 'LNV', 
-           '289', 'BFN', 'PSG', 'U9J', 'YX0', 'EQP', 'YZ0', '0BD', 'GAT', 'LVZ', 'FUL', '22O', 'DLF', 'MA1', 'BXY', 'C3G', 
-           'CR6', 'GNS', 'EEQ', 'IDY', 'FFC', 'NBX', 'SID', '9KJ', '9WZ', 'M2F', 'FK9', 'SSH', 'TWG', 'RVG', 'BXX', '24S', 
-           'FSM', 'GDL', 'F1X', '3R3', 'ALX', '4GC', 'GL2', 'DL6', 'GS1', 'AMV', 'TVV', '2DG', 'RGG', 'TFU', '1GN', 'N3U', 
-           'SOR', 'MA3', 'GCT', 'H1M', '16G', '49T', 'BCD', 'GPW', 'DAG', 'GN1', 'IAB', 'EBG', 'GPU', '38J', '1LL', 'DR2', 
-           'YIO', 'YKR', '15L', 'WZ1', 'BTG', 'GPK', '5MM', '26O', 'AMN', 'DEL', 'CTT', '83Y', 'GMT', 'CTO', 'MBE', '1SD', 
-           '6ZC', 'AXP', 'OX2', '5LT', 'MRH', '6BG', 'MDA', 'SG7', '045', 'GC4', 'LDY', 'YYJ', '07Y', 'KDO', 'GP1', 'BHG', 
-           'DPC', 'BM3', 'GU4', 'ISX', 'P6P', 'GPQ', '1S4', '475', 'GYE', 'CBK', 'CEZ', 'SGD', 'TH1', 'V3M', 'RWI', 'RM4', 
-           'U9M', 'U2A', '7GP', '05L', 'Z0F', 'GLO', 'LXB', 'TGA', '61J', 'GYG', 'GCU', 'GE1', 'F1P', 'GLP', 'CTR', 'AHR', 
-           '3LJ', 'FUY', 'JVA', 'LAT', 'NHF', 'RB5', 'XYS', 'LXC', 'SLT', 'U8V', 'GMH', 'EAG', 'GCV', 'B6D', 'IDU', 'KG1', 
-           'BDF', 'NTP', 'IXD', 'RZM', 'PH5', 'SHB', 'X6Y', 'B16', 'Z9E', '9VP', 'LAH', 'H2P', 'TNX', '5GO', 'TGY', '5SP', 
-           'RHA', '5KV', 'GTK', 'SUS', 'DAF', '6DM', '8S0', '6MN', 'G4D', 'NT1', 'XYF', '5TJ', '46Z', '9AM', '7K2', '6C2', 
-           'WIA', '9YW', 'G4S', '46D', 'Z9W', 'ABL', 'XYZ', 'G3I', 'S7P', 'GC9', 'GQ1', 'GCO', 'M6P', 'WUN', 'U63', 'ZB2', 
-           'GLD', 'T6P', 'ZEL', '145', '2OS', 'BGP', 'C4W', 'IDX', 'MUR', '3SA', 'CR1', '34V', 'DEG', 'F55', 'L0W', 'TYV', 
-           'CJB', 'TW7', 'DDL', '5L3', 'NGC', 'ACX', 'JVS', 'NA1', 'GAD', '7JZ', 'BOG', 'GCW', 'BDG', 'Z15', '0LP', 'ABE', 
-           'RG1', 'DGU', 'N1L', 'NGE', 'PUF', 'B9D', '49S', '5LS', '4N2', '23V', 'RUU', 'B0D', 'RTV', '42D', 'M1P', 'MAB', 
-           '2F8', 'TQY', 'L6S', 'V71', '2H5', 'M8C', 'NTF', 'H3S', 'LM2', 'MN0', 'JV4', '9WN', 'U9G', 'LZ0', 'X0X', 'TXB', 
-           '3DO', 'SG4', 'IDR', '8B9', 'TOA', 'CRA', 'HSJ', '0HX', 'FDQ', 'FUC', 'ABF', 'ALL', 'G20', 'GL9', 'IDC', 'LOX', 
-           'Z2T', 'RP6', '2HA', 'AHM', 'DRI', 'EMZ', 'GMZ', 'HD4', 'GU9', 'L1L', 'PNW', 'PPC', 'MMA', 'CE6', '5KS', 'MGC', 
-           'XLF', 'KO2', 'RUG', 'HSG', 'SF6', 'IPT', 'TF0', 'GCD', 'B8D', '0YT', 'GRX', 'HNV', 'FVQ', 'RV7', 'J5B', 'ERE', 
-           'DFR', 'LVO', '4GP', 'BQY', 'BMA', 'KDA', 'ARA', 'KDN', 'ZCD', 'A5C', 'T68', 'XYL', 'YJM', 'NM6', '9CD', 'CNP', 
-           'U97', '9T1', 'C5X', 'R1X', 'BW3', '09X', 'GNX', 'PDX', 'Z9D', 'DGO', 'SLM', '66O', '4CQ', 'X6X', 'RTG', 'HSY', 
-           '20X', 'GCB', 'EUS', 'FNG', '1S3', 'EGA', 'MQT', 'NXD', '5TK', 'Z9K', 'TGR', '9MR', 'M7P', 'PA1', 'MFU', 'UBH', 
-           'CBI', 'TMX', 'T6D', '32O', 'JHM', 'X2F', '4SG', '3DY', 'SGC', 'PAV', 'A2G', 'LAI', '0UB', 'BXF', '3J3', '9T7', 
-           'T6T', 'OI7', 'ANA', '9QG', 'K5B', 'KOT', 'GIV', 'MGL', 'GL4', '9SP', 'FDP', 'GPV', '6KS', 'GXV', 'NFG', 'M7B', 
-           'DG0', '57S', 'GUZ', '96O', 'GCS', 'MAN', 'YYB', 'TWD', 'MGS', 'TT7', 'PNJ', 'GXL', 'TRE', 'G28', '7NU', '8PK', 
-           'LKA', 'ASG', 'SF9', '2M8', '1GL', '5KT', 'BWG', 'OTG', 'VJ1', 'ZGE', '40J', 'Z4K', 'F58', 'KME', 'SR1', 'ZB0', 
-           'UDC', '6KL', '6LW', '8EX', 'D1M', '62I', 'H6Q', 'RAE', 'SHD', 'AGL', 'DGS', 'VKN', 'TWJ', 'MRP', 'TGK', 'HSQ', 
-           'ASC', 'F8X', '6GB', '0XY', 'BMX', 'SN5', 'Z5J', 'ZD0', 'DJB', 'KDE', 'TEU', 'M55', 'YYQ', 'DK4', 'D6G', 'KD5', 
-           'AH2', '4AM', 'RER', '16O', 'C3B', 'G1P', 'NG6', 'MBG', 'Z4W', 'MAW', '147', 'NGK', 'CKP', 'DJE', 'GL5', 'TVG', 
-           'PKM', 'L6T', 'XS2', '2GS', 'BTU', 'G16', 'PSV', 'AQA', 'MCU', 'SNG', '2M5', 'SLB', 'BM7', 'H53', 'MA8', 'OAK', 
-           'GRF', 'BGS', 'NTO', 'YYK', 'EPG', '6GP', 'MYG', 'FCT', 'Z9H', 'GL7', '48Z', '4UZ', '7CV', 'DYM', 'GLF', 'GU0', 
-           'CGF', 'STZ', '44S', 'LB2', 'TU4', 'Z8H', '5QP', 'A6P', 'XYP', 'B2G', 'U9A', 'SWE', 'NGZ', 'SGN', 'B7G', 'MAL', 
-           '291', 'FSI', 'R1P', 'ACR', 'PZU', 'X2Y', 'Z9L', 'STW', 'U9D', 'X1P', 'TTV', 'GS9', 'QKH', 'SHG', 'N9S', 'NNG', 
+GLYCANS = {'79J', 'LXZ', 'KO1', 'Z57', 'XDX', '8OQ', 'G0S', '14T', 'ZB3', '9PG', 'BGL', 'GYU', 'AHG', 'SUC', 'ADA', 'NGR',
+           '4R1', 'EBQ', 'GAF', 'NAA', 'GYP', 'NDG', 'U2D', 'ISL', '9GP', 'KDM', 'HSX', 'NYT', 'V3P', '4NN', 'Z3L', 'ZCZ',
+           'D5E', 'RIP', '3LR', 'GL1', 'K99', 'MQG', 'RAM', 'TUP', 'KDB', 'SIO', 'Z5L', 'GUL', 'GU2', 'EQV', '0V4', 'ABD',
+           'RY7', '5II', 'GAL', '2GL', 'DR5', '4RS', 'MNA', 'DFX', '0WK', 'HTG', 'RP5', 'A1Q', 'B1N', 'GUF', 'NGA', 'TMR',
+           'C3X', '9S7', 'XLS', 'MAG', 'RST', 'SDY', 'HSH', 'GN4', 'GTR', 'KBA', '6YR', 'CKB', 'DDA', 'RHC', 'OPM', 'SIZ',
+           'GE3', 'TS8', 'Z6W', 'BZD', '56N', 'RIB', 'GL6', '8GA', 'GLC', 'TAG', 'QIF', 'TA6', 'UAP', 'TVY', 'GC1', 'ARW',
+           'GU3', 'LBS', 'KDD', 'NPF', '49V', 'CDR', '12E', '6LA', '2M4', 'SA0', 'HNW', 'AOG', 'G8Z', '8LR', 'GPH', 'XXX',
+           'GPM', 'MTT', 'JFZ', 'LOG', 'LMO', '5TH', '8I4', 'GUP', '5KQ', 'R2G', 'SSG', 'P8E', 'RF5', 'TOC', 'CT3', '2FL',
+           '73E', 'VJ4', '0H0', 'ERI', 'AMG', '3GR', 'BO1', 'AFD', 'FYJ', 'IDF', 'NBY', 'DOM', 'MBF', 'QDK', 'TDG', '6GR',
+           'MAV', '1X4', 'AF1', 'EEN', 'ZB1', 'Z2D', '445', 'KHP', 'LKS', '10M', '491', 'OTU', 'BNG', 'AY9', 'KDR', 'LEC',
+           'FFX', 'AFO', 'SGA', '16F', 'X34', 'SEJ', 'LAG', 'DNO', '6PZ', 'LBT', 'OSU', '3BU', '6K3', 'SFU', 'YDR', 'SIA',
+           '2WP', '25E', 'SMD', 'NBG', 'DO8', 'LGU', 'S81', 'Z3Q', 'TWA', 'G6S', '2WS', 'G6D', '18D', 'IN1', '64K', 'QPS',
+           'PTQ', 'FX1', 'RVM', '8GP', 'NLC', 'FCA', 'JLT', 'AH8', 'MFB', 'RRJ', 'SOL', 'TM5', 'TCB', 'GU5', 'TWY', 'ETT',
+           '8YV', 'SG6', 'XMM', '17T', 'BGC', 'MLR', 'Z6J', '9SJ', 'R2B', 'BBK', 'BEM', 'LTG', '0NZ', 'DKZ', '3YW', 'ASO',
+           'FUB', '4GL', 'GLT', 'KTU', 'CBF', 'ARI', 'FIF', 'LCN', 'SG5', 'AC1', 'SUP', 'ZMR', 'GU8', 'YYH', 'XKJ', 'JSV',
+           'DQR', 'M6D', 'FBP', 'AFP', 'F6P', 'GLG', 'JZR', 'DLG', '9C1', 'AAL', 'RRY', 'ZDC', 'TVS', 'B1H', 'XXM', '8B7',
+           'RCD', 'UBO', '7D1', 'XYT', 'WZ2', 'X1X', 'LRH', 'GDA', 'GLS', 'G6P', '49A', 'NM9', 'DVC', 'MG5', 'SCR', 'MAF',
+           '149', 'LFC', 'FMF', 'FRU', 'BG8', 'GP4', 'GU1', 'XXR', '4V5', 'MA2', '293', '6KH', 'GAA', 'MXY', 'QV4', 'MSX',
+           'GU6', '95Z', 'Z9M', 'ARB', 'FNY', 'H1S', 'VG1', 'VTB', 'Z61', 'H6Z', '7K3', 'XGP', 'SOE', 'Z6H', 'GYV', 'MLB',
+           'DR3', 'ISD', 'BGN', 'AXR', 'SCG', 'Z8T', '6UD', 'KDF', 'GLA', 'BNX', '3MG', 'BDP', 'KFN', 'Z9N', '2FG', 'PNA',
+           'MUB', 'ZDO', '9WJ', 'GMB', 'LER', 'TVM', '89Y', 'Z4Y', '9SM', 'NGS', 'LAO', 'KGM', 'FKD', 'M1F', 'BG6', 'LAK',
+           '8GG', '6LS', 'GBH', 'CEG', 'BDR', 'RR7', 'SOG', 'AZC', 'AMU', 'BS7', '3S6', 'MXZ', 'Z3U', 'MDP', '6MJ', 'M3M',
+           'DT6', 'PRP', 'TUG', 'Z16', 'IDG', 'TUR', 'Z4S', 'GM0', 'A0K', 'GCN', 'ZEE', 'UEA', 'HVC', 'CE5', 'FUD', 'NAG',
+           'GPO', '22S', '3J4', 'DKX', 'FMO', 'BXP', 'NSQ', '50A', 'MAT', '5TM', '0MK', '9OK', 'RI2', 'SZZ', 'IDS', 'JRV',
+           '18O', '1CF', 'RAO', 'P53', '27C', 'Z3K', 'Z4U', 'Z4R', 'B4G', '6KU', 'HBZ', '07E', 'KBG', '98U', 'GFP', 'LFR',
+           'G2F', '51N', 'FUF', 'LGC', '6S2', 'E3M', 'G7P', 'OTN', 'MVP', 'TVD', 'BBV', 'E5G', 'MJJ', 'IEM', 'FSA', 'CE8',
+           'U1Y', '1FT', 'HTM', 'DLD', 'YO5', 'W9T', '5N6', 'PNG', 'NGY', 'DSR', 'M3N', 'GP0', '3MK', 'RBL', 'GTM', 'FSW',
+           '4JA', 'YYM', 'Z4V', '3HD', '2DR', 'AIG', 'GL0', 'BND', 'TM6', 'TUJ', 'DAN', '5GF', '4QY', '3FM', '6KW', 'LNV',
+           '289', 'BFN', 'PSG', 'U9J', 'YX0', 'EQP', 'YZ0', '0BD', 'GAT', 'LVZ', 'FUL', '22O', 'DLF', 'MA1', 'BXY', 'C3G',
+           'CR6', 'GNS', 'EEQ', 'IDY', 'FFC', 'NBX', 'SID', '9KJ', '9WZ', 'M2F', 'FK9', 'SSH', 'TWG', 'RVG', 'BXX', '24S',
+           'FSM', 'GDL', 'F1X', '3R3', 'ALX', '4GC', 'GL2', 'DL6', 'GS1', 'AMV', 'TVV', '2DG', 'RGG', 'TFU', '1GN', 'N3U',
+           'SOR', 'MA3', 'GCT', 'H1M', '16G', '49T', 'BCD', 'GPW', 'DAG', 'GN1', 'IAB', 'EBG', 'GPU', '38J', '1LL', 'DR2',
+           'YIO', 'YKR', '15L', 'WZ1', 'BTG', 'GPK', '5MM', '26O', 'AMN', 'DEL', 'CTT', '83Y', 'GMT', 'CTO', 'MBE', '1SD',
+           '6ZC', 'AXP', 'OX2', '5LT', 'MRH', '6BG', 'MDA', 'SG7', '045', 'GC4', 'LDY', 'YYJ', '07Y', 'KDO', 'GP1', 'BHG',
+           'DPC', 'BM3', 'GU4', 'ISX', 'P6P', 'GPQ', '1S4', '475', 'GYE', 'CBK', 'CEZ', 'SGD', 'TH1', 'V3M', 'RWI', 'RM4',
+           'U9M', 'U2A', '7GP', '05L', 'Z0F', 'GLO', 'LXB', 'TGA', '61J', 'GYG', 'GCU', 'GE1', 'F1P', 'GLP', 'CTR', 'AHR',
+           '3LJ', 'FUY', 'JVA', 'LAT', 'NHF', 'RB5', 'XYS', 'LXC', 'SLT', 'U8V', 'GMH', 'EAG', 'GCV', 'B6D', 'IDU', 'KG1',
+           'BDF', 'NTP', 'IXD', 'RZM', 'PH5', 'SHB', 'X6Y', 'B16', 'Z9E', '9VP', 'LAH', 'H2P', 'TNX', '5GO', 'TGY', '5SP',
+           'RHA', '5KV', 'GTK', 'SUS', 'DAF', '6DM', '8S0', '6MN', 'G4D', 'NT1', 'XYF', '5TJ', '46Z', '9AM', '7K2', '6C2',
+           'WIA', '9YW', 'G4S', '46D', 'Z9W', 'ABL', 'XYZ', 'G3I', 'S7P', 'GC9', 'GQ1', 'GCO', 'M6P', 'WUN', 'U63', 'ZB2',
+           'GLD', 'T6P', 'ZEL', '145', '2OS', 'BGP', 'C4W', 'IDX', 'MUR', '3SA', 'CR1', '34V', 'DEG', 'F55', 'L0W', 'TYV',
+           'CJB', 'TW7', 'DDL', '5L3', 'NGC', 'ACX', 'JVS', 'NA1', 'GAD', '7JZ', 'BOG', 'GCW', 'BDG', 'Z15', '0LP', 'ABE',
+           'RG1', 'DGU', 'N1L', 'NGE', 'PUF', 'B9D', '49S', '5LS', '4N2', '23V', 'RUU', 'B0D', 'RTV', '42D', 'M1P', 'MAB',
+           '2F8', 'TQY', 'L6S', 'V71', '2H5', 'M8C', 'NTF', 'H3S', 'LM2', 'MN0', 'JV4', '9WN', 'U9G', 'LZ0', 'X0X', 'TXB',
+           '3DO', 'SG4', 'IDR', '8B9', 'TOA', 'CRA', 'HSJ', '0HX', 'FDQ', 'FUC', 'ABF', 'ALL', 'G20', 'GL9', 'IDC', 'LOX',
+           'Z2T', 'RP6', '2HA', 'AHM', 'DRI', 'EMZ', 'GMZ', 'HD4', 'GU9', 'L1L', 'PNW', 'PPC', 'MMA', 'CE6', '5KS', 'MGC',
+           'XLF', 'KO2', 'RUG', 'HSG', 'SF6', 'IPT', 'TF0', 'GCD', 'B8D', '0YT', 'GRX', 'HNV', 'FVQ', 'RV7', 'J5B', 'ERE',
+           'DFR', 'LVO', '4GP', 'BQY', 'BMA', 'KDA', 'ARA', 'KDN', 'ZCD', 'A5C', 'T68', 'XYL', 'YJM', 'NM6', '9CD', 'CNP',
+           'U97', '9T1', 'C5X', 'R1X', 'BW3', '09X', 'GNX', 'PDX', 'Z9D', 'DGO', 'SLM', '66O', '4CQ', 'X6X', 'RTG', 'HSY',
+           '20X', 'GCB', 'EUS', 'FNG', '1S3', 'EGA', 'MQT', 'NXD', '5TK', 'Z9K', 'TGR', '9MR', 'M7P', 'PA1', 'MFU', 'UBH',
+           'CBI', 'TMX', 'T6D', '32O', 'JHM', 'X2F', '4SG', '3DY', 'SGC', 'PAV', 'A2G', 'LAI', '0UB', 'BXF', '3J3', '9T7',
+           'T6T', 'OI7', 'ANA', '9QG', 'K5B', 'KOT', 'GIV', 'MGL', 'GL4', '9SP', 'FDP', 'GPV', '6KS', 'GXV', 'NFG', 'M7B',
+           'DG0', '57S', 'GUZ', '96O', 'GCS', 'MAN', 'YYB', 'TWD', 'MGS', 'TT7', 'PNJ', 'GXL', 'TRE', 'G28', '7NU', '8PK',
+           'LKA', 'ASG', 'SF9', '2M8', '1GL', '5KT', 'BWG', 'OTG', 'VJ1', 'ZGE', '40J', 'Z4K', 'F58', 'KME', 'SR1', 'ZB0',
+           'UDC', '6KL', '6LW', '8EX', 'D1M', '62I', 'H6Q', 'RAE', 'SHD', 'AGL', 'DGS', 'VKN', 'TWJ', 'MRP', 'TGK', 'HSQ',
+           'ASC', 'F8X', '6GB', '0XY', 'BMX', 'SN5', 'Z5J', 'ZD0', 'DJB', 'KDE', 'TEU', 'M55', 'YYQ', 'DK4', 'D6G', 'KD5',
+           'AH2', '4AM', 'RER', '16O', 'C3B', 'G1P', 'NG6', 'MBG', 'Z4W', 'MAW', '147', 'NGK', 'CKP', 'DJE', 'GL5', 'TVG',
+           'PKM', 'L6T', 'XS2', '2GS', 'BTU', 'G16', 'PSV', 'AQA', 'MCU', 'SNG', '2M5', 'SLB', 'BM7', 'H53', 'MA8', 'OAK',
+           'GRF', 'BGS', 'NTO', 'YYK', 'EPG', '6GP', 'MYG', 'FCT', 'Z9H', 'GL7', '48Z', '4UZ', '7CV', 'DYM', 'GLF', 'GU0',
+           'CGF', 'STZ', '44S', 'LB2', 'TU4', 'Z8H', '5QP', 'A6P', 'XYP', 'B2G', 'U9A', 'SWE', 'NGZ', 'SGN', 'B7G', 'MAL',
+           '291', 'FSI', 'R1P', 'ACR', 'PZU', 'X2Y', 'Z9L', 'STW', 'U9D', 'X1P', 'TTV', 'GS9', 'QKH', 'SHG', 'N9S', 'NNG',
            'RP3', 'G3F', 'YX1', 'EMP', 'XIL', '08U', 'WOO', 'FCB', 'NG1', 'TRV', '20S', 'RAF', 'GZL', 'C4B', '9SG', 'GAC'}  # fmt: skip
 
 
 # AlphaFold3 SI Tabel 12
-IONS = {'XGP', 'Z4K', '147', 'B0D', 'G6D', 'RIB', 'AXR', 'SOG', 'NTF', 'SHB', 'RG1', 'G6S', 'GPO', 'BTG', '5LT', 'CEG', 'KG1', 
-        'TDG', 'TRV', 'WZ1', 'ARI', 'HVC', 'TM6', '2DG', '6K3', 'ARA', 'ASO', '6GB', 'NBX', 'OTG', 'ASG', 'YO5', 'MRH', 'GYP', 
-        'C4B', 'GDA', 'MUB', 'XXM', 'M6D', 'OPM', 'GYV', 'DKX', '9SG', 'LOG', 'TRE', 'DLG', 'FNG', 'BBK', 'ABF', 'AQA', '3BU', 
-        'SIA', 'CGF', 'LBS', 'QV4', 'NAA', 'GLC', 'BHG', 'MSX', 'ZB1', 'YYJ', 'TUP', '6ZC', '0WK', 'RY7', 'L1L', 'RRY', 'M55', 
-        '9PG', '5GF', '4V5', 'FMO', 'SWE', 'KDA', 'P8E', '14T', 'DL6', 'CKB', '2M8', 'AHR', 'NGY', '8GP', 'YYQ', 'LVO', 'CRA', 
-        'GU9', 'PPC', '6GP', 'CR1', 'G20', 'T6P', 'EMZ', 'RHA', 'GC4', 'AH2', 'FCT', 'QDK', 'DDA', 'RTV', '8S0', 'TVG', 'HNV', 
-        'FYJ', 'BDP', 'GYE', 'TS8', 'CEZ', '42D', 'NHF', 'NT1', 'WOO', '0LP', 'HBZ', 'SG5', 'NM9', 'CJB', 'DLF', 'EUS', 'IDY', 
-        '2GL', 'NTO', 'PNG', 'B2G', '7NU', '4UZ', '5LS', '475', 'DJE', 'Z9E', 'GC9', 'QPS', '0NZ', 'F1X', 'G8Z', '2F8', '3SA', 
-        '46D', '3DO', '6PZ', 'OI7', 'SLM', 'A0K', '9SJ', 'TWD', 'AOG', 'TW7', '2WS', 'GU5', 'NSQ', 'FUD', 'GLO', 'TNX', 'XYP', 
-        'JFZ', '2HA', 'G16', 'V3M', 'RTG', 'C4W', 'R2G', 'HD4', '66O', 'MFB', 'GXL', '8YV', 'NFG', 'FFC', '3YW', 'XYZ', '445', 
-        'IXD', 'GUL', 'CTO', '05L', 'Z3L', 'RBL', 'DR5', 'S81', 'CTR', '15L', 'GLP', '7K3', 'LDY', 'Z4S', 'H2P', '4GP', '5SP', 
-        '18O', 'DGS', 'OX2', 'DFR', 'GN1', 'BGL', 'Z9K', 'GU4', '0V4', 'MA2', 'U2A', 'MXZ', 'PA1', '9YW', 'GS9', '3MK', 'AAL', 
-        'NBY', 'XXX', 'ISD', 'SEJ', 'DKZ', 'GL9', '23V', 'AMN', 'AHG', '25E', 'DJB', '7K2', 'GDL', '08U', 'TT7', 'DRI', 'HSY', 
-        'LB2', 'GCV', 'X1P', 'MN0', 'BW3', 'U9J', 'FFX', 'Z3U', 'LOX', 'MQG', 'HSG', 'GCO', 'GPQ', 'IDR', '2GS', 'AGL', 'RUU', 
-        '5KV', 'R1X', 'LZ0', 'P6P', '0H0', '32O', 'LAG', 'YYK', '07E', '6KS', 'KOT', '17T', 'TQY', 'RM4', 'LNV', 'BGN', 'STW', 
-        'NGC', 'GLF', '2WP', 'GL5', 'KHP', '9SP', 'LAI', 'KDB', 'JVA', 'OTN', 'NA1', 'RR7', 'B16', 'PSV', 'NXD', 'C5X', 'G1P', 
-        'RRJ', 'DAF', '5N6', 'SG4', 'KDN', '95Z', 'FDQ', 'K5B', 'MDP', 'GTK', '4SG', 'ALL', 'LXC', 'TM5', 'NGA', '98U', '7JZ', 
-        'A6P', 'UBH', '293', '9T7', 'PUF', '5TM', 'VTB', 'BGP', 'JV4', 'SN5', 'FSA', 'LAK', 'G7P', 'BGC', 'ZCD', '7GP', '79J', 
-        'FKD', 'TWY', 'ZGE', 'OAK', 'FMF', 'ZCZ', 'GL2', 'MAV', 'ZB3', 'SA0', '3LR', 'SHD', 'XLS', 'DOM', 'Z4R', 'GP0', '5KS', 
-        'KO1', 'FCB', 'LFC', 'AC1', 'NPF', 'X6Y', 'IDF', '20X', '6KL', '6LW', '49S', '0YT', 'BDR', 'GBH', 'LAH', 'KO2', '40J', 
-        '4CQ', 'D5E', 'T6D', 'SUP', 'TGR', 'Z57', 'SDY', '4NN', 'MNA', 'Z5J', '20S', 'CT3', 'DQR', '5MM', '83Y', '49T', 'BDG', 
-        'GL1', 'TOC', '6UD', 'GM0', 'GU3', '18D', 'ADA', '4AM', '9WZ', 'HSX', 'QIF', '6DM', '4RS', 'KDF', 'GAL', 'ISL', 'Z9H', 
-        'GC1', 'Z9W', 'NBG', 'MAL', 'BGS', 'W9T', 'U9A', '62I', 'M6P', 'AFO', 'C3G', 'M2F', 'RUG', 'ARW', 'LEC', 'B8D', '61J', 
-        'GL7', 'F58', 'GP4', 'GFP', 'TVY', 'ZB0', 'FSM', 'BDF', 'TCB', 'ZEL', 'IDG', '9CD', 'PNA', 'SF9', 'DSR', 'MG5', 'E5G', 
-        'PNW', 'TH1', '1S4', 'PTQ', 'KDD', 'SSH', 'F55', 'V71', 'VG1', '9T1', '145', 'GU2', '2M5', '8I4', 'H1S', 'YYB', '1LL', 
-        '4N2', 'BG6', 'R2B', 'MAT', 'LMO', 'OSU', 'PSG', 'RCD', '26O', 'DGO', 'SID', 'FUB', '2FL', '3HD', '34V', 'FK9', 'AMG', 
-        'G4D', 'EPG', 'BWG', 'KTU', '491', 'JHM', 'NG1', 'DLD', 'MCU', 'MQT', 'EQV', 'CBF', '4GL', 'GS1', 'DEG', 'DDL', 'SGA', 
-        '16O', 'X6X', 'H53', 'FUC', 'IDS', 'LTG', 'TMX', '9SM', '045', 'DAN', 'FRU', 'Z5L', 'AHM', 'BNG', 'AFP', 'MAF', 'UBO', 
-        'BOG', '2H5', 'NG6', '10M', 'NM6', 'RST', 'C3X', '9S7', '49A', 'AXP', 'PH5', 'ISX', 'B6D', 'GU6', 'TWG', '6GR', 'H3S', 
-        'Z61', '9WJ', 'BMA', 'U63', 'LKA', 'GRF', 'VJ1', 'RZM', 'MA3', '0XY', 'GAF', 'GAD', '1FT', '149', 'DPC', 'LFR', 'B9D', 
-        'CE5', 'SOR', '6KU', 'SFU', 'BEM', 'YKR', '38J', 'N3U', 'ARB', 'CBK', 'SGD', '8EX', 'WZ2', '8B9', 'TF0', 'X2Y', 'PKM', 
-        'RF5', 'D1M', 'AF1', 'DR2', 'EQP', 'AMV', 'PRP', 'VJ4', 'BCD', '1GN', 'SMD', '9QG', 'GCW', 'A5C', 'M3N', 'SZZ', 'B1H', 
-        'GPH', 'NDG', '5KT', 'TYV', 'KDM', 'A2G', 'CE6', 'H1M', 'JVS', 'ABL', 'LAO', 'P53', 'GCN', 'QKH', 'U2D', 'YYH', '6S2', 
-        'L0W', 'DEL', 'G2F', 'LER', 'MGC', 'RI2', '5KQ', 'DT6', 'U97', 'BG8', '1X4', 'GYG', 'U9D', 'SG7', '8B7', 'FCA', 'RWI', 
-        '8GG', 'TAG', 'ERE', '46Z', '5QP', 'UDC', '51N', 'SGN', 'NLC', '8LR', 'L6T', 'WIA', 'TMR', 'IDC', 'GLT', 'FDP', 'GCT', 
-        'FSW', 'XYS', 'GAA', 'N9S', 'DO8', 'UAP', 'TUG', 'F1P', '2FG', '12E', '56N', 'IAB', 'LAT', 'X1X', 'MBE', 'GP1', 'X34', 
-        '6MJ', '6KH', 'G3F', '3DY', 'XYF', 'GE1', 'MAB', 'Z9L', '289', 'GIV', 'F8X', '9WN', 'KDO', 'GLA', 'SIZ', 'G0S', 'EGA', 
-        'MJJ', 'B7G', 'BND', 'JRV', '1S3', 'DAG', 'GL0', 'GPV', 'HTM', '3R3', 'SHG', 'DR3', 'TTV', 'DK4', '22S', 'IDU', 'XIL', 
-        'RER', '6BG', 'GXV', 'BTU', 'GE3', 'H6Z', 'ZD0', 'SF6', 'VKN', 'GYU', '16F', 'K99', 'KGM', 'FX1', 'NGS', 'RVG', 'YX1', 
-        '4GC', 'EEQ', 'XDX', 'MVP', 'PNJ', 'BS7', 'M7B', '0BD', 'AIG', 'TVV', 'BXY', 'T68', 'SIO', '8OQ', '2OS', 'S7P', 'GNX', 
-        'TUR', 'YX0', 'DVC', 'NGK', 'M8C', 'RHC', 'GPM', 'LKS', '64K', 'GMT', 'JLT', 'XS2', 'LBT', 'TVM', '6MN', 'DYM', 'E3M', 
-        'NGR', 'G6P', 'RAO', 'SCR', 'YJM', 'MRP', 'YIO', 'ACR', '291', '3GR', 'M1F', 'L6S', 'XLF', 'GU1', 'LVZ', 'DNO', '22O', 
-        'SOL', 'GPW', 'KD5', 'GCU', 'ERI', 'YZ0', 'TXB', 'ABD', 'YYM', 'BFN', 'G4S', 'GAC', 'PAV', 'MMA', 'RV7', 'MBG', '16G', 
-        'MA8', 'GU8', '4JA', 'NTP', 'FNY', '07Y', '1CF', 'KDE', 'Z16', 'CBI', '50A', 'Z4W', 'U9G', 'D6G', 'JSV', 'YDR', 'DGU', 
-        'Z15', 'G3I', 'XKJ', 'IEM', 'CDR', 'GLG', '0HX', 'TA6', '57S', 'LGU', '27C', 'BO1', 'EEN', 'HSJ', 'GLD', 'RP3', 'FSI', 
-        'LRH', '8PK', 'GTR', 'B1N', 'XXR', 'TFU', 'RAF', 'ETT', 'AY9', '3FM', 'G28', '2DR', 'FUL', 'CE8', 'GQ1', 'TGA', '6C2', 
-        'NGZ', '6LS', 'SOE', 'BQY', 'HSH', 'XYL', '5TH', 'A1Q', 'HTG', 'Z3K', '3MG', 'GMH', 'M1P', 'ASC', '73E', 'Z8T', 'STZ', 
-        'RAE', 'GL6', '7CV', 'GPU', '5L3', '7D1', 'CKP', 'BXP', 'M7P', 'RVM', 'TWA', '4R1', 'N1L', 'X2F', 'TVD', '3J3', 'TOA', 
-        'B4G', 'WUN', '0MK', '6YR', 'H6Q', 'CNP', 'TEU', 'MBF', '44S', 'Z9N', 'BM7', 'NGE', 'U9M', 'GMB', 'MTT', '9GP', 'DG0', 
-        'RP5', 'KBA', 'ALX', 'FVQ', 'TGY', 'EBG', 'BXF', '9C1', 'BBV', 'AFD', '4QY', 'GCD', 'FBP', '96O', 'GNS', 'OTU', 'ACX', 
-        'RP6', 'UEA', 'SGC', 'Z4V', 'RAM', 'AZC', 'J5B', '1GL', 'TGK', 'HSQ', 'LM2', 'MYG', 'PDX', 'Z6W', 'ZDC', '09X', 'IDX', 
-        '9MR', 'MFU', 'CR6', 'Z8H', 'SUS', 'PZU', '89Y', '5TK', 'KME', 'U1Y', 'Z4U', 'LCN', 'GPK', 'MUR', '5TJ', 'NYT', '24S', 
-        'SR1', '0UB', '48Z', 'MGL', 'Z6J', 'BMX', 'C3B', 'TVS', 'SLB', 'IPT', 'MLB', 'SLT', 'Z9D', 'GRX', 'AH8', 'F6P', 'BNX', 
-        'JZR', 'LXB', 'M3M', 'XYT', 'MA1', 'GTM', 'SCG', 'Z3Q', 'KFN', 'LGC', 'ZB2', 'FIF', 'GLS', 'SSG', 'Z4Y', 'T6T', 'GCS', 
-        'GZL', 'U8V', 'V3P', 'ABE', 'MGS', '6KW', '8GA', 'BZD', 'FUF', 'GMZ', 'FUY', 'HNW', 'LXZ', 'IN1', 'SNG', 'GAT', 'Z9M', 
-        'BM3', 'ZDO', '9AM', '3LJ', 'X0X', 'MAN', '5GO', 'AMU', 'GUF', 'XMM', 'EAG', 'SUC', 'BXX', 'Z0F', '9OK', 'CTT', 'MLR', 
-        '49V', 'ZMR', 'TWJ', 'MAW', '5II', 'ZEE', 'KBG', 'EMP', 'GUZ', 'TUJ', 'RB5', 'GCB', '9KJ', 'MAG', 'Z2D', '6LA', '2M4', 
-        'GN4', 'MDA', 'TU4', 'Z2T', 'GL4', 'EBQ', 'NNG', '1SD', 'ANA', 'MXY', 'Z6H', 'GU0', 'GUP', 'SG6', 'NAG', '9VP', 'RIP', 
+IONS = {'XGP', 'Z4K', '147', 'B0D', 'G6D', 'RIB', 'AXR', 'SOG', 'NTF', 'SHB', 'RG1', 'G6S', 'GPO', 'BTG', '5LT', 'CEG', 'KG1',
+        'TDG', 'TRV', 'WZ1', 'ARI', 'HVC', 'TM6', '2DG', '6K3', 'ARA', 'ASO', '6GB', 'NBX', 'OTG', 'ASG', 'YO5', 'MRH', 'GYP',
+        'C4B', 'GDA', 'MUB', 'XXM', 'M6D', 'OPM', 'GYV', 'DKX', '9SG', 'LOG', 'TRE', 'DLG', 'FNG', 'BBK', 'ABF', 'AQA', '3BU',
+        'SIA', 'CGF', 'LBS', 'QV4', 'NAA', 'GLC', 'BHG', 'MSX', 'ZB1', 'YYJ', 'TUP', '6ZC', '0WK', 'RY7', 'L1L', 'RRY', 'M55',
+        '9PG', '5GF', '4V5', 'FMO', 'SWE', 'KDA', 'P8E', '14T', 'DL6', 'CKB', '2M8', 'AHR', 'NGY', '8GP', 'YYQ', 'LVO', 'CRA',
+        'GU9', 'PPC', '6GP', 'CR1', 'G20', 'T6P', 'EMZ', 'RHA', 'GC4', 'AH2', 'FCT', 'QDK', 'DDA', 'RTV', '8S0', 'TVG', 'HNV',
+        'FYJ', 'BDP', 'GYE', 'TS8', 'CEZ', '42D', 'NHF', 'NT1', 'WOO', '0LP', 'HBZ', 'SG5', 'NM9', 'CJB', 'DLF', 'EUS', 'IDY',
+        '2GL', 'NTO', 'PNG', 'B2G', '7NU', '4UZ', '5LS', '475', 'DJE', 'Z9E', 'GC9', 'QPS', '0NZ', 'F1X', 'G8Z', '2F8', '3SA',
+        '46D', '3DO', '6PZ', 'OI7', 'SLM', 'A0K', '9SJ', 'TWD', 'AOG', 'TW7', '2WS', 'GU5', 'NSQ', 'FUD', 'GLO', 'TNX', 'XYP',
+        'JFZ', '2HA', 'G16', 'V3M', 'RTG', 'C4W', 'R2G', 'HD4', '66O', 'MFB', 'GXL', '8YV', 'NFG', 'FFC', '3YW', 'XYZ', '445',
+        'IXD', 'GUL', 'CTO', '05L', 'Z3L', 'RBL', 'DR5', 'S81', 'CTR', '15L', 'GLP', '7K3', 'LDY', 'Z4S', 'H2P', '4GP', '5SP',
+        '18O', 'DGS', 'OX2', 'DFR', 'GN1', 'BGL', 'Z9K', 'GU4', '0V4', 'MA2', 'U2A', 'MXZ', 'PA1', '9YW', 'GS9', '3MK', 'AAL',
+        'NBY', 'XXX', 'ISD', 'SEJ', 'DKZ', 'GL9', '23V', 'AMN', 'AHG', '25E', 'DJB', '7K2', 'GDL', '08U', 'TT7', 'DRI', 'HSY',
+        'LB2', 'GCV', 'X1P', 'MN0', 'BW3', 'U9J', 'FFX', 'Z3U', 'LOX', 'MQG', 'HSG', 'GCO', 'GPQ', 'IDR', '2GS', 'AGL', 'RUU',
+        '5KV', 'R1X', 'LZ0', 'P6P', '0H0', '32O', 'LAG', 'YYK', '07E', '6KS', 'KOT', '17T', 'TQY', 'RM4', 'LNV', 'BGN', 'STW',
+        'NGC', 'GLF', '2WP', 'GL5', 'KHP', '9SP', 'LAI', 'KDB', 'JVA', 'OTN', 'NA1', 'RR7', 'B16', 'PSV', 'NXD', 'C5X', 'G1P',
+        'RRJ', 'DAF', '5N6', 'SG4', 'KDN', '95Z', 'FDQ', 'K5B', 'MDP', 'GTK', '4SG', 'ALL', 'LXC', 'TM5', 'NGA', '98U', '7JZ',
+        'A6P', 'UBH', '293', '9T7', 'PUF', '5TM', 'VTB', 'BGP', 'JV4', 'SN5', 'FSA', 'LAK', 'G7P', 'BGC', 'ZCD', '7GP', '79J',
+        'FKD', 'TWY', 'ZGE', 'OAK', 'FMF', 'ZCZ', 'GL2', 'MAV', 'ZB3', 'SA0', '3LR', 'SHD', 'XLS', 'DOM', 'Z4R', 'GP0', '5KS',
+        'KO1', 'FCB', 'LFC', 'AC1', 'NPF', 'X6Y', 'IDF', '20X', '6KL', '6LW', '49S', '0YT', 'BDR', 'GBH', 'LAH', 'KO2', '40J',
+        '4CQ', 'D5E', 'T6D', 'SUP', 'TGR', 'Z57', 'SDY', '4NN', 'MNA', 'Z5J', '20S', 'CT3', 'DQR', '5MM', '83Y', '49T', 'BDG',
+        'GL1', 'TOC', '6UD', 'GM0', 'GU3', '18D', 'ADA', '4AM', '9WZ', 'HSX', 'QIF', '6DM', '4RS', 'KDF', 'GAL', 'ISL', 'Z9H',
+        'GC1', 'Z9W', 'NBG', 'MAL', 'BGS', 'W9T', 'U9A', '62I', 'M6P', 'AFO', 'C3G', 'M2F', 'RUG', 'ARW', 'LEC', 'B8D', '61J',
+        'GL7', 'F58', 'GP4', 'GFP', 'TVY', 'ZB0', 'FSM', 'BDF', 'TCB', 'ZEL', 'IDG', '9CD', 'PNA', 'SF9', 'DSR', 'MG5', 'E5G',
+        'PNW', 'TH1', '1S4', 'PTQ', 'KDD', 'SSH', 'F55', 'V71', 'VG1', '9T1', '145', 'GU2', '2M5', '8I4', 'H1S', 'YYB', '1LL',
+        '4N2', 'BG6', 'R2B', 'MAT', 'LMO', 'OSU', 'PSG', 'RCD', '26O', 'DGO', 'SID', 'FUB', '2FL', '3HD', '34V', 'FK9', 'AMG',
+        'G4D', 'EPG', 'BWG', 'KTU', '491', 'JHM', 'NG1', 'DLD', 'MCU', 'MQT', 'EQV', 'CBF', '4GL', 'GS1', 'DEG', 'DDL', 'SGA',
+        '16O', 'X6X', 'H53', 'FUC', 'IDS', 'LTG', 'TMX', '9SM', '045', 'DAN', 'FRU', 'Z5L', 'AHM', 'BNG', 'AFP', 'MAF', 'UBO',
+        'BOG', '2H5', 'NG6', '10M', 'NM6', 'RST', 'C3X', '9S7', '49A', 'AXP', 'PH5', 'ISX', 'B6D', 'GU6', 'TWG', '6GR', 'H3S',
+        'Z61', '9WJ', 'BMA', 'U63', 'LKA', 'GRF', 'VJ1', 'RZM', 'MA3', '0XY', 'GAF', 'GAD', '1FT', '149', 'DPC', 'LFR', 'B9D',
+        'CE5', 'SOR', '6KU', 'SFU', 'BEM', 'YKR', '38J', 'N3U', 'ARB', 'CBK', 'SGD', '8EX', 'WZ2', '8B9', 'TF0', 'X2Y', 'PKM',
+        'RF5', 'D1M', 'AF1', 'DR2', 'EQP', 'AMV', 'PRP', 'VJ4', 'BCD', '1GN', 'SMD', '9QG', 'GCW', 'A5C', 'M3N', 'SZZ', 'B1H',
+        'GPH', 'NDG', '5KT', 'TYV', 'KDM', 'A2G', 'CE6', 'H1M', 'JVS', 'ABL', 'LAO', 'P53', 'GCN', 'QKH', 'U2D', 'YYH', '6S2',
+        'L0W', 'DEL', 'G2F', 'LER', 'MGC', 'RI2', '5KQ', 'DT6', 'U97', 'BG8', '1X4', 'GYG', 'U9D', 'SG7', '8B7', 'FCA', 'RWI',
+        '8GG', 'TAG', 'ERE', '46Z', '5QP', 'UDC', '51N', 'SGN', 'NLC', '8LR', 'L6T', 'WIA', 'TMR', 'IDC', 'GLT', 'FDP', 'GCT',
+        'FSW', 'XYS', 'GAA', 'N9S', 'DO8', 'UAP', 'TUG', 'F1P', '2FG', '12E', '56N', 'IAB', 'LAT', 'X1X', 'MBE', 'GP1', 'X34',
+        '6MJ', '6KH', 'G3F', '3DY', 'XYF', 'GE1', 'MAB', 'Z9L', '289', 'GIV', 'F8X', '9WN', 'KDO', 'GLA', 'SIZ', 'G0S', 'EGA',
+        'MJJ', 'B7G', 'BND', 'JRV', '1S3', 'DAG', 'GL0', 'GPV', 'HTM', '3R3', 'SHG', 'DR3', 'TTV', 'DK4', '22S', 'IDU', 'XIL',
+        'RER', '6BG', 'GXV', 'BTU', 'GE3', 'H6Z', 'ZD0', 'SF6', 'VKN', 'GYU', '16F', 'K99', 'KGM', 'FX1', 'NGS', 'RVG', 'YX1',
+        '4GC', 'EEQ', 'XDX', 'MVP', 'PNJ', 'BS7', 'M7B', '0BD', 'AIG', 'TVV', 'BXY', 'T68', 'SIO', '8OQ', '2OS', 'S7P', 'GNX',
+        'TUR', 'YX0', 'DVC', 'NGK', 'M8C', 'RHC', 'GPM', 'LKS', '64K', 'GMT', 'JLT', 'XS2', 'LBT', 'TVM', '6MN', 'DYM', 'E3M',
+        'NGR', 'G6P', 'RAO', 'SCR', 'YJM', 'MRP', 'YIO', 'ACR', '291', '3GR', 'M1F', 'L6S', 'XLF', 'GU1', 'LVZ', 'DNO', '22O',
+        'SOL', 'GPW', 'KD5', 'GCU', 'ERI', 'YZ0', 'TXB', 'ABD', 'YYM', 'BFN', 'G4S', 'GAC', 'PAV', 'MMA', 'RV7', 'MBG', '16G',
+        'MA8', 'GU8', '4JA', 'NTP', 'FNY', '07Y', '1CF', 'KDE', 'Z16', 'CBI', '50A', 'Z4W', 'U9G', 'D6G', 'JSV', 'YDR', 'DGU',
+        'Z15', 'G3I', 'XKJ', 'IEM', 'CDR', 'GLG', '0HX', 'TA6', '57S', 'LGU', '27C', 'BO1', 'EEN', 'HSJ', 'GLD', 'RP3', 'FSI',
+        'LRH', '8PK', 'GTR', 'B1N', 'XXR', 'TFU', 'RAF', 'ETT', 'AY9', '3FM', 'G28', '2DR', 'FUL', 'CE8', 'GQ1', 'TGA', '6C2',
+        'NGZ', '6LS', 'SOE', 'BQY', 'HSH', 'XYL', '5TH', 'A1Q', 'HTG', 'Z3K', '3MG', 'GMH', 'M1P', 'ASC', '73E', 'Z8T', 'STZ',
+        'RAE', 'GL6', '7CV', 'GPU', '5L3', '7D1', 'CKP', 'BXP', 'M7P', 'RVM', 'TWA', '4R1', 'N1L', 'X2F', 'TVD', '3J3', 'TOA',
+        'B4G', 'WUN', '0MK', '6YR', 'H6Q', 'CNP', 'TEU', 'MBF', '44S', 'Z9N', 'BM7', 'NGE', 'U9M', 'GMB', 'MTT', '9GP', 'DG0',
+        'RP5', 'KBA', 'ALX', 'FVQ', 'TGY', 'EBG', 'BXF', '9C1', 'BBV', 'AFD', '4QY', 'GCD', 'FBP', '96O', 'GNS', 'OTU', 'ACX',
+        'RP6', 'UEA', 'SGC', 'Z4V', 'RAM', 'AZC', 'J5B', '1GL', 'TGK', 'HSQ', 'LM2', 'MYG', 'PDX', 'Z6W', 'ZDC', '09X', 'IDX',
+        '9MR', 'MFU', 'CR6', 'Z8H', 'SUS', 'PZU', '89Y', '5TK', 'KME', 'U1Y', 'Z4U', 'LCN', 'GPK', 'MUR', '5TJ', 'NYT', '24S',
+        'SR1', '0UB', '48Z', 'MGL', 'Z6J', 'BMX', 'C3B', 'TVS', 'SLB', 'IPT', 'MLB', 'SLT', 'Z9D', 'GRX', 'AH8', 'F6P', 'BNX',
+        'JZR', 'LXB', 'M3M', 'XYT', 'MA1', 'GTM', 'SCG', 'Z3Q', 'KFN', 'LGC', 'ZB2', 'FIF', 'GLS', 'SSG', 'Z4Y', 'T6T', 'GCS',
+        'GZL', 'U8V', 'V3P', 'ABE', 'MGS', '6KW', '8GA', 'BZD', 'FUF', 'GMZ', 'FUY', 'HNW', 'LXZ', 'IN1', 'SNG', 'GAT', 'Z9M',
+        'BM3', 'ZDO', '9AM', '3LJ', 'X0X', 'MAN', '5GO', 'AMU', 'GUF', 'XMM', 'EAG', 'SUC', 'BXX', 'Z0F', '9OK', 'CTT', 'MLR',
+        '49V', 'ZMR', 'TWJ', 'MAW', '5II', 'ZEE', 'KBG', 'EMP', 'GUZ', 'TUJ', 'RB5', 'GCB', '9KJ', 'MAG', 'Z2D', '6LA', '2M4',
+        'GN4', 'MDA', 'TU4', 'Z2T', 'GL4', 'EBQ', 'NNG', '1SD', 'ANA', 'MXY', 'Z6H', 'GU0', 'GUP', 'SG6', 'NAG', '9VP', 'RIP',
         '3S6', 'KDR', 'R1P', '3J4', 'DFX', 'RGG'}  # fmt: skip
 
 
 # AlphaFold3 SI Tabel 15
-PBV2_COMMON_NATURAL_LIGANDS = {'UPG', 'CDP', 'DSG', 'APC', 'GSP', 'FAD', 'IPE', 'NAI', '2BA', 'PGA', 'A3P', 'PRP', 'NAD', 'PLG', 
-                               'SFG', 'MFU', 'APR', 'GTP', 'PLP', 'UDP', 'SAH', 'ACP', 'GSH', 'CTP', 'AKG', 'F15', '5AD', 'BCN', 
-                               'BDP', 'H4B', 'PHO', 'FMN', 'MTA', 'NGA', 'OGA', 'SLB', 'SIN', 'C5P', 'TPP', 'BGC', 'NCA', 'UD1', 
+PBV2_COMMON_NATURAL_LIGANDS = {'UPG', 'CDP', 'DSG', 'APC', 'GSP', 'FAD', 'IPE', 'NAI', '2BA', 'PGA', 'A3P', 'PRP', 'NAD', 'PLG',
+                               'SFG', 'MFU', 'APR', 'GTP', 'PLP', 'UDP', 'SAH', 'ACP', 'GSH', 'CTP', 'AKG', 'F15', '5AD', 'BCN',
+                               'BDP', 'H4B', 'PHO', 'FMN', 'MTA', 'NGA', 'OGA', 'SLB', 'SIN', 'C5P', 'TPP', 'BGC', 'NCA', 'UD1',
                                'ANP', 'DGL', 'FDA', 'URI', 'ADP', 'MTE', 'PJ8', 'ATP'}  # fmt: skip

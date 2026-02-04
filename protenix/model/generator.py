@@ -21,7 +21,12 @@ from protenix.model.utils import centre_random_augmentation
 
 class TrainingNoiseSampler:
     """
-    Sample the noise-level of of training samples
+    Sample the noise-level of training samples.
+
+    Args:
+        p_mean (float, optional): gaussian mean. Defaults to -1.2.
+        p_std (float, optional): gaussian std. Defaults to 1.5.
+        sigma_data (float, optional): scale. Defaults to 16.0, but this is 1.0 in EDM.
     """
 
     def __init__(
@@ -30,13 +35,6 @@ class TrainingNoiseSampler:
         p_std: float = 1.5,
         sigma_data: float = 16.0,  # NOTE: in EDM, this is 1.0
     ) -> None:
-        """Sampler for training noise-level
-
-        Args:
-            p_mean (float, optional): gaussian mean. Defaults to -1.2.
-            p_std (float, optional): gaussian std. Defaults to 1.5.
-            sigma_data (float, optional): scale. Defaults to 16.0, but this is 1.0 in EDM.
-        """
         self.sigma_data = sigma_data
         self.p_mean = p_mean
         self.p_std = p_std
@@ -61,7 +59,13 @@ class TrainingNoiseSampler:
 
 class InferenceNoiseScheduler:
     """
-    Scheduler for noise-level (time steps)
+    Scheduler for noise-level (time steps).
+
+    Args:
+        s_max (float, optional): maximal noise level. Defaults to 160.0.
+        s_min (float, optional): minimal noise level. Defaults to 4e-4.
+        rho (float, optional): the exponent numerical part. Defaults to 7.
+        sigma_data (float, optional): scale. Defaults to 16.0, but this is 1.0 in EDM.
     """
 
     def __init__(
@@ -71,14 +75,6 @@ class InferenceNoiseScheduler:
         rho: float = 7,
         sigma_data: float = 16.0,  # NOTE: in EDM, this is 1.0
     ) -> None:
-        """Scheduler parameters
-
-        Args:
-            s_max (float, optional): maximal noise level. Defaults to 160.0.
-            s_min (float, optional): minimal noise level. Defaults to 4e-4.
-            rho (float, optional): the exponent numerical part. Defaults to 7.
-            sigma_data (float, optional): scale. Defaults to 16.0, but this is 1.0 in EDM.
-        """
         self.sigma_data = sigma_data
         self.s_max = s_max
         self.s_min = s_min
@@ -153,6 +149,12 @@ def sample_diffusion(
             [..., N_tokens, c_s]
         z_trunk (torch.Tensor): pair feature embedding from PairFormer (Alg17)
             [..., N_tokens, N_tokens, c_z]
+        pair_z (torch.Tensor): pair feature embedding from InputFeatureEmbedder
+            [..., N_tokens, N_tokens, c_z_inputs]
+        p_lm (torch.Tensor): MSA embedding
+            [..., N_tokens, c_p_lm]
+        c_l (torch.Tensor): ligand embedding
+            [..., N_tokens, c_c_l]
         noise_schedule (torch.Tensor): noise-level schedule (which is also the time steps) since sigma=t.
             [N_iterations]
         N_sample (int): number of generated samples
@@ -163,6 +165,7 @@ def sample_diffusion(
         diffusion_chunk_size (Optional[int]): Chunk size for diffusion operation. Defaults to None.
         inplace_safe (bool): Whether to use inplace operations safely. Defaults to False.
         attn_chunk_size (Optional[int]): Chunk size for attention operation. Defaults to None.
+        enable_efficient_fusion (bool): Whether to enable efficient fusion. Defaults to False.
 
     Returns:
         torch.Tensor: the denoised coordinates of x in inference stage
@@ -267,14 +270,15 @@ def sample_diffusion_training(
     diffusion_chunk_size: Optional[int] = None,
     use_conditioning: bool = True,
     enable_efficient_fusion: bool = False,
-) -> tuple[torch.Tensor, ...]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Implements diffusion training as described in AF3 Appendix at page 23.
     It performances denoising steps from time 0 to time T.
     The time steps (=noise levels) are given by noise_schedule.
 
     Args:
+        noise_sampler (TrainingNoiseSampler): sampler for training noise-level.
         denoise_net (Callable): the network that performs the denoising step.
-        label_dict (dict, optional) : a dictionary containing the followings.
+        label_dict (dict[str, Any]) : a dictionary containing the followings.
             "coordinate": the ground-truth coordinates
                 [..., N_atom, 3]
             "coordinate_mask": whether true coordinates exist.
@@ -286,10 +290,22 @@ def sample_diffusion_training(
             [..., N_tokens, c_s]
         z_trunk (torch.Tensor): pair feature embedding from PairFormer (Alg17)
             [..., N_tokens, N_tokens, c_z]
+        pair_z (torch.Tensor): pair feature embedding from InputFeatureEmbedder
+            [..., N_tokens, N_tokens, c_z_inputs]
+        p_lm (torch.Tensor): MSA embedding
+            [..., N_tokens, c_p_lm]
+        c_l (torch.Tensor): ligand embedding
+            [..., N_tokens, c_c_l]
         N_sample (int): number of training samples
+        diffusion_chunk_size (Optional[int]): Chunk size for diffusion operation. Defaults to None.
+        use_conditioning (bool): Whether to use conditioning. Defaults to True.
+        enable_efficient_fusion (bool): Whether to enable efficient fusion. Defaults to False.
+
     Returns:
-        torch.Tensor: the denoised coordinates of x in inference stage
-            [..., N_sample, N_atom, 3]
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            x_gt_augment: the augmented ground-truth coordinates [..., N_sample, N_atom, 3]
+            x_denoised: the denoised coordinates [..., N_sample, N_atom, 3]
+            sigma: the sampled noise-level [..., N_sample]
     """
     batch_size_shape = label_dict["coordinate"].shape[:-2]
     device = label_dict["coordinate"].device

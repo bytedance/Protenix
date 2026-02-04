@@ -14,41 +14,45 @@
 
 import math
 from functools import partial
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from protenix.model.triangular.layers import LayerNorm, trunc_normal_init_
 from protenix.model.utils import (
+    chunk_layer,
     flatten_final_dims,
     move_final_dim_to_dim,
     pad_at_dim,
     reshape_at_dim,
 )
-from protenix.openfold_local.model.primitives import LayerNorm, trunc_normal_init_
-from protenix.openfold_local.utils.chunk_utils import chunk_layer
 
 
 class Linear(nn.Linear):
+    """Linear module with customized initialization.
+
+    Args:
+        in_features (int): Input dimension.
+        out_features (int): Output dimension.
+        bias (bool, optional): Whether to use bias. Defaults to True.
+        device (torch.device, optional): Device. Defaults to None.
+        dtype (torch.dtype, optional): Data type. Defaults to None.
+        precision (torch.dtype, optional): Precision for calculation. Defaults to None.
+        initializer (str, optional): initializer: choose one from ['default', 'relu', 'zeros']. Defaults to "default".
+    """
 
     def __init__(
         self,
         in_features: int,
         out_features: int,
         bias: bool = True,
-        device: torch.device = None,
-        dtype: torch.dtype = None,
-        precision: torch.dtype = None,
+        device: Optional[torch.device] = None,
+        dtype: Optional[torch.dtype] = None,
+        precision: Optional[torch.dtype] = None,
         initializer: str = "default",
-    ):
-        """Linear module with customized initialization.
-
-        Args:
-            precision (torch.dtype, optional): _description_. Defaults to None.
-            initializer (str, optional): initializer: choose one from ['default', 'relu', 'zeros']. Defaults to "default".
-        """
-
+    ) -> None:
         self.use_bias = bias
         self.precision = precision
         self.initializer = initializer
@@ -100,14 +104,13 @@ LinearNoBias = partial(Linear, bias=False)
 class AdaptiveLayerNorm(nn.Module):
     """
     Implements Algorithm 26 in AF3
+
+    Args:
+        c_a (int, optional): the embedding dim of a(single feature aggregated atom info). Defaults to 768.
+        c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
     """
 
     def __init__(self, c_a: int = 768, c_s: int = 384) -> None:
-        """
-        Args:
-            c_a (int, optional): the embedding dim of a(single feature aggregated atom info). Defaults to 768.
-            c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
-        """
         super(AdaptiveLayerNorm, self).__init__()
         self.layernorm_a = LayerNorm(c_a, create_scale=False, create_offset=False)
         self.layernorm_s = LayerNorm(c_s, create_offset=False)
@@ -135,7 +138,14 @@ class AdaptiveLayerNorm(nn.Module):
 
 
 class BiasInitLinear(Linear):
-    """Support biasinit for nn.Linear Called just like torch.nn.Linear."""
+    """Support biasinit for nn.Linear Called just like torch.nn.Linear.
+
+    Args:
+        in_features (int): Input dimension.
+        out_features (int): Output dimension.
+        bias (bool, optional): whether add bias. Defaults to True.
+        biasinit (float, optional): the initial bias value. Defaults to 0.0.
+    """
 
     def __init__(
         self,
@@ -143,15 +153,8 @@ class BiasInitLinear(Linear):
         out_features: int,
         bias: bool = True,
         biasinit: float = 0.0,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
-        """
-        Args:
-            in_features (int): in_features
-            out_features (int): out_features
-            bias (bool, optional): whether add bias. Defaults to True.
-            biasinit (float, optional): the initial bias value. Defaults to 0.0.
-        """
         super(BiasInitLinear, self).__init__(
             in_features=in_features, out_features=out_features, bias=bias, **kwargs
         )
@@ -163,14 +166,13 @@ class BiasInitLinear(Linear):
 class Transition(nn.Module):
     """
     Implements Algorithm 11 in AF3
+
+    Args:
+        c_in (int): the input dimension.
+        n (int): factor by which c_in is multiplied to obtain hidden dimension.
     """
 
     def __init__(self, c_in: int, n: int) -> None:
-        """
-        Args:
-            c_in (int, optional): the input dimension.
-            n (int, optional): factor by which c_in is multiplied to obtain hidden dimension.
-        """
         super(Transition, self).__init__()
         self.n = n
         self.c_in = c_in
@@ -297,7 +299,11 @@ def rearrange_qk_to_dense_trunk(
     n_queries: int = 32,
     n_keys: int = 128,
     compute_mask: bool = True,
-) -> tuple[Union[torch.Tensor, list[torch.Tensor]]]:
+) -> tuple[
+    Union[torch.Tensor, list[torch.Tensor]],
+    Union[torch.Tensor, list[torch.Tensor]],
+    dict[str, Any],
+]:
     """Rearrange q/k into blocked tensors for local operations.
 
     Args:
@@ -379,7 +385,7 @@ def rearrange_qk_to_dense_trunk(
             requires_grad=False,
         )
         pad_mask[..., :n, :pad_left] = 0
-        pad_mask[..., :n, (pad_left + n):] = 0
+        pad_mask[..., :n, (pad_left + n) :] = 0
         pad_mask[..., n:, :] = 0
 
         concat_split_data = optimized_concat_split(pad_mask, n_queries)
@@ -543,16 +549,20 @@ def _local_attention(
     # q: [*, n, d] -> [*, n_trunks, n_queries, d]
     # kv: [*, n, d] -> [*, n_trunks, n_keys, d]
     # attn_bias: [*, n, d] -> [*, n_trunks, n_queries, n_keys]
-    q_trunked, k_trunked, v_trunked, attn_bias_trunked, q_pad_length = (
-        rearrange_to_dense_trunk(
-            q=q,
-            k=k,
-            v=v,
-            n_queries=n_queries,
-            n_keys=n_keys,
-            attn_bias=attn_bias,
-            inf=inf,
-        )
+    (
+        q_trunked,
+        k_trunked,
+        v_trunked,
+        attn_bias_trunked,
+        q_pad_length,
+    ) = rearrange_to_dense_trunk(
+        q=q,
+        k=k,
+        v=v,
+        n_queries=n_queries,
+        n_keys=n_keys,
+        attn_bias=attn_bias,
+        inf=inf,
     )
 
     # Apply attention
@@ -627,6 +637,34 @@ class Attention(nn.Module):
     """Standard multi-head attention
     Ref to openfold:
     https://github.com/aqlaboratory/openfold/blob/feb45a521e11af1db241a33d58fb175e207f8ce0/openfold/model/primitives.py#L340
+
+    Args:
+        c_q (int): Input dimension of query data
+        c_k (int): Input dimension of key data
+        c_v (int): Input dimension of value data
+        c_hidden (int): Per-head hidden dimension
+        num_heads (int): Number of attention heads
+        gating (bool, optional): Whether the output should be gated using query data. Defaults to True.
+        q_linear_bias (bool, optional): whether use Linear with bias as in AF3. Defaults to True.
+        local_attention_method (str, optional): local attention method, options:
+          - global_attention_with_bias: use full size global attention with sparse attention bias
+          - local_cross_attention: use local cross attention to minimize computation
+        use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
+        zero_init (bool, optional): whether to zero-initialize the output layer. Defaults to True.
+
+    Notes:
+        if use_efficient_implementation == True, torch.nn.functional.scaled_dot_product_attention will
+        be used to compute attention efficiently
+        There are currently three supported implementations of scaled dot product attention:
+            1. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness
+
+            2. Memory-Efficient Attention
+
+            3. A PyTorch implementation defined in C++ matching the above formulation
+
+        The function may call optimized kernels for improved performance when using the CUDA backend.
+        For all other backends, the PyTorch implementation will be used.All implementations are enabled by default.
+        Scaled dot product attention attempts to automatically select the most optimal implementation based on the inputs.
     """
 
     def __init__(
@@ -642,35 +680,6 @@ class Attention(nn.Module):
         use_efficient_implementation: bool = False,
         zero_init: bool = True,
     ) -> None:
-        """
-
-        Args:
-            c_q (int): Input dimension of query data
-            c_k (int): Input dimension of key data
-            c_v (int): Input dimension of value data
-            c_hidden (int): Per-head hidden dimension
-            num_heads (int): Number of attention heads
-            gating (bool, optional): Whether the output should be gated using query data. Defaults to True.
-            q_linear_bias (bool, optional): whether use Linear with bias as in AF3. Defaults to False.
-            local_attention_method (str, optional): local attention method, options:
-              - global_attention_with_bias: use full size global attention with sparse attention bias
-              - local_cross_attention: use local cross attention to minimize computation
-            use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
-
-        Notes:
-            if use_efficient_implementation == True, torch.nn.functional.scaled_dot_product_attention will
-            be used to compute attention efficiently
-            There are currently three supported implementations of scaled dot product attention:
-                1. FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness
-
-                2. Memory-Efficient Attention
-
-                3. A PyTorch implementation defined in C++ matching the above formulation
-
-            The function may call optimized kernels for improved performance when using the CUDA backend.
-            For all other backends, the PyTorch implementation will be used.All implementations are enabled by default.
-            Scaled dot product attention attempts to automatically select the most optimal implementation based on the inputs.
-        """
         super(Attention, self).__init__()
         self.c_q = c_q
         self.c_k = c_k
@@ -872,10 +881,11 @@ class Attention(nn.Module):
 
 def gather_pair_embedding_in_dense_trunk(
     x: torch.Tensor, idx_q: torch.Tensor, idx_k: torch.Tensor
-):
+) -> torch.Tensor:
     """
     Selectively gather elements from a tensor using two sets of indices.
 
+    Args:
         x: [..., N_token, N_token, d]
         idx_q: [N_b, N_q]
         idx_k: [N_b, N_k]
@@ -945,8 +955,11 @@ def broadcast_token_to_local_atom_pair(
 
 # from: https://github.com/huggingface/pytorch-image-models/blob/main/timm/layers/drop.py
 def drop_path(
-    x, drop_prob: float = 0.0, training: bool = False, scale_by_keep: bool = True
-):
+    x: torch.Tensor,
+    drop_prob: float = 0.0,
+    training: bool = False,
+    scale_by_keep: bool = True,
+) -> torch.Tensor:
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
 
     This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
@@ -974,7 +987,7 @@ class DropPath(nn.Module):
         self.drop_prob = drop_prob
         self.scale_by_keep = scale_by_keep
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return drop_path(x, self.drop_prob, self.training, self.scale_by_keep)
 
     def extra_repr(self):

@@ -18,7 +18,8 @@ import functools
 import os
 import re
 from collections import defaultdict
-from typing import Mapping, Optional, Sequence
+from pathlib import Path
+from typing import Mapping, Optional, Sequence, Union
 
 import biotite.structure as struc
 import numpy as np
@@ -28,16 +29,24 @@ from biotite.structure.io import pdbx
 from biotite.structure.io.pdb import PDBFile
 
 from configs.configs_data import data_configs
-from protenix.data.ccd import biotite_load_ccd_cif
+
 from protenix.data.constants import (
     DNA_STD_RESIDUES,
     PRO_STD_RESIDUES,
     RNA_STD_RESIDUES,
     STD_RESIDUES,
 )
+from protenix.data.core.ccd import biotite_load_ccd_cif
+from protenix.utils.file_io import load_gzip_pickle, read_indices_csv
 
 
-def get_antibody_clusters():
+def get_antibody_clusters() -> set[str]:
+    """
+    Get the top 2 clusters of antibodies from the PDB cluster file.
+
+    Returns:
+        set[str]: A set of PDB IDs (lower case) in the top 2 clusters.
+    """
     PDB_CLUSTER_FILE = data_configs["pdb_cluster_file"]
     try:
         with open(PDB_CLUSTER_FILE, "r") as f:
@@ -45,7 +54,7 @@ def get_antibody_clusters():
     except FileNotFoundError:
         raise FileNotFoundError(
             f"The file {PDB_CLUSTER_FILE} does not exist. \n"
-            + f"Downloading it from https://af3-dev.tos-cn-beijing.volces.com/release_data/clusters-by-entity-40.txt"
+            + "Downloading it from https://af3-dev.tos-cn-beijing.volces.com/release_data/clusters-by-entity-40.txt"
         )
 
     cluster_list = [line.strip().split() for line in lines]
@@ -118,6 +127,104 @@ def int_to_letters(n: int) -> str:
     return result
 
 
+def replace_elem_by_mapping_dict(input_array: np.ndarray, mapping: dict) -> np.ndarray:
+    """
+    Replace each element in input_array with the value in mapping.
+
+    Args:
+        input_array: np.ndarray
+        mapping: a mapping dict
+
+    Returns:
+        np.ndarray: a new array with the same shape as input_array.
+    """
+    k = np.array(list(mapping.keys()))
+    v = np.array(list(mapping.values()))
+
+    sidx = k.argsort()  # k,v from approach #1
+
+    k = k[sidx]
+    v = v[sidx]
+
+    idx = np.searchsorted(k, input_array.ravel()).reshape(input_array.shape)
+    idx[idx == len(k)] = 0
+    mask = k[idx] == input_array
+    out = np.where(mask, v[idx], 0)
+    return out
+
+
+@functools.lru_cache
+def parse_pdb_cluster_file_to_dict(
+    cluster_file: str, remove_uniprot: bool = True
+) -> dict[str, tuple]:
+    """parse PDB cluster file, and return a pandas dataframe
+    example cluster file:
+    https://cdn.rcsb.org/resources/sequence/clusters/clusters-by-entity-40.txt
+
+    Args:
+        cluster_file (str): cluster_file path
+    Returns:
+        dict(str, tuple(str, str)): {pdb_id}_{entity_id} --> [cluster_id, cluster_size]
+    """
+    # TODO: cluster the data by ourself only from wwPDB
+    pdb_cluster_dict = {}
+    with open(cluster_file) as f:
+        for line in f:
+            pdb_clusters = []
+            for ids in line.strip().split():
+                if remove_uniprot:
+                    if ids.startswith("AF_") or ids.startswith("MA_"):
+                        continue
+                pdb_clusters.append(ids)
+            cluster_size = len(pdb_clusters)
+            if cluster_size == 0:
+                continue
+            # use first member as cluster id.
+            cluster_id = f"pdb_cluster_{pdb_clusters[0]}"
+            for ids in pdb_clusters:
+                pdb_cluster_dict[ids.lower()] = (cluster_id, cluster_size)
+    return pdb_cluster_dict
+
+
+@functools.lru_cache
+def get_obsolete_dict() -> dict[str, str]:
+    """
+    Get a obsolete dict of pdb_id: original release date.
+    Some PDB IDs have been deprecated. The release date documented in the mmCIF reflects the updated information,
+    whereas the structure it describes had actually appeared previously.
+
+    Returns:
+        dict[str, str]: {pdb_id: first release date}
+    """
+    OBSOLETE_RELEASE_DATE_CSV = data_configs.get("obsolete_release_data_csv", None)
+    if OBSOLETE_RELEASE_DATE_CSV is None:
+        return {}
+    if os.path.exists(OBSOLETE_RELEASE_DATE_CSV):
+        df = read_indices_csv(OBSOLETE_RELEASE_DATE_CSV)
+        obsolete_dict = dict(zip(df["successor_id"], df["release_date"]))
+        return obsolete_dict
+    else:
+        return {}
+
+
+def within_dist(
+    query_atoms: AtomArray, env_atoms: AtomArray, distance: float
+) -> np.ndarray:
+    """get mask of env_atoms within distance to query_atoms
+
+    Args:
+        query_atoms (AtomArray): query_atoms, query_atoms not in env_atoms
+        env_atoms (AtomArray):
+        distance (float): within distance (Å), eg: 5
+
+    Returns:
+        array(bool): a mask of env_atoms, length = len(env_atoms)
+    """
+    cell_list = struc.CellList(env_atoms, cell_size=5)
+    mask_2d = cell_list.get_atoms(query_atoms.coord, radius=distance, as_mask=True)
+    return mask_2d.any(axis=0)
+
+
 def get_inter_residue_bonds(atom_array: AtomArray) -> np.ndarray:
     """get inter residue bonds by checking chain_id and res_id
 
@@ -188,12 +295,15 @@ def atom_select(atom_array: AtomArray, select_dict: dict, as_mask=False) -> np.n
         return np.where(mask)[0]
 
 
-def get_polymer_polymer_bond(atom_array, entity_poly_type):
+def get_polymer_polymer_bond(
+    atom_array: AtomArray, entity_poly_type: dict[str, str]
+) -> np.ndarray:
     """
     Get bonds between the bonded polymer and its parent chain.
 
     Args:
         atom_array (AtomArray): biotite atom array object.
+        entity_poly_type (dict[str, str]): A dict of entity id to entity poly type.
 
     Returns:
         np.ndarray: bond records between the bonded polymer and its parent chain.
@@ -275,38 +385,6 @@ def get_ligand_polymer_bond_mask(
     return lig_polymer_bonds
 
 
-@functools.lru_cache
-def parse_pdb_cluster_file_to_dict(
-    cluster_file: str, remove_uniprot: bool = True
-) -> dict[str, tuple]:
-    """parse PDB cluster file, and return a pandas dataframe
-    example cluster file:
-    https://cdn.rcsb.org/resources/sequence/clusters/clusters-by-entity-40.txt
-
-    Args:
-        cluster_file (str): cluster_file path
-    Returns:
-        dict(str, tuple(str, str)): {pdb_id}_{entity_id} --> [cluster_id, cluster_size]
-    """
-    pdb_cluster_dict = {}
-    with open(cluster_file) as f:
-        for line in f:
-            pdb_clusters = []
-            for ids in line.strip().split():
-                if remove_uniprot:
-                    if ids.startswith("AF_") or ids.startswith("MA_"):
-                        continue
-                pdb_clusters.append(ids)
-            cluster_size = len(pdb_clusters)
-            if cluster_size == 0:
-                continue
-            # use first member as cluster id.
-            cluster_id = f"pdb_cluster_{pdb_clusters[0]}"
-            for ids in pdb_clusters:
-                pdb_cluster_dict[ids.lower()] = (cluster_id, cluster_size)
-    return pdb_cluster_dict
-
-
 def get_clean_data(atom_array: AtomArray) -> AtomArray:
     """
     Removes unresolved atoms from the AtomArray.
@@ -345,13 +423,34 @@ def save_atoms_to_cif(
     )
 
 
+def get_raw_atom_array(
+    bioassembly_dict_fpath: Union[str, Path],
+) -> tuple[AtomArray, dict[str, str]]:
+    """
+    Load raw atom array and entity poly type from a bioassembly pickle file.
+
+    Args:
+        bioassembly_dict_fpath (Union[str, Path]): Path to the bioassembly pickle file.
+
+    Returns:
+        tuple[AtomArray, dict[str, str]]: A tuple containing the atom array and entity poly type dict.
+    """
+    bioassembly_dict = load_gzip_pickle(bioassembly_dict_fpath)
+    atom_array = bioassembly_dict["atom_array"]
+    entity_poly_type = bioassembly_dict["entity_poly_type"]
+    # Note: 'charge' info isn't used but causes OST DockQ parser errors. Temp set to 0 for compatibility.
+    atom_array.charge = np.zeros(len(atom_array.charge))
+    return atom_array, entity_poly_type
+
+
 def save_structure_cif(
     atom_array: AtomArray,
     pred_coordinate: torch.Tensor,
     output_fpath: str,
     entity_poly_type: dict[str, str],
     pdb_id: str,
-):
+    save_wo_unresolved: bool = True,
+) -> None:
     """
     Save the predicted structure to a CIF file.
 
@@ -361,6 +460,7 @@ def save_structure_cif(
         output_fpath (str): The output file path for saving the CIF file.
         entity_poly_type (dict[str, str]): The entity poly type information.
         pdb_id (str): The PDB ID for the entry.
+        save_wo_unresolved (bool): Whether to save a version without unresolved atoms. Defaults to True.
     """
     pred_atom_array = copy.deepcopy(atom_array)
     pred_pose = pred_coordinate.cpu().numpy()
@@ -372,7 +472,7 @@ def save_structure_cif(
         pdb_id,
     )
     # save pred coordinates wo unresolved atoms
-    if hasattr(atom_array, "is_resolved"):
+    if hasattr(atom_array, "is_resolved") and save_wo_unresolved:
         pred_atom_array_wo_unresol = get_clean_data(pred_atom_array)
         save_atoms_to_cif(
             output_fpath.replace(".cif", "_wounresol.cif"),
@@ -382,9 +482,115 @@ def save_structure_cif(
         )
 
 
+def get_lig_lig_bonds(
+    atom_array: AtomArray, lig_include_ions: bool = False
+) -> np.ndarray:
+    """
+    Get all inter-ligand bonds in order to create "token_bonds".
+
+    Args:
+        atom_array (AtomArray): biotite AtomArray object with "mol_type" attribute.
+        lig_include_ions (bool, optional): . Defaults to False.
+
+    Returns:
+        np.ndarray: inter-ligand bonds, e.g. np.array([[atom1, atom2, bond_order]...])
+    """
+    if not lig_include_ions:
+        # bonded ligand exclude ions
+        unique_chain_id, counts = np.unique(
+            atom_array.label_asym_id, return_counts=True
+        )
+        chain_id_to_count_map = dict(zip(unique_chain_id, counts))
+        ions_mask = np.array(
+            [
+                chain_id_to_count_map[label_asym_id] == 1
+                for label_asym_id in atom_array.label_asym_id
+            ]
+        )
+
+        lig_mask = (atom_array.mol_type == "ligand") & ~ions_mask
+    else:
+        lig_mask = atom_array.mol_type == "ligand"
+
+    chain_res_id = np.vstack((atom_array.label_asym_id, atom_array.res_id)).T
+    idx_i = atom_array.bonds._bonds[:, 0]
+    idx_j = atom_array.bonds._bonds[:, 1]
+
+    ligand_ligand_bond_indices = np.where(
+        (lig_mask[idx_i] & lig_mask[idx_j])
+        & np.any(chain_res_id[idx_i] != chain_res_id[idx_j], axis=1)
+    )[0]
+
+    if ligand_ligand_bond_indices.size == 0:
+        # no ligand-polymer bonds
+        lig_polymer_bonds = np.empty((0, 3)).astype(int)
+    else:
+        lig_polymer_bonds = atom_array.bonds._bonds[ligand_ligand_bond_indices]
+    return lig_polymer_bonds
+
+
+def superimpose(
+    fixed: AtomArray,
+    mobile: AtomArray,
+    fixed_asym_id: str,
+    mobile_asym_id: str,
+) -> tuple[AtomArray, struc.AffineTransformation]:
+    """
+    Superimpose mobile atom_array onto fixed atom_array based on label_asym_id.
+    if fixed atom_array have attr `is_resolved==True`, only these atoms are used for superimposition.
+
+    Args:
+        fixed (AtomArray): fixed atom_array
+        mobile (AtomArray): mobile atom_array
+        fixed_asym_id (str): label_asym_id of fixed atom_array
+        mobile_asym_id (str): label_asym_id of mobile atom_array
+
+    Returns:
+        AtomArray: superimposed mobile atom_array
+        AffineTransformation:This object contains the affine transformation(s) that were
+        applied on `mobile`.
+        `AffineTransformation.apply()` can be used to transform
+        another AtomArray in the same way.
+    """
+    assert hasattr(fixed, "label_asym_id"), "fixed atom_array must have label_asym_id"
+    assert hasattr(mobile, "label_asym_id"), "mobile atom_array must have label_asym_id"
+
+    assert np.any(
+        fixed.label_asym_id == fixed_asym_id
+    ), f"{fixed_asym_id=} not in fixed!"
+    assert np.any(
+        mobile.label_asym_id == mobile_asym_id
+    ), f"{mobile_asym_id=} not in mobile!"
+    fixed_filtered = fixed[fixed.label_asym_id == fixed_asym_id]
+    mobile_filtered = mobile[mobile.label_asym_id == mobile_asym_id]
+
+    assert len(fixed_filtered) == len(
+        mobile_filtered
+    ), f"{len(fixed_filtered)=}, {len(mobile_filtered)=}"
+    diff_idx = np.where(fixed_filtered.atom_name != mobile_filtered.atom_name)[0]
+    assert (
+        fixed_filtered.atom_name == mobile_filtered.atom_name
+    ).all(), f"atom_name between aligned chains must be the same:\n {fixed_filtered[diff_idx]}\n {mobile_filtered[diff_idx]} "
+
+    if hasattr(fixed_filtered, "is_resolved"):
+        mobile_filtered = mobile_filtered[fixed_filtered.is_resolved]
+        fixed_filtered = fixed_filtered[fixed_filtered.is_resolved]
+
+    fitted, transform = struc.superimpose(fixed_filtered, mobile_filtered)
+
+    return transform.apply(mobile), transform
+
+
 class CIFWriter:
     """
     Write AtomArray to cif.
+
+    Args:
+        atom_array (AtomArray): Biotite AtomArray object.
+        entity_poly_type (dict[str, str], optional): A dict of label_entity_id to entity_poly_type. Defaults to None.
+                                                     If None, "the entity_poly" and "entity_poly_seq" will not be written to the cif.
+        atom_array_output_mask (np.ndarray, optional): A mask of atom_array. Defaults to None.
+                                                      If None, all atoms will be written to the cif.
     """
 
     def __init__(
@@ -393,14 +599,6 @@ class CIFWriter:
         entity_poly_type: dict[str, str] = None,
         atom_array_output_mask: Optional[np.ndarray] = None,
     ):
-        """
-        Args:
-            atom_array (AtomArray): Biotite AtomArray object.
-            entity_poly_type (dict[str, str], optional): A dict of label_entity_id to entity_poly_type. Defaults to None.
-                                                         If None, "the entity_poly" and "entity_poly_seq" will not be written to the cif.
-            atom_array_output_mask (np.ndarray, optional): A mask of atom_array. Defaults to None.
-                                                          If None, all atoms will be written to the cif.
-        """
         self.atom_array = copy.deepcopy(atom_array)
         self.entity_poly_type = entity_poly_type
         self.atom_array_output_mask = atom_array_output_mask
@@ -450,13 +648,14 @@ class CIFWriter:
             entity_block_dict["type"].append(entity_type)
         return pdbx.CIFCategory(entity_block_dict)
 
-    def _get_entity_poly_and_entity_poly_seq_block(self):
+    @staticmethod
+    def get_entity_poly_and_entity_poly_seq_block(
+        entity_poly_type: dict[str, str], atom_array: AtomArray
+    ):
         entity_poly = defaultdict(list)
-        for entity_id, entity_type in self.entity_poly_type.items():
+        for entity_id, entity_type in entity_poly_type.items():
             label_asym_ids = np.unique(
-                self.atom_array.label_asym_id[
-                    self.atom_array.label_entity_id == entity_id
-                ]
+                atom_array.label_asym_id[atom_array.label_entity_id == entity_id]
             )
             label_asym_ids_str = ",".join(label_asym_ids)
 
@@ -476,8 +675,8 @@ class CIFWriter:
             entity_poly["entity_id"], entity_poly["pdbx_strand_id"]
         ):
             first_label_asym_id = label_asym_ids_str.split(",")[0]
-            first_asym_chain = self.atom_array[
-                self.atom_array.label_asym_id == first_label_asym_id
+            first_asym_chain = atom_array[
+                atom_array.label_asym_id == first_label_asym_id
             ]
             chain_starts = struc.get_chain_starts(
                 first_asym_chain, add_exclusive_stop=True
@@ -569,7 +768,11 @@ class CIFWriter:
 
         if self.entity_poly_type:
             block_dict["entity"] = self._get_entity_block()
-            block_dict.update(self._get_entity_poly_and_entity_poly_seq_block())
+            block_dict.update(
+                CIFWriter.get_entity_poly_and_entity_poly_seq_block(
+                    self.entity_poly_type, self.atom_array
+                )
+            )
 
         if self.atom_array_output_mask is not None:
             unresolved_block = self._get_unresolved_block()
@@ -612,6 +815,77 @@ class CIFWriter:
             atom_site["label_entity_id"] = atom_array.label_entity_id
         cif.write(output_path)
 
+    @staticmethod
+    def to_mmcif_string(
+        atom_array: AtomArray,
+        entity_poly_type: dict[str, str] = None,
+        entry_id: str = None,
+        include_bonds: bool = False,
+    ) -> str:
+        """
+        Convert the AtomArray to an mmCIF format string.
+
+        Parameters
+        ----------
+        atom_array : AtomArray
+            The structure to convert.
+        entity_poly_type : dict[str, str], optional
+            A dictionary mapping entity IDs to their polymer types.
+        entry_id : str, optional
+            The value of "_entry.id" in the CIF.
+        include_bonds : bool, optional
+            Whether to include bonds in the output. Default is False.
+
+        Returns
+        -------
+        str
+            The mmCIF-formatted string representation of the structure.
+
+        Raises
+        ------
+        ValueError
+            If entry_id is not provided.
+        """
+        if entry_id is None:
+            raise ValueError("entry_id must be provided.")
+
+        block_dict = {"entry": pdbx.CIFCategory({"id": entry_id})}
+        if entity_poly_type:
+            block_dict.update(
+                CIFWriter.get_entity_poly_and_entity_poly_seq_block(
+                    atom_array=atom_array, entity_poly_type=entity_poly_type
+                )
+            )
+
+        block = pdbx.CIFBlock(block_dict)
+        cif = pdbx.CIFFile({entry_id: block})  # Use a default block name
+        pdbx.set_structure(cif, atom_array, include_bonds=include_bonds)
+
+        block = cif.block
+        atom_site = block.get("atom_site")
+
+        if atom_site.get("occupancy") is None:
+            atom_site["occupancy"] = np.ones(len(atom_array), dtype=float)
+
+        atom_site["label_entity_id"] = atom_array.label_entity_id
+
+        mmcif_string = cif.serialize()
+        return mmcif_string
+
+
+def remove_digits_from_label_asym_id(atom_array: AtomArray) -> AtomArray:
+    """
+    Remove digits from the label_asym_id.
+    The numerical part of "label_asym_id" is added by Meson during data processing,
+    with the purpose of distinguishing unique chains within the bioassembly.
+
+    atom_array: AtomArray object with "label_asym_id" attribute.
+
+    Returns: AtomArray object with "label_asym_id" attribute updated.
+    """
+    atom_array.label_asym_id = np.vectorize(remove_numbers)(atom_array.label_asym_id)
+    return atom_array
+
 
 def make_dummy_feature(
     features_dict: Mapping[str, torch.Tensor],
@@ -641,7 +915,7 @@ def make_dummy_feature(
         assert features_dict["msa"].shape == feat_shape["msa"]
         features_dict["has_deletion"] = torch.zeros(feat_shape["has_deletion"])
         features_dict["deletion_value"] = torch.zeros(feat_shape["deletion_value"])
-        features_dict["profile"] = features_dict["restype"]
+        features_dict["profile"] = features_dict["restype"].clone()
         assert features_dict["profile"].shape == feat_shape["profile"]
         features_dict["deletion_mean"] = torch.zeros(feat_shape["deletion_mean"])
         for key in [
@@ -698,7 +972,9 @@ IntDataList = [
 
 
 # shape of the data
-def get_data_shape_dict(num_token, num_atom, num_msa, num_templ, num_pocket):
+def get_data_shape_dict(
+    num_token: int, num_atom: int, num_msa: int, num_templ: int, num_pocket: int
+) -> tuple[dict[str, tuple], dict[str, tuple]]:
     """
     Generate a dictionary containing the shapes of all data.
 
@@ -710,7 +986,7 @@ def get_data_shape_dict(num_token, num_atom, num_msa, num_templ, num_pocket):
         num_pocket (int): Number of pockets to the same interested ligand.
 
     Returns:
-        dict: A dictionary containing the shapes of all data.
+        tuple[dict[str, tuple], dict[str, tuple]]: A tuple containing feat and label shape dictionaries.
     """
     # Features in AlphaFold3 SI Table5
     feat = {
@@ -749,6 +1025,16 @@ def get_data_shape_dict(num_token, num_atom, num_msa, num_templ, num_pocket):
         "template_unit_vector": (num_templ, num_token, num_token, 3),
         # Bond features
         "token_bonds": (num_token, num_token),
+        "is_protein": (num_atom,),  # Atom level, not token level
+        "is_rna": (num_atom,),
+        "is_dna": (num_atom,),
+        "is_ligand": (num_atom,),
+        "distogram_rep_atom_mask": (num_atom,),
+        "pae_rep_atom_mask": (num_atom,),
+        "plddt_m_rep_atom_mask": (num_atom,),
+        "modified_res_mask": (num_atom,),
+        "bond_mask": (num_atom, num_atom),
+        "resolution": (1,),
     }
 
     # Extra features needed
@@ -767,18 +1053,8 @@ def get_data_shape_dict(num_token, num_atom, num_msa, num_templ, num_pocket):
         # "centre_atom_mask": (num_atom,),
         # "centre_centre_distance": (num_token, num_token),
         # "centre_centre_distance_mask": (num_token, num_token),
-        "distogram_rep_atom_mask": (num_atom,),
-        "pae_rep_atom_mask": (num_atom,),
-        "plddt_m_rep_atom_mask": (num_atom,),
-        "modified_res_mask": (num_atom,),
-        "bond_mask": (num_atom, num_atom),
-        "is_protein": (num_atom,),  # Atom level, not token level
-        "is_rna": (num_atom,),
-        "is_dna": (num_atom,),
-        "is_ligand": (num_atom,),
         "has_frame": (num_token,),  # move to input_feature_dict?
         "frame_atom_index": (num_token, 3),  # atom index after crop
-        "resolution": (1,),
         # Metrics
         "interested_ligand_mask": (
             num_pocket,
@@ -793,53 +1069,6 @@ def get_data_shape_dict(num_token, num_atom, num_msa, num_templ, num_pocket):
     # Merged
     all_feat = {**feat, **extra_feat}
     return all_feat, label
-
-
-def get_lig_lig_bonds(
-    atom_array: AtomArray, lig_include_ions: bool = False
-) -> np.ndarray:
-    """
-    Get all inter-ligand bonds in order to create "token_bonds".
-
-    Args:
-        atom_array (AtomArray): biotite AtomArray object with "mol_type" attribute.
-        lig_include_ions (bool, optional): . Defaults to False.
-
-    Returns:
-        np.ndarray: inter-ligand bonds, e.g. np.array([[atom1, atom2, bond_order]...])
-    """
-    if not lig_include_ions:
-        # bonded ligand exclude ions
-        unique_chain_id, counts = np.unique(
-            atom_array.label_asym_id, return_counts=True
-        )
-        chain_id_to_count_map = dict(zip(unique_chain_id, counts))
-        ions_mask = np.array(
-            [
-                chain_id_to_count_map[label_asym_id] == 1
-                for label_asym_id in atom_array.label_asym_id
-            ]
-        )
-
-        lig_mask = (atom_array.mol_type == "ligand") & ~ions_mask
-    else:
-        lig_mask = atom_array.mol_type == "ligand"
-
-    chain_res_id = np.vstack((atom_array.label_asym_id, atom_array.res_id)).T
-    idx_i = atom_array.bonds._bonds[:, 0]
-    idx_j = atom_array.bonds._bonds[:, 1]
-
-    ligand_ligand_bond_indices = np.where(
-        (lig_mask[idx_i] & lig_mask[idx_j])
-        & np.any(chain_res_id[idx_i] != chain_res_id[idx_j], axis=1)
-    )[0]
-
-    if ligand_ligand_bond_indices.size == 0:
-        # no ligand-polymer bonds
-        lig_polymer_bonds = np.empty((0, 3)).astype(int)
-    else:
-        lig_polymer_bonds = atom_array.bonds._bonds[ligand_ligand_bond_indices]
-    return lig_polymer_bonds
 
 
 def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
@@ -928,7 +1157,6 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
     # add label entity id
     atom_array.set_annotation("label_entity_id", label_entity_id)
-
     entity_poly_type = {}
     for seq, entity_id in seq_to_entity_id.items():
         resname_seq = seq.split("_")
@@ -968,8 +1196,27 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
     w = CIFWriter(atom_array=atom_array, entity_poly_type=entity_poly_type)
     w.save_to_cif(
         output_fname,
-        entry_id=entry_id,
+        entry_id=entry_id or os.path.basename(output_fname),
         include_bonds=True,
+    )
+
+
+def dump_bioassembly_to_cif(
+    bioassembly_pkl: Union[str, Path], output_cif: Union[str, Path]
+):
+    """
+    Dump a bioassembly dict to CIF.
+
+    Args:
+        bioassembly_pkl (Union[str, Path]): A *.pkl.gz file path of saved bioassembly dict.
+        output_cif (Union[str, Path]): A *.cif file path to save.
+    """
+    bio_dict = load_gzip_pickle(bioassembly_pkl)
+    atom_array = bio_dict["atom_array"]
+    entity_poly_type = bio_dict["entity_poly_type"]
+    writer = CIFWriter(atom_array=atom_array, entity_poly_type=entity_poly_type)
+    writer.save_to_cif(
+        output_cif, entry_id=Path(bioassembly_pkl).stem, include_bonds=False
     )
 
 
@@ -991,6 +1238,40 @@ def get_atom_level_token_mask(token_array, atom_array) -> np.ndarray:
             atom_level_mask[token.atom_indices[0]] = True
 
     return atom_level_mask
+
+
+def pad_to(arr: np.ndarray, shape: tuple, **kwargs) -> np.ndarray:
+    """Pads an array to a given shape. Wrapper around np.pad().
+
+    Args:
+      arr: numpy array to pad
+      shape: target shape, use None for axes that should stay the same
+      **kwargs: additional args for np.pad, e.g. constant_values=-1
+
+    Returns:
+      the padded array
+
+    Raises:
+      ValueError if arr and shape have a different number of axes.
+    """
+    if arr.ndim != len(shape):
+        raise ValueError(
+            f"arr and shape have different number of axes. {arr.shape=}, {shape=}"
+        )
+
+    num_pad = []
+    for axis, width in enumerate(shape):
+        if width is None:
+            num_pad.append((0, 0))
+        else:
+            if width >= arr.shape[axis]:
+                num_pad.append((0, width - arr.shape[axis]))
+            else:
+                raise ValueError(
+                    f"Can not pad to a smaller shape. {arr.shape=}, {shape=}"
+                )
+    padded_arr = np.pad(arr, pad_width=num_pad, **kwargs)
+    return padded_arr
 
 
 if __name__ == "__main__":

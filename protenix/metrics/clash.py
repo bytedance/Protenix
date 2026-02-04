@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
 from typing import Optional
 
 import torch
 import torch.nn as nn
 
 from protenix.data.constants import rdkit_vdws
+from protenix.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 RDKIT_VDWS = torch.tensor(rdkit_vdws)
 ID2TYPE = {0: "UNK", 1: "lig", 2: "prot", 3: "dna", 4: "rna"}
@@ -103,7 +105,7 @@ class Clash(nn.Module):
             atom_type_i = atom_type[atom_chain_mask]
             assert len(atom_type_i.unique()) == 1
             if atom_type_i[0].item() == 0:
-                logging.warning(
+                logger.warning(
                     "Unknown asym_id type: not in ligand / protein / dna / rna"
                 )
             chain_types.append(ID2TYPE[atom_type_i[0].item()])
@@ -215,7 +217,7 @@ class Clash(nn.Module):
                         and asym_id_to_mol_id[i] == asym_id_to_mol_id[j]
                     ):
                         common_mol_id = asym_id_to_mol_id[i]
-                        logging.warning(
+                        logger.warning(
                             f"mol_id {common_mol_id} may contain bonded ligand to polymers"
                         )
                         skip_bonded_ligand = True

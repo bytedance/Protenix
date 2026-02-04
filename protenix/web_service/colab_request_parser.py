@@ -19,19 +19,19 @@ import subprocess
 import traceback
 from collections import defaultdict
 from copy import deepcopy
-from os.path import exists as opexists
-from os.path import join as opjoin
+from os.path import exists as opexists, join as opjoin
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import numpy as np
 import requests
+from runner.template_search import run_template_search
 
-import protenix.data.ccd as ccd
-from protenix.data.json_to_feature import SampleDictToFeatures
+import protenix.data.core.ccd as ccd
+from protenix.data.inference.json_to_feature import SampleDictToFeatures
 from protenix.web_service.colab_request_utils import (
-    run_mmseqs2_service,
     parse_fasta_string,
+    run_mmseqs2_service,
 )
 from protenix.web_service.dependency_url import URL
 
@@ -40,8 +40,11 @@ MMSEQS_SERVICE_HOST_URL = os.getenv(
 )
 MAX_ATOM_NUM = 60000
 MAX_TOKEN_NUM = 5000
-DATA_CACHE_DIR = "/af3-dev/release_data/"
-CHECKPOINT_DIR = "/af3-dev/release_model/"
+
+PROTENIX_ROOT_DIR = os.environ.get("PROTENIX_ROOT_DIR", str(Path.home()))
+
+DATA_CACHE_DIR = f"{PROTENIX_ROOT_DIR}/common/"
+CHECKPOINT_DIR = f"{PROTENIX_ROOT_DIR}/checkpoint/"
 
 
 def download_tos_url(tos_url, local_file_path):
@@ -86,7 +89,7 @@ class RequestParser(object):
         request_json_path: str,
         request_dir: str,
         email: str = "",
-        model_name: str = "protenix_base_default_v0.5.0",
+        model_name: str = "protenix_base_default_v1.0.0",
     ) -> None:
         with open(request_json_path, "r") as f:
             self.request = json.load(f)
@@ -101,8 +104,8 @@ class RequestParser(object):
         os.makedirs(data_cache_dir, exist_ok=True)
         cache_paths = {}
         for cache_name, fname in [
-            ("ccd_components_file", "components.v20240608.cif"),
-            ("ccd_components_rdkit_mol_file", "components.v20240608.cif.rdkit_mol.pkl"),
+            ("ccd_components_file", "components.cif"),
+            ("ccd_components_rdkit_mol_file", "components.cif.rdkit_mol.pkl"),
             ("pdb_cluster_file", "clusters-by-entity-40.txt"),
         ]:
             if not opexists(
@@ -136,7 +139,7 @@ class RequestParser(object):
             "name": (self.request["name"]),
             "covalent_bonds": self.request["covalent_bonds"],
         }
-        input_json_path = opjoin(self.request_dir, f"inputs.json")
+        input_json_path = opjoin(self.request_dir, "inputs.json")
 
         sequences = []
         entity_pending_msa = {}
@@ -204,14 +207,33 @@ class RequestParser(object):
             for seq, msa_res_dir in zip(seqs_pending_msa, msa_res_subdirs):
                 for entity_id in seq_to_entity_id[seq]:
                     entity_index = int(entity_id) - 1
-                    sequences[entity_index]["proteinChain"]["msa"] = {
-                        "precomputed_msa_dir": msa_res_dir,
-                        "pairing_db": "uniref100",
-                        "pairing_db_fpath": None,
-                        "non_pairing_db_fpath": None,
-                        "search_too": None,
-                        "msa_save_dir": None,
-                    }
+                    msa_names = []
+                    if opexists(pairing_path := opjoin(msa_res_dir, "pairing.a3m")):
+                        sequences[entity_index]["proteinChain"][
+                            "pairedMsaPath"
+                        ] = pairing_path
+                        msa_names.append("pairing")
+                    if opexists(
+                        unpaired_path := opjoin(msa_res_dir, "non_pairing.a3m")
+                    ):
+                        sequences[entity_index]["proteinChain"][
+                            "unpairedMsaPath"
+                        ] = unpaired_path
+                        msa_names.append("non_pairing")
+                    use_msa = self.request.get("use_msa")
+                    use_template = self.request.get("use_template", False)
+                    if msa_names and use_msa and use_template:
+                        msa_name_str = ",".join(msa_names)
+                        if not opexists(
+                            template_path := opjoin(msa_res_dir, "hmmsearch.a3m")
+                        ):
+                            run_template_search(
+                                msa_for_template_search_dir=msa_res_dir,
+                                msa_for_template_search_name=msa_name_str,
+                            )
+                        sequences[entity_index]["proteinChain"][
+                            "templatesPath"
+                        ] = template_path
 
         input_json_dict["sequences"] = sequences
         with open(input_json_path, "w") as f:
@@ -233,8 +255,8 @@ class RequestParser(object):
         if (last_line := lines[-1]).endswith("\n"):
             lines[-1] = last_line.rstrip("\n")
         with open(tmp_fasta_fpath, "w") as f:
-            for lines in lines:
-                f.write(lines)
+            for line in lines:
+                f.write(line)
 
         with open(tmp_fasta_fpath, "r") as f:
             query_seqs = f.read()
@@ -300,8 +322,7 @@ class RequestParser(object):
                     print(error_message)
             else:
                 pairing_msa_fpath = os.path.join(
-                    msa_res_dir.split("msa_resmsa")[0],
-                    "msa",
+                    msa_res_dir,
                     "0",
                     "pairing.a3m",
                 )
@@ -447,7 +468,6 @@ class RequestParser(object):
             opjoin(os.path.dirname(self.fpath), "../../runner/inference.py")
         )
         command_parts = [
-            "export LAYERNORM_TYPE=fast_layernorm;",
             f"python3 {entry_path}",
             f"--load_checkpoint_dir {checkpoint_dir}",
             f"--model_name {self.model_name}",
@@ -456,14 +476,6 @@ class RequestParser(object):
             f"--need_atom_confidence {self.request['atom_confidence']}",
             f"--use_msa {self.request['use_msa']}",
             "--num_workers 0",
-            "--dtype bf16",
-            "--sample_diffusion.step_scale_eta 1.5",
-            "--enable_tf32 True",
-            "--enable_efficient_fusion True",
-            "--enable_diffusion_shared_vars_cache True",
-            "--infer_setting.sample_diffusion_chunk_size 5",
-            "--infer_setting.chunk_size 256",
-            "--triangle_multiplicative torch",
         ]
 
         if "model_seeds" in self.request:
@@ -474,6 +486,11 @@ class RequestParser(object):
                 command_parts.extend([f"--sample_diffusion.{key} {self.request[key]}"])
         if "N_cycle" in self.request:
             command_parts.extend([f"--model.N_cycle {self.request['N_cycle']}"])
+
+        if self.request.get("use_template", False):
+            command_parts.extend(
+                [f"--use_template {self.request.get('use_template', False)}"]
+            )
         command = " ".join(command_parts)
         print(f"Launching inference process with the command below:\n{command}")
         subprocess.call(command, shell=True)
@@ -496,7 +513,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         type=str,
-        default="protenix_base_default_v0.5.0",
+        default="protenix_base_default_v1.0.0",
         help="The model name for inference.",
     )
 

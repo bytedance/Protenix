@@ -8,12 +8,12 @@ max-line-length = 120
 # C408 ignored because we like the dict keyword argument syntax
 # E501 is not flexible enough, we're using B950 instead
 ignore =
-    E203,E305,E402,E501,E704,E721,E741,F405,F824,F841,F999,W503,W504,C408,E302,W291,E303,
+    E203,E305,E402,E501,E704,E721,E731,E741,F405,F824,F841,F999,W503,W504,C408,E302,W291,E303,B950,
     # shebang has extra meaning in fbcode lints, so I think it's not worth trying
     # to line this up with executable bit
     EXE001,
     # these ignores are from flake8-bugbear; please fix!
-    B007,B008,B017,B019,B023,B028,B903,B904,B905,B906,B907
+    B006,B007,B008,B017,B019,B023,B028,B903,B904,B905,B906,B907
     # these ignores are from flake8-comprehensions; please fix!
     C407,
     # these ignores are from flake8-logging-format; please fix!
@@ -27,6 +27,7 @@ per-file-ignores =
     __init__.py: F401
     test/**: F821
     test/**/__init__.py: F401,F821
+    protenix/web_service/dependency_url.py: B950
     torch/utils/cpp_extension.py: B950
     torchgen/api/types/__init__.py: F401,F403
     torchgen/executorch/api/types/__init__.py: F401,F403

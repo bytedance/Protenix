@@ -133,7 +133,7 @@ __global__ void LayerNormForward(T* input, T* output, T* gamma, T* beta, float* 
 
 int find_opt_threads(int M, int elements_per_thread) {
     const int candidates[] = {1, 2, 4, 8, 16, 32};
-    int min_threads = (M + elements_per_thread - 1) / elements_per_thread; // 向上取整
+    int min_threads = (M + elements_per_thread - 1) / elements_per_thread; // Round up
     for (int k : candidates) {
         if (k >= min_threads) {
             return k;
@@ -143,17 +143,17 @@ int find_opt_threads(int M, int elements_per_thread) {
 }
 
 template <typename T, typename VecType>
-__global__ void LayerNormForwardV2(T* input, T* output, T* gamma, T* beta, 
-                                   float* mean, float* invvar, long rows, 
+__global__ void LayerNormForwardV2(T* input, T* output, T* gamma, T* beta,
+                                   float* mean, float* invvar, long rows,
                                    long cols, float epsilon) {
     constexpr int ELEMENTS_PER_THREAD = sizeof(VecType) / sizeof(T);
-    
+
     const long tid = threadIdx.x;
     const long row = blockIdx.x * blockDim.y + threadIdx.y;
     T* row_input_ptr = input + row * cols;
     T* row_output_ptr = output + row * cols;
     if (row >= rows) return;
-    
+
     const bool has_gamma = gamma != nullptr;
     const bool has_beta = beta != nullptr;
 
@@ -219,7 +219,7 @@ __global__ void LayerNormForwardV2(T* input, T* output, T* gamma, T* beta,
         #pragma unroll
         for (int i = 0; i < ELEMENTS_PER_THREAD; ++i) {
             float normalized = (static_cast<float>(vals[i]) - row_mean) * row_inv_var;
-            normalized = normalized * static_cast<float>(gamma_vals[i]) 
+            normalized = normalized * static_cast<float>(gamma_vals[i])
                        + static_cast<float>(beta_vals[i]);
             vals_out[i] = static_cast<T>(normalized);
         }
@@ -231,7 +231,7 @@ __global__ void LayerNormForwardV2(T* input, T* output, T* gamma, T* beta,
 void cuda_layer_norm(at::Tensor* output, at::Tensor* mean, at::Tensor* invvar, at::Tensor* input,
                      int rows, int cols, at::IntArrayRef normalized_shape, at::Tensor* gamma,
                      at::Tensor* beta, double epsilon) {
-    // 获取元素字节大小
+    // Get element byte size
     const auto dtype = output->dtype();
     int element_size;
     if (dtype == torch::kFloat32) {
@@ -242,7 +242,7 @@ void cuda_layer_norm(at::Tensor* output, at::Tensor* mean, at::Tensor* invvar, a
         throw std::runtime_error("Unsupported data type");
     }
 
-    // 计算总字节数并检查对齐
+    // Calculate total bytes and check alignment
     const int total_bytes = cols * element_size;
     int vec_size = 0;
     if (total_bytes % 16 == 0) {
@@ -255,17 +255,17 @@ void cuda_layer_norm(at::Tensor* output, at::Tensor* mean, at::Tensor* invvar, a
         vec_size = 2;
     }
 
-    // 计算每线程处理的元素数
+    // Calculate elements per thread
     const int elements_per_thread = vec_size / element_size;
     const int threads_per_row = find_opt_threads(cols, elements_per_thread);
 
-    // 配置kernel参数
+    // Configure kernel parameters
     const int threads_per_block = 128;
     const int rows_per_block = threads_per_block / threads_per_row;
     const dim3 grid((rows + rows_per_block - 1) / rows_per_block);
     const dim3 block(threads_per_row, rows_per_block);
 
-    // 类型分发
+    // Type dispatch
     if (dtype == torch::kFloat32) {
         if (vec_size == 16) {
             LayerNormForwardV2<float, float4><<<grid, block>>>(
@@ -298,9 +298,9 @@ void cuda_layer_norm(at::Tensor* output, at::Tensor* mean, at::Tensor* invvar, a
                 long(rows), long(cols), float(epsilon)
             );
         }
-    } 
+    }
     else if (dtype == torch::kFloat16) {
-                if (vec_size == 16) {  // 使用float4处理half类型（8个元素）
+                if (vec_size == 16) {  // Use float4 to handle half type (8 elements)
             LayerNormForwardV2<at::Half, float4><<<grid, block>>>(
                 static_cast<at::Half*>(input->data_ptr()),
                 static_cast<at::Half*>(output->data_ptr()),
@@ -310,7 +310,7 @@ void cuda_layer_norm(at::Tensor* output, at::Tensor* mean, at::Tensor* invvar, a
                 static_cast<float*>(invvar->data_ptr()),
                 long(rows), long(cols), float(epsilon)
             );
-        } else if (vec_size == 8) {  // float2处理4个half元素
+        } else if (vec_size == 8) {  // float2 to handle 4 half elements
             LayerNormForwardV2<at::Half, float2><<<grid, block>>>(
                 static_cast<at::Half*>(input->data_ptr()),
                 static_cast<at::Half*>(output->data_ptr()),
@@ -320,7 +320,7 @@ void cuda_layer_norm(at::Tensor* output, at::Tensor* mean, at::Tensor* invvar, a
                 static_cast<float*>(invvar->data_ptr()),
                 long(rows), long(cols), float(epsilon)
             );
-        } else if (vec_size == 4) {  // float处理2个half元素
+        } else if (vec_size == 4) {  // float to handle 2 half elements
             LayerNormForwardV2<at::Half, float><<<grid, block>>>(
                 static_cast<at::Half*>(input->data_ptr()),
                 static_cast<at::Half*>(output->data_ptr()),
@@ -384,7 +384,7 @@ void cuda_layer_norm(at::Tensor* output, at::Tensor* mean, at::Tensor* invvar, a
                 long(rows), long(cols), float(epsilon)
             );
         }
-    } 
+    }
 }
 
 template <typename T>
@@ -778,7 +778,7 @@ __global__ void LayerNormInputGradV2(T* __restrict__ grad_output,
 
         T* gamma_vals = reinterpret_cast<T*>(&gamma_vec);
         T* grad_output_vals = reinterpret_cast<T*>(&grad_output_vec);
-        
+
         #pragma unroll
         for (int i = 0; i < ELEMENTS_PER_THREAD; ++i) {
             gamma_mul_grad_output +=  gamma_vals[i] * grad_output_vals[i];
@@ -792,18 +792,18 @@ __global__ void LayerNormInputGradV2(T* __restrict__ grad_output,
     }
     warp_sum_reduce(gamma_mul_grad_output, blockDim.x);
     warp_sum_reduce(gamma_mul_grad_output_input_mean, blockDim.x);
-    
-    // 阶段2：计算公共系数
+
+    // Phase 2: Calculate common coefficients
     const float k1 = gamma_mul_grad_output * invvar_val / cols;
     const float k2 = gamma_mul_grad_output_input_mean * invvar_val * invvar_val * invvar_val / cols;
 
     T* grad_input_row = grad_input + row * cols;
-    // 阶段3：向量化写回梯度
+    // Phase 3: Vectorized write back gradients
     for (int block = 0; block < TOTAL_BLOCKS; ++block) {
         const int base_idx = block * ELEMENTS_PER_BLOCK + tid * ELEMENTS_PER_THREAD;
 
-        // 重新加载必要数据
-        VecType grad_vec = *reinterpret_cast<const VecType*>(grad_output_row + base_idx);
+    // Reload necessary data
+    VecType grad_vec = *reinterpret_cast<const VecType*>(grad_output_row + base_idx);
         VecType input_vec = *reinterpret_cast<const VecType*>(input_row + base_idx);
         VecType gamma_vec;
         if (has_gamma) {
@@ -818,7 +818,7 @@ __global__ void LayerNormInputGradV2(T* __restrict__ grad_output,
         T* input_vals = reinterpret_cast<T*>(&input_vec);
         T* gamma_vals = reinterpret_cast<T*>(&gamma_vec);
 
-        // 计算梯度
+        // Calculate gradient
         VecType grad_input_vec;
         T* grad_input_vals = reinterpret_cast<T*>(&grad_input_vec);
 
@@ -834,7 +834,7 @@ __global__ void LayerNormInputGradV2(T* __restrict__ grad_output,
             grad_input_vals[i] = static_cast<T>(grad);
         }
 
-        // 向量化存储
+        // Vectorized storage
         *reinterpret_cast<VecType*>(grad_input_row + base_idx) = grad_input_vec;
     }
 }
@@ -915,7 +915,7 @@ void HostLayerNormGradient(const V* dout, const float* mean, const float* invvar
             part_grad_beta.DATA_PTR<float>(), part_size, row, col, grad_beta);
     }
 
-    // 获取元素字节大小
+    // Get element byte size
     const auto dtype = input->dtype();
     int element_size;
     if (dtype == torch::kFloat32) {
@@ -926,7 +926,7 @@ void HostLayerNormGradient(const V* dout, const float* mean, const float* invvar
         throw std::runtime_error("Unsupported data type");
     }
 
-    // 计算总字节数并检查对齐
+    // Calculate total bytes and check alignment
     const int total_bytes = col * element_size;
     int vec_size = 0;
     if (total_bytes % 16 == 0) {
@@ -939,11 +939,11 @@ void HostLayerNormGradient(const V* dout, const float* mean, const float* invvar
         vec_size = 2;
     }
 
-    // 计算每线程处理的元素数
+    // Calculate elements per thread
     const int elements_per_thread = vec_size / element_size;
     const int threads_per_row = find_opt_threads(col, elements_per_thread);
 
-    // 配置kernel参数
+    // Configure kernel parameters
     const int threads_per_block = 128;
     const int rows_per_block = threads_per_block / threads_per_row;
     const dim3 grid((row + rows_per_block - 1) / rows_per_block);

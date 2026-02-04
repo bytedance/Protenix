@@ -14,11 +14,14 @@
 
 
 import os
+from typing import Any
 
 from torch.utils.cpp_extension import load
 
 
-def compile(name, sources, extra_include_paths, build_directory):
+def compile(
+    name: str, sources: list[str], extra_include_paths: list[str], build_directory: str
+) -> Any:
     os.environ["TORCH_CUDA_ARCH_LIST"] = "7.0;8.0"
     return load(
         name=name,

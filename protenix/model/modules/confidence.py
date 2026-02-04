@@ -19,13 +19,31 @@ import torch.nn as nn
 
 from protenix.model.modules.pairformer import PairformerStack
 from protenix.model.modules.primitives import LinearNoBias
+from protenix.model.triangular.layers import LayerNorm
 from protenix.model.utils import broadcast_token_to_atom, one_hot
-from protenix.openfold_local.model.primitives import LayerNorm
 
 
 class ConfidenceHead(nn.Module):
     """
     Implements Algorithm 31 in AF3
+
+    Args:
+        n_blocks (int, optional): number of blocks for ConfidenceHead. Defaults to 4.
+        c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
+        c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
+        c_s_inputs (int, optional): hidden dim [for single embedding from InputFeatureEmbedder]. Defaults to 449.
+        b_pae (int, optional): the bin number for pae. Defaults to 64.
+        b_pde (int, optional): the bin numer for pde. Defaults to 64.
+        b_plddt (int, optional): the bin number for plddt. Defaults to 50.
+        b_resolved (int, optional): the bin number for resolved. Defaults to 2.
+        max_atoms_per_token (int, optional): max atoms in a token. Defaults to 20.
+        pairformer_dropout (float, optional): dropout ratio for Pairformer. Defaults to 0.0.
+        blocks_per_ckpt: number of Pairformer blocks in each activation checkpoint
+        distance_bin_start (float, optional): Start of the distance bin range. Defaults to 3.25.
+        distance_bin_end (float, optional): End of the distance bin range. Defaults to 52.0.
+        distance_bin_step (float, optional): Step size for the distance bins. Defaults to 1.25.
+        stop_gradient (bool, optional): Whether to stop gradient propagation. Defaults to True.
+        hidden_scale_up (bool, optional): Whether to scale up hidden dimension. Defaults to False.
     """
 
     def __init__(
@@ -45,25 +63,8 @@ class ConfidenceHead(nn.Module):
         distance_bin_end: float = 52.0,
         distance_bin_step: float = 1.25,
         stop_gradient: bool = True,
+        hidden_scale_up: bool = False,
     ) -> None:
-        """
-        Args:
-            n_blocks (int, optional): number of blocks for ConfidenceHead. Defaults to 4.
-            c_s (int, optional):  hidden dim [for single embedding]. Defaults to 384.
-            c_z (int, optional): hidden dim [for pair embedding]. Defaults to 128.
-            c_s_inputs (int, optional): hidden dim [for single embedding from InputFeatureEmbedder]. Defaults to 449.
-            b_pae (int, optional): the bin number for pae. Defaults to 64.
-            b_pde (int, optional): the bin numer for pde. Defaults to 64.
-            b_plddt (int, optional): the bin number for plddt. Defaults to 50.
-            b_resolved (int, optional): the bin number for resolved. Defaults to 2.
-            max_atoms_per_token (int, optional): max atoms in a token. Defaults to 20.
-            pairformer_dropout (float, optional): dropout ratio for Pairformer. Defaults to 0.0.
-            blocks_per_ckpt: number of Pairformer blocks in each activation checkpoint
-            distance_bin_start (float, optional): Start of the distance bin range. Defaults to 3.25.
-            distance_bin_end (float, optional): End of the distance bin range. Defaults to 52.0.
-            distance_bin_step (float, optional): Step size for the distance bins. Defaults to 1.25.
-            stop_gradient (bool, optional): Whether to stop gradient propagation. Defaults to True.
-        """
         super(ConfidenceHead, self).__init__()
         self.n_blocks = n_blocks
         self.c_s = c_s
@@ -101,6 +102,7 @@ class ConfidenceHead(nn.Module):
             n_blocks=n_blocks,
             dropout=pairformer_dropout,
             blocks_per_ckpt=blocks_per_ckpt,
+            hidden_scale_up=hidden_scale_up,
         )
         self.linear_no_bias_pae = LinearNoBias(
             in_features=self.c_z, out_features=self.b_pae
@@ -127,10 +129,6 @@ class ConfidenceHead(nn.Module):
             nn.init.zeros_(self.linear_no_bias_pde.weight)
             nn.init.zeros_(self.plddt_weight)
             nn.init.zeros_(self.resolved_weight)
-
-            # # Zero init for trunk embedding input layer
-            # nn.init.zeros_(self.linear_no_bias_s_trunk.weight)
-            # nn.init.zeros_(self.linear_no_bias_z_trunk.weight)
 
     def forward(
         self,
@@ -159,13 +157,14 @@ class ConfidenceHead(nn.Module):
                 [..., N_token, N_token]
             x_pred_coords (torch.Tensor): predicted coordinates
                 [..., N_sample, N_atoms, 3]
+            triangle_multiplicative: Triangle multiplicative implementation type.
+                - "torch" (default): PyTorch native implementation
+                - "cuequivariance": Cuequivariance implementation
             triangle_attention: Triangle attention implementation type.
                 - "torch" (default): PyTorch native implementation
                 - "triattention": Optimized tri-attention module
                 - "deepspeed": DeepSpeed's fused attention kernel
-            triangle_multiplicative: Triangle multiplicative implementation type.
-                - "torch" (default): PyTorch native implementation
-                - "cuequivariance": Cuequivariance implementation
+            inplace_safe (bool, optional): Whether to use inplace operations. Defaults to False.
             chunk_size (Optional[int], optional): Chunk size for memory-efficient operations. Defaults to None.
 
         Returns:
@@ -202,6 +201,7 @@ class ConfidenceHead(nn.Module):
         z_trunk = z_init + z_trunk
         if not self.training:
             del z_init
+            torch.cuda.empty_cache()
 
         plddt_preds, pae_preds, pde_preds, resolved_preds = (
             [],
@@ -210,23 +210,27 @@ class ConfidenceHead(nn.Module):
             [],
         )
         for i in range(N_sample):
-            plddt_pred, pae_pred, pde_pred, resolved_pred = (
-                self.memory_efficient_forward(
-                    input_feature_dict=input_feature_dict,
-                    s_trunk=s_trunk.clone() if inplace_safe else s_trunk,
-                    z_pair=z_trunk.clone() if inplace_safe else z_trunk,
-                    pair_mask=pair_mask,
-                    x_pred_rep_coords=x_pred_rep_coords[..., i, :, :],
-                    triangle_multiplicative=triangle_multiplicative,
-                    triangle_attention=triangle_attention,
-                    inplace_safe=inplace_safe,
-                    chunk_size=chunk_size,
-                )
+            (
+                plddt_pred,
+                pae_pred,
+                pde_pred,
+                resolved_pred,
+            ) = self.memory_efficient_forward(
+                input_feature_dict=input_feature_dict,
+                s_trunk=s_trunk.clone() if inplace_safe else s_trunk,
+                z_pair=z_trunk.clone() if inplace_safe else z_trunk,
+                pair_mask=pair_mask,
+                x_pred_rep_coords=x_pred_rep_coords[..., i, :, :],
+                triangle_multiplicative=triangle_multiplicative,
+                triangle_attention=triangle_attention,
+                inplace_safe=inplace_safe,
+                chunk_size=chunk_size,
             )
             if z_trunk.shape[-2] > 2000 and (not self.training):
                 # cpu offload pae_preds/pde_preds
                 pae_pred = pae_pred.cpu()
                 pde_pred = pde_pred.cpu()
+                torch.cuda.empty_cache()
             plddt_preds.append(plddt_pred)
             pae_preds.append(pae_pred)
             pde_preds.append(pde_pred)
@@ -339,4 +343,6 @@ class ConfidenceHead(nn.Module):
                 self.resolved_ln(a),
                 self.resolved_weight[atom_to_tokatom_idx],
             )
+        if not self.training and z_pair.shape[-2] > 2000:
+            torch.cuda.empty_cache()
         return plddt_pred, pae_pred, pde_pred, resolved_pred

@@ -19,6 +19,8 @@
 # - Falls back to PyTorch's scaled_dot_product_attention when Triton unavailable
 
 import warnings
+from typing import Any, Optional
+
 import torch
 
 try:
@@ -36,7 +38,14 @@ except (ImportError, RuntimeError) as e:
         """Fallback implementation using PyTorch's native attention."""
         
         @staticmethod
-        def apply(q, k, v, bias1=None, bias2=None, deterministic=False):
+        def apply(
+            q: torch.Tensor,
+            k: torch.Tensor,
+            v: torch.Tensor,
+            bias1: Optional[torch.Tensor] = None,
+            bias2: Optional[torch.Tensor] = None,
+            deterministic: bool = False,
+        ) -> torch.Tensor:
             """Apply attention using PyTorch's scaled_dot_product_attention."""
             # q, k, v shape: [B, N, S, H, D]
             B, N, S, H, D = q.shape
@@ -79,7 +88,7 @@ except (ImportError, RuntimeError) as e:
     class TriAttention(torch.nn.Module):
         """Fallback TriAttention module using PyTorch."""
         
-        def __init__(self):
+        def __init__(self) -> None:
             super().__init__()
             warnings.warn(
                 f"Triton not available ({triton_error}). Using PyTorch fallback for attention. "
@@ -88,7 +97,15 @@ except (ImportError, RuntimeError) as e:
                 stacklevel=2
             )
         
-        def forward(self, q, k, v, bias1=None, bias2=None, deterministic=False):
+        def forward(
+            self,
+            q: torch.Tensor,
+            k: torch.Tensor,
+            v: torch.Tensor,
+            bias1: Optional[torch.Tensor] = None,
+            bias2: Optional[torch.Tensor] = None,
+            deterministic: bool = False,
+        ) -> torch.Tensor:
             return TriAttentionFunction.apply(q, k, v, bias1, bias2, deterministic)
 
 __all__ = ["TriAttention", "TriAttentionFunction", "TRITON_AVAILABLE"]
