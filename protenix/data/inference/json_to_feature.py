@@ -63,6 +63,7 @@ class SampleDictToFeatures:
             "dnaSequence": "polydeoxyribonucleotide",
             "rnaSequence": "polyribonucleotide",
             "ligand": "non-polymer",
+            "ion": "non-polymer",
         }
         entity_poly_type = {}
         entity_to_sequences = {}
@@ -75,7 +76,8 @@ class SampleDictToFeatures:
                         "dnaSequence",
                         "rnaSequence",
                         "ligand",
-                    ], 'The "sequences" field accepts only these entity types: ["proteinChain", "dnaSequence", "rnaSequence", "ligand"].'
+                        "ion",
+                    ], 'The "sequences" field accepts only these entity types: ["proteinChain", "dnaSequence", "rnaSequence", "ligand", "ion"].'
                     entity_poly_type[str(idx + 1)] = entity_type_mapping_dict[
                         entity_type
                     ]
