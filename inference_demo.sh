@@ -52,12 +52,21 @@
 # Section 1: Running via Protenix CLI (protenix pred)
 # ------------------------------------------------------------------------------
 
-# IMPORTANT: Ensure environment variables (e.g., PROTENIX_ROOT_DIR, CUTLASS_PATH)
-# are correctly set. Missing or incorrect settings may lead to execution errors.
-# Specify your data root directory by uncommenting the following line.
-# export PROTENIX_ROOT_DIR="/modify/to/your/data_root_dir"
-# Environment Setup for deepspeed
-# export CUTLASS_PATH=/opt/cutlass/
+# ##############################################################################
+# # !!! IMPORTANT: ENVIRONMENT SETUP !!!
+# # ----------------------------------------------------------------------------
+# # 1. Ensure environment variables are correctly set:
+# #    - PROTENIX_ROOT_DIR: Your data root directory
+# #    - CUTLASS_PATH: Path for deepspeed (e.g., /opt/cutlass/)
+# #
+# #    Uncomment and modify the lines below if needed:
+# #    # export PROTENIX_ROOT_DIR="/modify/to/your/data_root_dir"
+# #    # export CUTLASS_PATH=/opt/cutlass/
+# #
+# # 2. Dependency for Template & RNA MSA:
+# #    If using these features, ensure 'kalign' and 'hmmer' are installed:
+# #    apt-get update && apt-get install -y kalign hmmer
+# # ############################################################################
 
 echo "Starting Section 1: CLI-based inference tests..."
 

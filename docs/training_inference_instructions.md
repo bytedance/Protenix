@@ -25,6 +25,20 @@ pip3 install -e .
 ### Docker (Recommended for Training)
 Check the detailed guide: [<u> Docker Installation</u>](./docker_installation.md).
 
+### External Dependencies
+For features such as **Template search** and **RNA MSA search**, additional system tools are required:
+- **kalign**: Used for sequence alignment.
+- **hmmer**: Used for sequence profile searches.
+
+**Note**:
+- **Docker Users**: These dependencies are already pre-installed in the official Protenix Docker image.
+- **Non-Docker Users**: You must install them manually. On Ubuntu/Debian, run:
+  ```bash
+  apt-get update && apt-get install -y kalign hmmer
+  ```
+  Or, you can provide the paths to the binaries built from source via command-line arguments (e.g.,`--kalign_binary_path`, `--hmmsearch_binary_path`, `--hmmbuild_binary_path`, `--nhmmer_binary_path`, etc.).
+  For more information, refer to `protenix pred -h`.
+
 
 ## 🚀 Inference & CLI Usage
 
