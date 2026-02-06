@@ -72,6 +72,7 @@ if [ "$DOWNLOAD_MODE" == "inference" ]; then
     )
 else
     DATA_FILES=(
+        "rna_msa.tar.gz"
         "common.tar.gz"
         "indices.tar.gz"
         "mmcif.tar.gz"

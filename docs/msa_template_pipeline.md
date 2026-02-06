@@ -146,6 +146,17 @@ The pipeline searches across three major RNA databases. You can use the clustere
 2. **RNAcentral**: `rnacentral_active_seq_id_90_cov_80_linclust.fasta`
 3. **NT-RNA**: `nt_rna_2023_02_23_clust_seq_id_90_cov_80_rep_seq.fasta`
 
+For RNA sequences derived from wwPDB, pre-computed RNA MSAs are available for download: [rna_msa.tar.gz](https://protenix.tos-cn-beijing.volces.com/rna_msa.tar.gz).
+
+The directory structure after extraction is as follows:
+```text
+├── rna_msa                             # RNA MSA data root
+│   ├── msas/                           # Directory containing RNA MSA files (.a3m)
+│   └── rna_sequence_to_pdb_chains.json # Mapping from RNA sequences to PDB entity IDs
+                                         # e.g., {"AAAAAAAAAAUU": ["4kxt_2", "6oon_2"]}
+```
+To retrieve the MSA for a specific RNA sequence, look up its entry in `rna_sequence_to_pdb_chains.json`. The corresponding MSA file is located at `msas/{pdb_entity_id}/{pdb_entity_id}_all.a3m`, where `pdb_entity_id` is the first element in the mapping value list.
+
 ### Output
 
 The search results from all databases are merged, deduplicated, and saved as `rna_msa.a3m`. This file should be referenced in the inference JSON as `unpairedMsaPath` for RNA chains.

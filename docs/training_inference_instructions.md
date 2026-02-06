@@ -166,6 +166,9 @@ Data hierarchy after extraction should be as follows:
   ├── posebusters_bioassembly # preprocessed posebusters structural data
   ├── posebusters_mmcif # raw mmcif data
   ├── recentPDB_bioassembly # preprocessed recentPDB structural data
+  ├── rna_msa # RNA MSA files
+  │   ├── msas/ # the directory to store RNA MSA files
+  │   └── rna_sequence_to_pdb_chains.json # mapping from RNA sequence to PDB entity ID, e.g. {"AAAAAAAAAAUU": ["4kxt_2", "6oon_2"]}
   └── search_database
       ├── nt_rna_2023_02_23_clust_seq_id_90_cov_80_rep_seq.fasta # NT-RNA database for RNA MSA search
       ├── pdb_seqres_2022_09_28.fasta # PDB seqres database for template search

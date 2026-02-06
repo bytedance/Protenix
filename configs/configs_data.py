@@ -208,8 +208,12 @@ data_configs = {
         # with pairing used first.
         "prot_indexing_methods": ListValue(["sequence"]),
         "enable_rna_msa": True,  # enable rna msa
-        "rna_seq_or_filename_to_msadir_jsons": ListValue([""]),
-        "rna_msadir_raw_paths": ListValue([""]),
+        "rna_seq_or_filename_to_msadir_jsons": ListValue(
+            [os.path.join(PROTENIX_ROOT_DIR, "rna_msa/rna_sequence_to_pdb_chains.json")]
+        ),
+        "rna_msadir_raw_paths": ListValue(
+            [os.path.join(PROTENIX_ROOT_DIR, "rna_msa/msas")]
+        ),
         "rna_indexing_methods": ListValue(["sequence"]),
         "min_size": {
             "train": 1,
