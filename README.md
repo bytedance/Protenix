@@ -63,12 +63,27 @@ pip install protenix
 protenix pred -i examples/input.json -o ./output -n protenix_base_default_v1.0.0
 ```
 
-For detailed instructions on installation, data preprocessing, inference, and training, please refer to the [Training and Inference Instructions](docs/training_inference_instructions.md) and [Supported Models](docs/supported_models.md). We recommend users refer to [inference_demo.sh](inference_demo.sh) for detailed inference methods and input explanations.
+#### Key Model Descriptions
+| Model Name | MSA | RNA MSA | Template | Params | Training Data Cutoff | Model Release Date |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `protenix_base_default_v1.0.0` | ✅ | ✅ | ✅ | 368 M | 2021-09-30 | 2026-02-05 |
+| `protenix_base_20250630_v1.0.0` | ✅ | ✅ | ✅ | 368 M | 2025-06-30 | 2026-02-05 |
+| `protenix_base_default_v0.5.0` | ✅ | ❌ | ❌ | 368 M | 2021-09-30 | 2025-05-30 |
+
+- **protenix_base_default_v1.0.0**: Default model, trained with a data cutoff aligned with AlphaFold3 (2021-09-30).
+  > 💡
+  > This is the **highly recommended** model for conducting fair, rigorous public benchmarks and comparative studies against other state-of-the-art methods.
+- **protenix_base_20250630_v1.0.0**: Applied model, trained with an updated data cutoff (2025-06-30) for better practical performance. This model can be used for practical application scenarios.
+- **protenix_base_default_v0.5.0**: Previous version of the model, maintained primarily for backward compatibility with users who developed based on v0.5.0.
+
+For a complete list of supported models, please refer to [Supported Models](docs/supported_models.md).
+
+For detailed instructions on installation, data preprocessing, inference, and training, please refer to the [Training and Inference Instructions](docs/training_inference_instructions.md). We recommend users refer to [inference_demo.sh](inference_demo.sh) for detailed inference methods and input explanations.
 
 
 ### 📊 Benchmark
 
-Protenix-v1, the first fully open-source model that outperforms AlphaFold3 across diverse benchmark sets while adhering to the same training data cutoff, model scale, and inference budget as AlphaFold3. For challenging targets, such as antigen-antibody complexes, the prediction accuracy of Protenix-v1 can be further enhanced through inference-time scaling – increasing the sampling budget from several to hundreds of candidates leads to consistent log-linear gains.
+**Protenix-v1 (refers to the `protenix_base_default_v1.0.0` model)**, the first fully open-source model that outperforms AlphaFold3 across diverse benchmark sets while adhering to the same training data cutoff, model scale, and inference budget as AlphaFold3. For challenging targets, such as antigen-antibody complexes, the prediction accuracy of Protenix-v1 can be further enhanced through inference-time scaling – increasing the sampling budget from several to hundreds of candidates leads to consistent log-linear gains.
 
 <img src="./assets/protenix_base_default_v1.0.0_metrics.png" style="width: 100%; height: auto;" alt="protenix-v1 model Metrics">
 
