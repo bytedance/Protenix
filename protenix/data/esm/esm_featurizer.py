@@ -19,7 +19,6 @@ import pandas as pd
 import torch
 
 from protenix.data.esm.compute_esm import compute_ESM_embeddings, load_esm_model
-
 from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -85,10 +84,6 @@ class ESMFeaturizer:
         centre_atoms_indices = token_array.get_annotation("centre_atom_index")
         centre_atom_array = atom_array[centre_atoms_indices]
 
-        # protein entities
-        is_protein = centre_atom_array.chain_mol_type == "protein"
-        protein_entity_ids = set(centre_atom_array.label_entity_id[is_protein])
-
         if inference_mode:
             entity_id_to_sequence = (
                 {}
@@ -99,6 +94,10 @@ class ESMFeaturizer:
                 entity_info = entity_info_wrapper[entity_type]
                 if entity_type == "proteinChain":
                     entity_id_to_sequence[entity_id] = entity_info["sequence"]
+            protein_entity_ids = set(entity_id_to_sequence.keys())
+        else:
+            is_protein = centre_atom_array.chain_mol_type == "protein"
+            protein_entity_ids = set(centre_atom_array.label_entity_id[is_protein])
 
         # enumerate over the entities
         error_sequences = []
