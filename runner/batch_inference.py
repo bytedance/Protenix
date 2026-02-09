@@ -16,6 +16,7 @@ import difflib
 import json
 import logging
 import os
+import subprocess
 import tempfile
 import time
 import uuid
@@ -352,7 +353,39 @@ def get_default_runner(
     configs.use_rna_msa = use_rna_msa
     configs.use_seeds_in_json = use_seeds_in_json
     if kalign_binary_path is not None:
+        # The path provided by the user is expected to exist by default
         configs.data.template.kalign_binary_path = kalign_binary_path
+        assert os.path.exists(
+            kalign_binary_path
+        ), f"kalign_binary_path {kalign_binary_path} does not exist"
+    else:
+        # If no path is provided and templates are used, try to find kalign in the system PATH
+        if use_template:
+            found_path = None
+            try:
+                result = subprocess.run(
+                    ["which", "kalign"], capture_output=True, text=True
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    kalign_in_path = result.stdout.strip()
+                    if os.path.exists(kalign_in_path) and os.access(
+                        kalign_in_path, os.X_OK
+                    ):
+                        found_path = kalign_in_path
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+
+            if found_path is not None:
+                configs.data.template.kalign_binary_path = found_path
+            else:
+                raise RuntimeError(
+                    "Kalign binary not found in system PATH. "
+                    "To install kalign, you can use one of the following methods:\n"
+                    "1. Using conda: conda install -c bioconda kalign\n"
+                    "2. Using apt (Ubuntu/Debian): apt-get install kalign\n"
+                    "3. Download from: https://github.com/TimoLassmann/kalign\n"
+                    "After installation, make sure the binary is accessible in PATH or provide kalign_binary_path."
+                )
 
     configs = update_gpu_compatible_configs(configs)
     logger.info(
