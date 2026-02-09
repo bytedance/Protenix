@@ -333,7 +333,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 # Slices start:end from the dim dimension of t
                 s = empty_slicer(t)
                 s[dim] = slice(start, end)
-                return t[s]
+                return t[tuple(s)]
 
             def flip_z_cache_(z_cache, z):
                 # "Reorient" the z_cache (see below), filling it with quadrants
@@ -348,7 +348,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 # Move the 3rd quadrant of z into the
                 first_half_slicer = empty_slicer(z_cache)
                 first_half_slicer[col_dim] = slice(0, half_n)
-                z_cache[first_half_slicer] = quadrant_3
+                z_cache[tuple(first_half_slicer)] = quadrant_3
 
                 # Get the fourth quadrant of z
                 quadrant_4 = slice_tensor(z, half_n, None, row_dim)
@@ -358,7 +358,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 quadrant_3_slicer = empty_slicer(z_cache)
                 quadrant_3_slicer[col_dim] = slice(half_n, None)
 
-                z_cache[quadrant_3_slicer] = quadrant_4
+                z_cache[tuple(quadrant_3_slicer)] = quadrant_4
 
                 return z_cache
 
@@ -368,7 +368,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
             z_cache = z.new_zeros(z_cache_shape)
             z_cache_slicer = empty_slicer(z_cache)
             z_cache_slicer[col_dim] = slice(0, half_n)
-            z_cache.copy_(z[z_cache_slicer])
+            z_cache.copy_(z[tuple(z_cache_slicer)])
             z_cache_rotated = False
 
             # We need to reorient the z-cache at the halfway point, and we
@@ -411,7 +411,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                     if not z_cache_rotated:
                         z_chunk_slicer = empty_slicer(z_chunk_b)
                         z_chunk_slicer[col_dim] = slice(0, half_n)
-                        z_chunk_b[z_chunk_slicer] = slice_tensor(
+                        z_chunk_b[tuple(z_chunk_slicer)] = slice_tensor(
                             z_cache,
                             i,
                             i + offset,
@@ -449,9 +449,9 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 z_slicer = empty_slicer(z)
                 z_slicer[col_dim] = slice(i, i + offset)
                 if with_add:
-                    z[z_slicer] += x_chunk
+                    z[tuple(z_slicer)] += x_chunk
                 else:
-                    z[z_slicer] = x_chunk
+                    z[tuple(z_slicer)] = x_chunk
         else:
             b = compute_projection(z, mask, False, False)
             x = torch.matmul(a, b)
