@@ -278,13 +278,15 @@ def run_mmseqs2_service(
                     env_a3m_fpath = os.path.join(
                         prefix, "bfd.mgnify30.metaeuk30.smag30.a3m"
                     )
-                    env_a3m_dict = parse_fasta_string(
-                        open(env_a3m_fpath, "r").read().replace("\x00", "")
-                    )
+                    with open(env_a3m_fpath, "r") as f:
+                        env_a3m_dict = parse_fasta_string(
+                            f.read().replace("\x00", "")
+                        )
                     uniref_a3m_fpath = os.path.join(prefix, "uniref.a3m")
-                    uniref_a3m_dict = parse_fasta_string(
-                        open(uniref_a3m_fpath, "r").read().replace("\x00", "")
-                    )
+                    with open(uniref_a3m_fpath, "r") as f:
+                        uniref_a3m_dict = parse_fasta_string(
+                            f.read().replace("\x00", "")
+                        )
                     query_id = str(int(x.split("\n")[0].split("_")[-1]))
                     query_seq = x.split("\n")[1]
                     real_non_pairing_fpath = os.path.join(
@@ -311,7 +313,8 @@ def run_mmseqs2_service(
                 else:
                     # pairing mode
                     pair_a3m = os.path.join(prefix, "pair.a3m")
-                    pair_a3m_chunks = open(pair_a3m, "r").read().split("\x00")
+                    with open(pair_a3m, "r") as f:
+                        pair_a3m_chunks = f.read().split("\x00")
                     for chunk in pair_a3m_chunks[:-1]:
                         real_pairing_fpath = os.path.join(
                             prefix,
