@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added PyTorch fallback when Triton is unavailable or unsupported
   - Enables Protenix to run on consumer hardware without code changes
   - Modified `protenix/model/tri_attention/__init__.py` to provide transparent fallback
+- Inference robustness:
+  - Fixed invalid MSA success assertion in FASTA flow (`runner/batch_inference.py`).
+  - Added explicit input JSON validation for non-empty top-level list (`runner/inference.py`).
+  - Hardened model-name parsing to avoid crashes on unexpected naming (`runner/inference.py`, `runner/batch_inference.py`).
 
 ### Contributors
 - Shad Nygren, Virtual Hipster Corporation (@ShadNygren)

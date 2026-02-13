@@ -334,7 +334,17 @@ def get_default_runner(
     if seeds is not None:
         configs.seeds = seeds
     model_name = configs.model_name
-    _, model_size, model_feature, model_version = model_name.split("_")
+    model_name_parts = model_name.split("_", 3)
+    if len(model_name_parts) == 4:
+        _, model_size, model_feature, model_version = model_name_parts
+    else:
+        model_size = "unknown"
+        model_feature = "unknown"
+        model_version = "unknown"
+        logger.warning(
+            "Unexpected model_name format '%s'; expected protenix_<size>_<feature>_<version>.",
+            model_name,
+        )
     model_specfics_configs = ConfigDict(model_configs[model_name])
     # update model specific configs
     configs.update(model_specfics_configs)
@@ -1044,7 +1054,7 @@ def msa(input: str, out_dir: str, msa_server_mode: str) -> Union[str, dict]:
             protein_seqs.append(str(seq.seq))
         protein_seqs = sorted(protein_seqs)
         msa_res_subdirs = msa_search(protein_seqs, out_dir, msa_server_mode)
-        assert len(msa_res_subdirs) == len(msa_res_subdirs), "msa search failed"
+        assert len(msa_res_subdirs) == len(protein_seqs), "msa search failed"
         fasta_msa_res = dict(zip(protein_seqs, msa_res_subdirs))
         logger.info(
             f"msa result is: {fasta_msa_res}, and it has been save to {out_dir}"
