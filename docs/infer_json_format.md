@@ -228,6 +228,10 @@ The `contact` constraint allows you to specify residue/atom-residue/atom level p
 
 > 💡 *This is a **soft constraint**: the model is encouraged, but not strictly required, to satisfy it.*
 
+#### Epitope input (alias)
+Some deployments may accept an `epitopes` field as a convenience alias for `constraint.pocket`.
+If supported, it is converted internally to the exact same `pocket` constraint described below.
+
 #### contact constraint
 
 The contact field is a list of dictionaries, each defining a distance constraint between two residues or specific atoms. The format uses explicit, named keys for clarity and flexibility.

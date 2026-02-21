@@ -29,6 +29,7 @@ import requests
 
 import protenix.data.ccd as ccd
 from protenix.data.json_to_feature import SampleDictToFeatures
+from protenix.utils.epitope_alias import apply_epitopes_alias
 from protenix.web_service.colab_request_utils import (
     run_mmseqs2_service,
     parse_fasta_string,
@@ -132,15 +133,20 @@ class RequestParser(object):
             raise ValueError("Failed in finding model checkpoint.")
 
     def get_data_json(self) -> str:
+        # Normalize any user-friendly aliases (e.g. `epitopes` -> `constraint.pocket`)
+        request = apply_epitopes_alias(self.request)
+
         input_json_dict = {
-            "name": (self.request["name"]),
-            "covalent_bonds": self.request["covalent_bonds"],
+            "name": (request["name"]),
+            "covalent_bonds": request["covalent_bonds"],
         }
+        if "constraint" in request:
+            input_json_dict["constraint"] = request["constraint"]
         input_json_path = opjoin(self.request_dir, f"inputs.json")
 
         sequences = []
         entity_pending_msa = {}
-        for i, entity_info_wrapper in enumerate(self.request["sequences"]):
+        for i, entity_info_wrapper in enumerate(request["sequences"]):
             entity_id = str(i + 1)
             entity_info_wrapper: Dict[str, Dict[Any]]
             assert len(entity_info_wrapper) == 1
@@ -148,7 +154,7 @@ class RequestParser(object):
             seq_type, seq_info = next(iter(entity_info_wrapper.items()))
 
             if seq_type == "proteinChain":
-                if self.request["use_msa"]:
+                if request["use_msa"]:
                     entity_pending_msa[entity_id] = seq_info["sequence"]
 
             if seq_type not in [

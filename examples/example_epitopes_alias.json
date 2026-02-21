@@ -1,0 +1,28 @@
+[
+  {
+    "name": "ag_ab_epitopes_alias_example",
+    "sequences": [
+      {
+        "proteinChain": {
+          "sequence": "ANTIGEN_SEQUENCE_HERE",
+          "count": 1
+        }
+      },
+      {
+        "proteinChain": {
+          "sequence": "ANTIBODY_SEQUENCE_HERE",
+          "count": 1
+        }
+      }
+    ],
+    "covalent_bonds": [],
+    "use_msa": true,
+    "epitopes": {
+      "binder_chain": { "entity": 2, "copy": 1 },
+      "antigen": { "entity": 1, "copy": 1 },
+      "positions": [45, 46, 47],
+      "max_distance": 8
+    }
+  }
+]
+

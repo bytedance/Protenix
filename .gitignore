@@ -136,3 +136,19 @@ cython_debug/
 wandb/
 output/
 release_data/
+/.idea/misc.xml
+/.idea/modules.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+
+# Default ignored files
+/shelf/
+/workspace.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+/.idea/vcs.xml
+/.idea/workspace.xml
+/.idea/Protenix.iml

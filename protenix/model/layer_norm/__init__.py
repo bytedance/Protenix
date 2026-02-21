@@ -13,4 +13,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from .layer_norm import FusedLayerNorm
+"""
+LayerNorm implementations.
+
+Note: importing the CUDA fused implementation eagerly can trigger JIT compilation
+of a C++/CUDA extension. To avoid import-time side effects (e.g. during test
+discovery), we expose `FusedLayerNorm` via a lazy attribute.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+__all__ = ["FusedLayerNorm"]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "FusedLayerNorm":
+        from .layer_norm import FusedLayerNorm  # local import to keep it lazy
+
+        return FusedLayerNorm
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -37,6 +37,7 @@ from runner.inference import (
     infer_predict,
     download_infercence_cache,
 )
+from protenix.utils.epitope_alias import apply_epitopes_alias
 
 # PyTorch 2.6+ compatibility fix for ESM model loading
 # The fair-esm repository is archived and can't be updated to support newer PyTorch versions.
@@ -188,6 +189,9 @@ def handler(event):
         if "name" not in job_input:
             job_input["name"] = f"job_{job_id}"
         
+        # Support user-friendly epitope input alias -> constraint.pocket
+        job_input = apply_epitopes_alias(job_input)
+
         sample_name = job_input["name"]
         logger.info(f"Processing sample: {sample_name}")
         
