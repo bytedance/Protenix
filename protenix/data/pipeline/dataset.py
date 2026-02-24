@@ -401,7 +401,7 @@ class BaseSingleDataset(Dataset):
 
         # Get shuffled token and atom array
         # Use `CropData.select_by_token_indices` to shuffle safely
-        token_array, atom_array, _, _ = CropData.select_by_token_indices(
+        (token_array, atom_array,) = CropData.select_by_token_indices(
             token_array=token_array,
             atom_array=atom_array,
             selected_token_indices=shuffled_token_indices,
@@ -471,8 +471,6 @@ class BaseSingleDataset(Dataset):
             (
                 bioassembly_dict["token_array"],
                 bioassembly_dict["atom_array"],
-                _,
-                _,
             ) = CropData.select_by_token_indices(
                 token_array=bioassembly_dict["token_array"],
                 atom_array=bioassembly_dict["atom_array"],
