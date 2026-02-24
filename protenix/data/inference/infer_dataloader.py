@@ -85,7 +85,7 @@ class InferenceDataset(Dataset):
         json_task_name = os.path.basename(self.input_json_path).split(".")[0]
         if self.use_template:
             template_mmcif_dir = configs.data.template.prot_template_mmcif_dir
-            fetch_remote = configs.data.template.get("fetch_remote", False)
+            fetch_remote = configs.data.template.get("fetch_remote", True)
             if not fetch_remote:
                 assert template_mmcif_dir is not None and os.path.exists(
                     template_mmcif_dir
