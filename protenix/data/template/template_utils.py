@@ -22,6 +22,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union
 
+import requests
+
 import numpy as np
 from typing_extensions import Final, TypeAlias
 
@@ -387,22 +389,48 @@ class TemplateHitFilter:
 class TemplateHitProcessor:
     """Processes a template hit to generate features."""
 
+    _PDBE_CIF_URL = "https://www.ebi.ac.uk/pdbe/entry-files/download/{pdb_id}.cif"
+
     def __init__(
         self,
         mmcif_dir: str,
         template_cache_dir: Optional[str] = None,
         kalign_binary_path: Optional[str] = None,
         _zero_center_positions: bool = True,
+        fetch_remote: bool = False,
     ):
         self._mmcif_dir = mmcif_dir
         self._template_cache_dir = template_cache_dir
         self._kalign_binary_path = kalign_binary_path
         self._zero_center_positions = _zero_center_positions
+        self._fetch_remote = fetch_remote
 
     def _read_file(self, path: str) -> str:
         """Reads file content."""
         with open(path, "r") as f:
             return f.read()
+
+    def _fetch_or_read_cif(self, pdb_id: str) -> str:
+        """Read mmCIF from local dir, falling back to PDBe API if fetch_remote is enabled."""
+        cif_path = os.path.join(self._mmcif_dir, f"{pdb_id}.cif")
+        if os.path.exists(cif_path):
+            return self._read_file(cif_path)
+
+        if not self._fetch_remote:
+            raise FileNotFoundError(f"CIF not found: {cif_path}")
+
+        url = self._PDBE_CIF_URL.format(pdb_id=pdb_id.lower())
+        logger.info(f"Fetching mmCIF for {pdb_id} from {url}")
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        cif_str = response.text
+
+        os.makedirs(self._mmcif_dir, exist_ok=True)
+        with open(cif_path, "w") as f:
+            f.write(cif_str)
+        logger.info(f"Cached mmCIF for {pdb_id} at {cif_path}")
+
+        return cif_str
 
     def _get_atom_coords(
         self,
@@ -669,18 +697,15 @@ class TemplateHitProcessor:
             else:
                 return SingleHitResult(None, None, None, None), track
         else:
-            # The raw mmCIF file can be split into per-chain files named
-            # {pdb_id}_{chain_id}.cif to accelerate the loading process.
-            cif_path = os.path.join(self._mmcif_dir, f"{pdb_id}.cif")
             try:
-                cif_str = self._read_file(cif_path)
+                cif_str = self._fetch_or_read_cif(pdb_id)
                 res = TemplateParser.parse(
                     file_id=pdb_id, mmcif_string=cif_str, auth_chain_id=chain_id
                 )
                 track["load"] = time.time() - t_start
-            except FileNotFoundError:
+            except (FileNotFoundError, requests.RequestException) as e:
                 return (
-                    SingleHitResult(None, None, f"CIF not found: {cif_path}", None),
+                    SingleHitResult(None, None, f"CIF load failed for {pdb_id}: {e}", None),
                     track,
                 )
 
@@ -766,6 +791,7 @@ class TemplateHitFeaturizer:
         _shuffle_top_k_prefiltered: Optional[int] = None,
         _zero_center_positions: bool = True,
         _max_template_candidates_num: Optional[int] = None,
+        fetch_remote: bool = False,
     ):
         self._mmcif_dir = mmcif_dir
         self._template_cache_dir = template_cache_dir
@@ -775,6 +801,7 @@ class TemplateHitFeaturizer:
         self._shuffle_top_k_prefiltered = _shuffle_top_k_prefiltered
         self._zero_center_positions = _zero_center_positions
         self._max_template_candidates_num = _max_template_candidates_num
+        self._fetch_remote = fetch_remote
 
         if max_template_date:
             if isinstance(max_template_date, str):
@@ -816,6 +843,7 @@ class TemplateHitFeaturizer:
             template_cache_dir=self._template_cache_dir,
             kalign_binary_path=self._kalign_binary_path,
             _zero_center_positions=self._zero_center_positions,
+            fetch_remote=self._fetch_remote,
         )
 
     def _parse_release_dates(self, path: str) -> Dict[str, datetime]:

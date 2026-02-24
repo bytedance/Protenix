@@ -55,6 +55,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Check Environment Variable ---
+PROTENIX_ROOT_DIR="/home/ec2-user/Protenix/"
 if [ -z "${PROTENIX_ROOT_DIR:-}" ]; then
     err "PROTENIX_ROOT_DIR is not set. Please set it before running this script.\nExample: export PROTENIX_ROOT_DIR=/path/to/your/data_root"
 fi
