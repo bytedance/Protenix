@@ -85,15 +85,21 @@ class InferenceDataset(Dataset):
         json_task_name = os.path.basename(self.input_json_path).split(".")[0]
         if self.use_template:
             template_mmcif_dir = configs.data.template.prot_template_mmcif_dir
-            assert template_mmcif_dir is not None and os.path.exists(
-                template_mmcif_dir
-            ), (
-                "Inference with template depends on the mmcif directory.\n"
-                "The mmcif directory containing cif files should be placed under $PROTENIX_ROOT_DIR/mmcif.\n"
-                "You can download it from PDB https://www.wwpdb.org/ftp/pdb-ftp-sites or\n"
-                "refer to scripts/database/download_protenix_data.sh to download inference dependency files, "
-                "or set use_template=false for inference."
-            )
+            fetch_remote = configs.data.template.get("fetch_remote", True)
+            if not fetch_remote:
+                assert template_mmcif_dir is not None and os.path.exists(
+                    template_mmcif_dir
+                ), (
+                    "Inference with template depends on the mmcif directory.\n"
+                    "The mmcif directory containing cif files should be placed under $PROTENIX_ROOT_DIR/mmcif.\n"
+                    "You can download it from PDB https://www.wwpdb.org/ftp/pdb-ftp-sites or\n"
+                    "refer to scripts/database/download_protenix_data.sh to download inference dependency files, "
+                    "set use_template=false for inference, or set data.template.fetch_remote=true "
+                    "to download mmCIF files on demand from PDBe."
+                )
+            else:
+                if template_mmcif_dir:
+                    os.makedirs(template_mmcif_dir, exist_ok=True)
             self.online_template_featurizer = TemplateHitFeaturizer(
                 mmcif_dir=configs.data.template.prot_template_mmcif_dir,
                 template_cache_dir=configs.data.template.prot_template_cache_dir,
@@ -104,6 +110,7 @@ class InferenceDataset(Dataset):
                 obsolete_pdbs_path=configs.data.template.obsolete_pdbs_path,
                 _shuffle_top_k_prefiltered=None,
                 _max_template_candidates_num=20,
+                fetch_remote=fetch_remote,
             )
         else:
             self.online_template_featurizer = None

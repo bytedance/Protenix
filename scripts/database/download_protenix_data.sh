@@ -62,12 +62,11 @@ fi
 info "Using PROTENIX_ROOT_DIR: $PROTENIX_ROOT_DIR"
 info "Download mode: $DOWNLOAD_MODE"
 mkdir -p "$PROTENIX_ROOT_DIR"
-
 # --- Download & Extract Data Components ---
 if [ "$DOWNLOAD_MODE" == "inference" ]; then
     DATA_FILES=(
         "common.tar.gz"
-        "mmcif.tar.gz"
+#        "mmcif.tar.gz"
         "search_database.tar.gz"
     )
 else
