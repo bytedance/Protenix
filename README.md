@@ -96,15 +96,16 @@ For detailed benchmark metrics on each dataset, please refer to [docs/model_1.0.
 If you use Protenix in your research, please cite the following:
 
 ```
-@article{xiao2026protenixv1,
-title={Protenix-v1: Toward High-Accuracy Open-Source Biomolecular Structure Prediction},
-author={{{Protenix Team}} and Zhang, Yuxuan and Gong, Chengyue and Zhang, Hanyu and Ma, Wenzhi and Liu, Zhenyu and Chen, Xinshi and Guan, Jiaqi and Wang, Lan and Xiao, Wenzhi},
-year={2026},
-journal={bioRxiv},
-publisher={Cold Spring Harbor Laboratory},
-doi={10.64898/2026.02.05.703733},
-url={https://www.biorxiv.org/content/10.64898/2026.02.05.703733v1},
-elocation-id={2026.02.05.703733}
+@article {Zhang2026.02.05.703733,
+	author = {Zhang, Yuxuan and Gong, Chengyue and Zhang, Hanyu and Ma, Wenzhi and Liu, Zhenyu and Chen, Xinshi and Guan, Jiaqi and Wang, Lan and Yang, Yanping and Xia, Yu and Xiao, Wenzhi},
+	title = {Protenix-v1: Toward High-Accuracy Open-Source Biomolecular Structure Prediction},
+	elocation-id = {2026.02.05.703733},
+	year = {2026},
+	doi = {10.64898/2026.02.05.703733},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/early/2026/02/22/2026.02.05.703733.1},
+	eprint = {https://www.biorxiv.org/content/early/2026/02/22/2026.02.05.703733.1.full.pdf},
+	journal = {bioRxiv}
 }
 ```
 
