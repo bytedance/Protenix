@@ -1,4 +1,4 @@
-"""Tests for PR 3: Dataset vectorize pandas/numpy operations.
+"""Tests for Dataset vectorize pandas/numpy operations.
 
 Verifies that vectorized pandas/numpy ops produce identical results to
 the original apply/lambda/vectorize patterns.
