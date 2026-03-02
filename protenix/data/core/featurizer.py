@@ -335,12 +335,18 @@ class Featurizer(object):
         restype_onehot = self.restype_onehot_encoded(restype)
 
         token_features["token_index"] = torch.arange(0, len(self.cropped_token_array))
-        token_features["residue_index"] = torch.Tensor(
-            centre_atoms.res_id.astype(int)
-        ).long()
-        token_features["asym_id"] = torch.Tensor(centre_atoms.asym_id_int).long()
-        token_features["entity_id"] = torch.Tensor(centre_atoms.entity_id_int).long()
-        token_features["sym_id"] = torch.Tensor(centre_atoms.sym_id_int).long()
+        token_features["residue_index"] = torch.from_numpy(
+            centre_atoms.res_id.astype(np.int64)
+        )
+        token_features["asym_id"] = torch.from_numpy(
+            centre_atoms.asym_id_int.astype(np.int64)
+        )
+        token_features["entity_id"] = torch.from_numpy(
+            centre_atoms.entity_id_int.astype(np.int64)
+        )
+        token_features["sym_id"] = torch.from_numpy(
+            centre_atoms.sym_id_int.astype(np.int64)
+        )
         token_features["restype"] = restype_onehot
 
         return token_features
@@ -357,15 +363,15 @@ class Featurizer(object):
         """
 
         chain_perm_features = {}
-        chain_perm_features["mol_id"] = torch.Tensor(
-            self.cropped_atom_array.mol_id
-        ).long()
-        chain_perm_features["mol_atom_index"] = torch.Tensor(
-            self.cropped_atom_array.mol_atom_index
-        ).long()
-        chain_perm_features["entity_mol_id"] = torch.Tensor(
-            self.cropped_atom_array.entity_mol_id
-        ).long()
+        chain_perm_features["mol_id"] = torch.from_numpy(
+            self.cropped_atom_array.mol_id.astype(np.int64)
+        )
+        chain_perm_features["mol_atom_index"] = torch.from_numpy(
+            self.cropped_atom_array.mol_atom_index.astype(np.int64)
+        )
+        chain_perm_features["entity_mol_id"] = torch.from_numpy(
+            self.cropped_atom_array.entity_mol_id.astype(np.int64)
+        )
         return chain_perm_features
 
     def get_renamed_atom_names(self) -> np.ndarray:
@@ -378,7 +384,7 @@ class Featurizer(object):
         res_starts = get_residue_starts(
             self.cropped_atom_array, add_exclusive_stop=True
         )
-        new_atom_names = copy.deepcopy(self.cropped_atom_array.atom_name)
+        new_atom_names = self.cropped_atom_array.atom_name.copy()
         for start, stop in zip(res_starts[:-1], res_starts[1:]):
             res_mol_type = self.cropped_atom_array.mol_type[start]
             if res_mol_type != "ligand":
@@ -402,27 +408,26 @@ class Featurizer(object):
         Returns:
             Dict[str, torch.Tensor]: a dict of reference features.
         """
-        ref_pos = []
+        ref_pos = np.empty_like(self.cropped_atom_array.ref_pos)
         for ref_space_uid in np.unique(self.cropped_atom_array.ref_space_uid):
-            res_ref_pos = random_transform(
-                self.cropped_atom_array.ref_pos[
-                    self.cropped_atom_array.ref_space_uid == ref_space_uid,
-                ],
+            mask = self.cropped_atom_array.ref_space_uid == ref_space_uid
+            ref_pos[mask] = random_transform(
+                self.cropped_atom_array.ref_pos[mask],
                 apply_augmentation=self.ref_pos_augment,
                 centralize=True,
             )
-            ref_pos.append(res_ref_pos)
-        ref_pos = np.concatenate(ref_pos)
 
         ref_features = {}
         ref_features["ref_pos"] = torch.Tensor(ref_pos)
-        ref_features["ref_mask"] = torch.Tensor(self.cropped_atom_array.ref_mask).long()
+        ref_features["ref_mask"] = torch.from_numpy(
+            self.cropped_atom_array.ref_mask.astype(np.int64)
+        )
         ref_features["ref_element"] = Featurizer.elem_onehot_encoded(
             self.cropped_atom_array.element
         ).long()
-        ref_features["ref_charge"] = torch.Tensor(
-            self.cropped_atom_array.ref_charge
-        ).long()
+        ref_features["ref_charge"] = torch.from_numpy(
+            self.cropped_atom_array.ref_charge.astype(np.int64)
+        )
 
         if self.lig_atom_rename:
             atom_names = self.get_renamed_atom_names()
@@ -432,9 +437,9 @@ class Featurizer(object):
         ref_features["ref_atom_name_chars"] = Featurizer.ref_atom_name_chars_encoded(
             atom_names
         ).long()
-        ref_features["ref_space_uid"] = torch.Tensor(
-            self.cropped_atom_array.ref_space_uid
-        ).long()
+        ref_features["ref_space_uid"] = torch.from_numpy(
+            self.cropped_atom_array.ref_space_uid.astype(np.int64)
+        )
 
         token_array_with_frame = self.get_token_frame(
             token_array=self.cropped_token_array,
@@ -442,13 +447,29 @@ class Featurizer(object):
             ref_pos=ref_features["ref_pos"],
             ref_mask=ref_features["ref_mask"],
         )
-        ref_features["has_frame"] = torch.Tensor(
-            token_array_with_frame.get_annotation("has_frame")
-        ).long()  # [N_token]
-        ref_features["frame_atom_index"] = torch.Tensor(
-            token_array_with_frame.get_annotation("frame_atom_index")
-        ).long()  # [N_token, 3]
+        ref_features["has_frame"] = torch.from_numpy(
+            token_array_with_frame.get_annotation("has_frame").astype(np.int64)
+        )  # [N_token]
+        ref_features["frame_atom_index"] = torch.from_numpy(
+            token_array_with_frame.get_annotation("frame_atom_index").astype(np.int64)
+        )  # [N_token, 3]
         return ref_features
+
+    def _get_atom_to_token_idx(self) -> np.ndarray:
+        """Build atom-to-token index mapping. Cached after first call.
+
+        Returns:
+            np.ndarray: array of shape [N_atom] mapping each atom to its token index.
+        """
+        if hasattr(self, "_atom_to_token_idx_cache"):
+            return self._atom_to_token_idx_cache
+        n_atoms = len(self.cropped_atom_array)
+        atom_idx_to_token_idx = np.full(n_atoms, -1, dtype=int)
+        for idx, token in enumerate(self.cropped_token_array.tokens):
+            for atom_idx in token.atom_indices:
+                atom_idx_to_token_idx[atom_idx] = idx
+        self._atom_to_token_idx_cache = atom_idx_to_token_idx
+        return atom_idx_to_token_idx
 
     def get_bond_features(self) -> dict[str, torch.Tensor]:
         """
@@ -493,20 +514,14 @@ class Featurizer(object):
         kept_bonds = bond_array[kept_mask]
 
         # -1 means the atom is not in any token
-        atom_idx_to_token_idx = np.zeros(len(self.cropped_atom_array), dtype=int) - 1
-        for idx, token in enumerate(self.cropped_token_array.tokens):
-            for atom_idx in token.atom_indices:
-                atom_idx_to_token_idx[atom_idx] = idx
+        atom_idx_to_token_idx = self._get_atom_to_token_idx()
         assert np.all(atom_idx_to_token_idx >= 0), "Some atoms are not in any token"
         num_tokens = len(self.cropped_token_array)
         token_adj_matrix = np.zeros((num_tokens, num_tokens), dtype=int)
-        bond_token_i, bond_atom_j = (
-            atom_idx_to_token_idx[kept_bonds[:, 0]],
-            atom_idx_to_token_idx[kept_bonds[:, 1]],
-        )
-        for i, j in zip(bond_token_i, bond_atom_j):
-            token_adj_matrix[i, j] = 1
-            token_adj_matrix[j, i] = 1
+        bond_token_i = atom_idx_to_token_idx[kept_bonds[:, 0]]
+        bond_token_j = atom_idx_to_token_idx[kept_bonds[:, 1]]
+        token_adj_matrix[bond_token_i, bond_token_j] = 1
+        token_adj_matrix[bond_token_j, bond_token_i] = 1
         bond_features = {"token_bonds": torch.Tensor(token_adj_matrix)}
         return bond_features
 
@@ -518,31 +533,28 @@ class Featurizer(object):
         Returns:
             Dict[str, torch.Tensor]: a dict of extra features.
         """
-        atom_to_token_idx_dict = {}
-        for idx, token in enumerate(self.cropped_token_array.tokens):
-            for atom_idx in token.atom_indices:
-                atom_to_token_idx_dict[atom_idx] = idx
-
-        # Ensure the order of the atom_to_token_idx is the same as the atom_array
-        atom_to_token_idx = [
-            atom_to_token_idx_dict[atom_idx]
-            for atom_idx in range(len(self.cropped_atom_array))
-        ]
+        atom_to_token_idx = self._get_atom_to_token_idx()
 
         extra_features = {}
-        extra_features["atom_to_token_idx"] = torch.Tensor(atom_to_token_idx).long()
-        extra_features["atom_to_tokatom_idx"] = torch.Tensor(
-            self.cropped_atom_array.tokatom_idx
-        ).long()
+        extra_features["atom_to_token_idx"] = torch.from_numpy(
+            atom_to_token_idx.astype(np.int64)
+        )
+        extra_features["atom_to_tokatom_idx"] = torch.from_numpy(
+            self.cropped_atom_array.tokatom_idx.astype(np.int64)
+        )
 
-        extra_features["is_protein"] = torch.Tensor(
-            self.cropped_atom_array.is_protein
-        ).long()
-        extra_features["is_ligand"] = torch.Tensor(
-            self.cropped_atom_array.is_ligand
-        ).long()
-        extra_features["is_dna"] = torch.Tensor(self.cropped_atom_array.is_dna).long()
-        extra_features["is_rna"] = torch.Tensor(self.cropped_atom_array.is_rna).long()
+        extra_features["is_protein"] = torch.from_numpy(
+            self.cropped_atom_array.is_protein.astype(np.int64)
+        )
+        extra_features["is_ligand"] = torch.from_numpy(
+            self.cropped_atom_array.is_ligand.astype(np.int64)
+        )
+        extra_features["is_dna"] = torch.from_numpy(
+            self.cropped_atom_array.is_dna.astype(np.int64)
+        )
+        extra_features["is_rna"] = torch.from_numpy(
+            self.cropped_atom_array.is_rna.astype(np.int64)
+        )
         if "resolution" in self.cropped_atom_array._annot:
             extra_features["resolution"] = torch.Tensor(
                 [self.cropped_atom_array.resolution[0]]
@@ -599,14 +611,10 @@ class Featurizer(object):
             near_atom_indices = np.unique(
                 np.concatenate(kdtree.query_radius(lig_pos, 10.0))
             )
-            near_atoms = [
-                (
-                    True
-                    if ((i in near_atom_indices) and atom_array.is_resolved[i])
-                    else False
-                )
-                for i in range(len(atom_array))
-            ]
+            near_atoms = (
+                np.isin(np.arange(len(atom_array)), near_atom_indices)
+                & atom_array.is_resolved.astype(bool)
+            )
 
             # Get primary chain (protein backone in 10 Angstrom radius)
             primary_chain_candidates = near_atoms & prot_backbone
@@ -631,12 +639,12 @@ class Featurizer(object):
             ligand_mask_list.append(ligand_mask)
             pocket_mask_list.append(pocket_mask)
 
-        ligand_mask_by_pockets = torch.Tensor(
-            np.array(ligand_mask_list).astype(int)
-        ).long()
-        pocket_mask_by_pockets = torch.Tensor(
-            np.array(pocket_mask_list).astype(int)
-        ).long()
+        ligand_mask_by_pockets = torch.from_numpy(
+            np.array(ligand_mask_list).astype(np.int64)
+        )
+        pocket_mask_by_pockets = torch.from_numpy(
+            np.array(pocket_mask_list).astype(np.int64)
+        )
         return ligand_mask_by_pockets, pocket_mask_by_pockets
 
     def get_mask_features(self) -> dict[str, torch.Tensor]:
@@ -648,21 +656,21 @@ class Featurizer(object):
         """
         mask_features = {}
 
-        mask_features["pae_rep_atom_mask"] = torch.Tensor(
-            self.cropped_atom_array.centre_atom_mask
-        ).long()
+        mask_features["pae_rep_atom_mask"] = torch.from_numpy(
+            self.cropped_atom_array.centre_atom_mask.astype(np.int64)
+        )
 
-        mask_features["plddt_m_rep_atom_mask"] = torch.Tensor(
-            self.cropped_atom_array.plddt_m_rep_atom_mask
-        ).long()  # [N_atom]
+        mask_features["plddt_m_rep_atom_mask"] = torch.from_numpy(
+            self.cropped_atom_array.plddt_m_rep_atom_mask.astype(np.int64)
+        )  # [N_atom]
 
-        mask_features["distogram_rep_atom_mask"] = torch.Tensor(
-            self.cropped_atom_array.distogram_rep_atom_mask
-        ).long()  # [N_atom]
+        mask_features["distogram_rep_atom_mask"] = torch.from_numpy(
+            self.cropped_atom_array.distogram_rep_atom_mask.astype(np.int64)
+        )  # [N_atom]
 
-        mask_features["modified_res_mask"] = torch.Tensor(
-            self.cropped_atom_array.modified_res_mask
-        ).long()
+        mask_features["modified_res_mask"] = torch.from_numpy(
+            self.cropped_atom_array.modified_res_mask.astype(np.int64)
+        )
 
         lig_polymer_bonds = get_ligand_polymer_bond_mask(self.cropped_atom_array)
         num_atoms = len(self.cropped_atom_array)
@@ -716,9 +724,9 @@ class Featurizer(object):
             self.cropped_atom_array.coord
         )  # [N_atom, 3]
 
-        labels["coordinate_mask"] = torch.Tensor(
-            self.cropped_atom_array.is_resolved.astype(int)
-        ).long()  # [N_atom]
+        labels["coordinate_mask"] = torch.from_numpy(
+            self.cropped_atom_array.is_resolved.astype(np.int64)
+        )  # [N_atom]
         return labels
 
     def get_atom_permutation_list(
@@ -833,11 +841,19 @@ class Featurizer(object):
             atom_array = atom_array[mask]
 
         gt_features["coordinate"] = torch.Tensor(atom_array.coord)
-        gt_features["coordinate_mask"] = torch.Tensor(atom_array.is_resolved).long()
-        gt_features["entity_mol_id"] = torch.Tensor(atom_array.entity_mol_id).long()
-        gt_features["mol_id"] = torch.Tensor(atom_array.mol_id).long()
-        gt_features["mol_atom_index"] = torch.Tensor(atom_array.mol_atom_index).long()
-        gt_features["pae_rep_atom_mask"] = torch.Tensor(
-            atom_array.centre_atom_mask
-        ).long()
+        gt_features["coordinate_mask"] = torch.from_numpy(
+            atom_array.is_resolved.astype(np.int64)
+        )
+        gt_features["entity_mol_id"] = torch.from_numpy(
+            atom_array.entity_mol_id.astype(np.int64)
+        )
+        gt_features["mol_id"] = torch.from_numpy(
+            atom_array.mol_id.astype(np.int64)
+        )
+        gt_features["mol_atom_index"] = torch.from_numpy(
+            atom_array.mol_atom_index.astype(np.int64)
+        )
+        gt_features["pae_rep_atom_mask"] = torch.from_numpy(
+            atom_array.centre_atom_mask.astype(np.int64)
+        )
         return gt_features, atom_array
