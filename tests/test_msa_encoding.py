@@ -1,4 +1,4 @@
-"""Tests for PR 2: MSA encoding vectorized sequence parsing.
+"""Tests for MSA encoding vectorized sequence parsing.
 
 Verifies the numpy LUT-based approach produces identical msa_arr and del_arr
 as the original per-character Python loop for protein/DNA/RNA sequences.
