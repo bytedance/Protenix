@@ -100,8 +100,7 @@ class MSACore:
         for char, val in cmap.items():
             lut[ord(char)] = val
 
-        cols = sum(1 for c in sequences[0] if c in cmap)
-        rows = len(sequences)
+        rows, cols = len(sequences), sum(1 for c in sequences[0] if c in cmap)
         msa_arr = np.zeros((rows, cols), dtype=np.int32)
         del_arr = np.zeros((rows, cols), dtype=np.int32)
 
