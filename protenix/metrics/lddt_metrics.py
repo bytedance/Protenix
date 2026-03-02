@@ -149,12 +149,13 @@ class LDDT(nn.Module):
         distance_error_l1 = torch.abs(
             pred_distance - true_distance
         )  # [N_sample, N_pair_sparse]
-        thresholds = [0.5, 1, 2, 4]
+        # Fused threshold comparison (avoids stack intermediate)
         sparse_pair_lddt = (
-            torch.stack([distance_error_l1 < t for t in thresholds], dim=-1)
-            .to(dtype=distance_error_l1.dtype)
-            .mean(dim=-1)
-        )  # [N_sample, N_pair_sparse]
+            (distance_error_l1 < 0.5).to(dtype=distance_error_l1.dtype)
+            + (distance_error_l1 < 1.0)
+            + (distance_error_l1 < 2.0)
+            + (distance_error_l1 < 4.0)
+        ) * 0.25  # [N_sample, N_pair_sparse]
         del distance_error_l1
         # Compute mean
         if sparse_pair_lddt.numel() == 0:  # corespand to all zero in dense mask
