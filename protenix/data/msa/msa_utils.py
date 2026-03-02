@@ -95,21 +95,28 @@ class MSACore:
         if not sequences:
             return np.zeros((0, 0), dtype=np.int32), np.zeros((0, 0), dtype=np.int32)
 
-        rows, cols = len(sequences), sum(1 for c in sequences[0] if c in cmap)
+        # Build lookup table: ASCII ordinal -> encoded value (-1 for insertion chars)
+        lut = np.full(128, -1, dtype=np.int32)
+        for char, val in cmap.items():
+            lut[ord(char)] = val
+
+        cols = sum(1 for c in sequences[0] if c in cmap)
+        rows = len(sequences)
         msa_arr = np.zeros((rows, cols), dtype=np.int32)
         del_arr = np.zeros((rows, cols), dtype=np.int32)
 
         for i, seq in enumerate(sequences):
-            d_count, c_idx = 0, 0
-            for char in seq:
-                val = cmap.get(char, -1)
-                if val == -1:
-                    d_count += 1
-                else:
-                    if c_idx < cols:
-                        msa_arr[i, c_idx] = val
-                        del_arr[i, c_idx] = d_count
-                    d_count, c_idx = 0, c_idx + 1
+            char_arr = np.frombuffer(seq.encode("ascii"), dtype=np.uint8)
+            mapped = lut[char_arr]
+            aligned_mask = mapped >= 0
+            aligned_vals = mapped[aligned_mask]
+            # Deletion counts: number of insertion chars before each aligned position
+            cum_inserts = np.cumsum(~aligned_mask)
+            insert_before_aligned = cum_inserts[aligned_mask]
+            del_counts = np.diff(insert_before_aligned, prepend=0)
+            n = min(len(aligned_vals), cols)
+            msa_arr[i, :n] = aligned_vals[:n]
+            del_arr[i, :n] = del_counts[:n]
         return msa_arr, del_arr
 
 
