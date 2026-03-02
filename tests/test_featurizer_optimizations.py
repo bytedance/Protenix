@@ -1,4 +1,4 @@
-"""Tests for PR 1: featurizer.py optimizations.
+"""Tests for featurizer.py optimizations.
 
 Verifies that:
 1. torch.from_numpy produces same dtype/shape/values as torch.Tensor().long()
