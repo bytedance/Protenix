@@ -502,16 +502,30 @@ def smiles_to_atom_info(smiles: str) -> dict:
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
 
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future = executor.submit(AllChem.EmbedMolecule, mol)
+    import queue
+    import threading
 
+    def target(mol, q):
         try:
-            ret_code = future.result(timeout=90)
-        except concurrent.futures.TimeoutError as exc:
-            raise TimeoutError(
-                'Conformer generation timed out.  \
-                    Please change the "ligand" input format to "CCD_" or "FILE_".'
-            ) from exc
+            ret = AllChem.EmbedMolecule(mol)
+            q.put(ret)
+        except Exception as e:
+            q.put(e)
+
+    q = queue.Queue()
+    t = threading.Thread(target=target, args=(mol, q))
+    t.daemon = True
+    t.start()
+
+    try:
+        ret_code = q.get(timeout=90)
+        if isinstance(ret_code, Exception):
+            raise ret_code
+    except queue.Empty:
+        raise TimeoutError(
+            'Conformer generation timed out.  \
+                Please change the "ligand" input format to "CCD_" or "FILE_".'
+        )
 
     if ret_code != 0:
         # retry with random coords
