@@ -1,4 +1,4 @@
-"""Tests for PR 4: Attention precision, LDDT fused thresholds, loss caching.
+"""Tests for Attention precision, LDDT fused thresholds, loss caching.
 
 Verifies:
 1. Attention: v cast to fp32, cast ordering fix, SDPA default
