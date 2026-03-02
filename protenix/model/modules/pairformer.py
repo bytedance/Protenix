@@ -23,6 +23,7 @@ import torch.nn.functional as F
 from protenix.data.constants import STD_RESIDUES_WITH_GAP
 from protenix.model.modules.primitives import LinearNoBias, Transition
 from protenix.model.modules.transformer import AttentionPairBias
+from protenix.model.modules.fused_ops import dropout_add_rowwise
 from protenix.model.triangular.layers import DropoutRowwise, LayerNorm, OuterProductMean
 from protenix.model.triangular.triangular import (
     TriangleAttention,
@@ -90,6 +91,7 @@ class PairformerBlock(nn.Module):
             no_heads=no_heads_pair,
         )
         self.dropout_row = DropoutRowwise(dropout)
+        self.p_drop = dropout
         self.pair_transition = Transition(c_in=c_z, n=num_intermediate_factor)
         self.c_s = c_s
         if self.c_s > 0:
@@ -155,7 +157,7 @@ class PairformerBlock(nn.Module):
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
-            z = z.transpose(-2, -3).contiguous()
+            z = z.transpose(-2, -3)
             z += self.tri_att_end(
                 z,
                 mask=pair_mask.transpose(-1, -2) if pair_mask is not None else None,
@@ -163,7 +165,7 @@ class PairformerBlock(nn.Module):
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
-            z = z.transpose(-2, -3).contiguous()
+            z = z.transpose(-2, -3)
             z += self.pair_transition(z)
         else:
             tmu_update = self.tri_mul_out(
@@ -173,7 +175,7 @@ class PairformerBlock(nn.Module):
                 _add_with_inplace=False,
                 triangle_multiplicative=triangle_multiplicative,
             )
-            z = z + self.dropout_row(tmu_update)
+            z = dropout_add_rowwise(z, tmu_update, self.p_drop, self.training)
             del tmu_update
             tmu_update = self.tri_mul_in(
                 z,
@@ -182,26 +184,32 @@ class PairformerBlock(nn.Module):
                 _add_with_inplace=False,
                 triangle_multiplicative=triangle_multiplicative,
             )
-            z = z + self.dropout_row(tmu_update)
+            z = dropout_add_rowwise(z, tmu_update, self.p_drop, self.training)
             del tmu_update
-            z = z + self.dropout_row(
+            z = dropout_add_rowwise(
+                z,
                 self.tri_att_start(
                     z,
                     mask=pair_mask,
                     triangle_attention=triangle_attention,
                     inplace_safe=inplace_safe,
                     chunk_size=chunk_size,
-                )
+                ),
+                self.p_drop,
+                self.training,
             )
             z = z.transpose(-2, -3)
-            z = z + self.dropout_row(
+            z = dropout_add_rowwise(
+                z,
                 self.tri_att_end(
                     z,
                     mask=pair_mask.transpose(-1, -2) if pair_mask is not None else None,
                     triangle_attention=triangle_attention,
                     inplace_safe=inplace_safe,
                     chunk_size=chunk_size,
-                )
+                ),
+                self.p_drop,
+                self.training,
             )
             z = z.transpose(-2, -3)
 
@@ -442,6 +450,7 @@ class MSAStack(nn.Module):
             c_m=c_m, c=self.c, c_z=c_z
         )
         self.dropout_row = DropoutRowwise(dropout)
+        self.p_drop = dropout
         self.transition_m = Transition(c_in=c_m, n=4)
         self.msa_chunk_size = msa_chunk_size
         self.msa_max_size = msa_max_size
@@ -471,7 +480,7 @@ class MSAStack(nn.Module):
             msa_pair_weighted = self.chunk_forward(
                 self.msa_pair_weighted_averaging, m_new, z, chunk_size
             )
-            m = m + self.dropout_row(msa_pair_weighted[: m.shape[-3], :, :])
+            m = dropout_add_rowwise(m, msa_pair_weighted[: m.shape[-3], :, :], self.p_drop, self.training)
             m_new = pad_at_dim(
                 m, dim=-3, pad_length=(0, self.msa_max_size - m.shape[-3]), value=0
             )
