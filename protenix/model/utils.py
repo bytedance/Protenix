@@ -528,6 +528,7 @@ def _fetch_dims(tree):
 
 
 @torch.jit.ignore
+@torch.compiler.disable
 def _flat_idx_to_idx(
     flat_idx: int,
     dims: Tuple[int],
@@ -541,6 +542,7 @@ def _flat_idx_to_idx(
 
 
 @torch.jit.ignore
+@torch.compiler.disable
 def _get_minimal_slice_set(
     start: Sequence[int],
     end: Sequence[int],
@@ -656,6 +658,7 @@ def _get_minimal_slice_set(
 
 
 @torch.jit.ignore
+@torch.compiler.disable
 def _chunk_slice(
     t: torch.Tensor,
     flat_start: int,
@@ -815,11 +818,15 @@ def chunk_layer(
     return out
 
 
+_checkpoint_fn = partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
+
+
 def get_checkpoint_fn():
-    return partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
+    return _checkpoint_fn
 
 
 @torch.jit.ignore
+@torch.compiler.disable
 def checkpoint_blocks(
     blocks: List[Callable],
     args: List[Any],
