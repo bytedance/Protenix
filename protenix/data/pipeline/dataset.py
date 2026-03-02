@@ -260,17 +260,11 @@ class BaseSingleDataset(Dataset):
         """
         if self.name:
             logger.info("-" * 10 + f" Dataset {self.name}" + "-" * 10)
-        df["mol_group_type"] = df.apply(
-            lambda row: "_".join(
-                sorted(
-                    [
-                        str(row["mol_1_type"]),
-                        str(row["mol_2_type"]).replace("nan", "intra"),
-                    ]
-                )
-            ),
-            axis=1,
-        )
+        col1 = df["mol_1_type"].astype(str)
+        col2 = df["mol_2_type"].astype(str).str.replace("nan", "intra", regex=False)
+        lo = np.where(col1.values <= col2.values, col1.values, col2.values)
+        hi = np.where(col1.values <= col2.values, col2.values, col1.values)
+        df["mol_group_type"] = np.char.add(np.char.add(lo, "_"), hi)
 
         group_size_dict = dict(df["mol_group_type"].value_counts())
         for i, n_i in group_size_dict.items():
@@ -367,9 +361,7 @@ class BaseSingleDataset(Dataset):
 
         def _get_contiguous_array(array):
             array_uniq = np.sort(np.unique(array))
-            map_dict = {i: idx for idx, i in enumerate(array_uniq)}
-            new_array = np.vectorize(map_dict.get)(array)
-            return new_array
+            return np.searchsorted(array_uniq, array)
 
         atom_array.asym_id_int = _get_contiguous_array(atom_array.asym_id_int)
         atom_array.entity_id_int = _get_contiguous_array(atom_array.entity_id_int)
@@ -424,9 +416,8 @@ class BaseSingleDataset(Dataset):
             x_unique = np.sort(np.unique(x))
             x_shuffled = x_unique.copy()
             np.random.shuffle(x_shuffled)  # shuffle in-place
-            map_dict = dict(zip(x_unique, x_shuffled))
-            new_x = np.vectorize(map_dict.get)(x)
-            return new_x.copy()
+            indices = np.searchsorted(x_unique, x)
+            return x_shuffled[indices].copy()
 
         for entity_id in np.unique(atom_array.label_entity_id):
             mask = atom_array.label_entity_id == entity_id
@@ -647,7 +638,7 @@ class BaseSingleDataset(Dataset):
             df = self.indices_list.iloc[idx : idx + 1]
 
         # Only consider chain/interfaces defined in EvaluationChainInterface
-        df = df[df["eval_type"].apply(lambda x: x in EvaluationChainInterface)].copy()
+        df = df[df["eval_type"].isin(EvaluationChainInterface)].copy()
         if len(df) < 1:
             raise ValueError("Cannot find a chain/interface for evaluation in the PDB.")
 
@@ -1042,17 +1033,22 @@ def calc_weights_for_df(
         A pandas DataFrame with an column 'weights' containing the calculated weights.
     """
     # Specific to assembly, and entities (chain or interface)
-    indices_df["pdb_sorted_entity_id"] = indices_df.apply(
-        lambda x: f"{x['pdb_id']}_{x['assembly_id']}_{'_'.join(sorted([str(x['entity_1_id']), str(x['entity_2_id'])]))}",
-        axis=1,
+    e1 = indices_df["entity_1_id"].astype(str).values
+    e2 = indices_df["entity_2_id"].astype(str).values
+    lo = np.where(e1 <= e2, e1, e2)
+    hi = np.where(e1 <= e2, e2, e1)
+    indices_df["pdb_sorted_entity_id"] = (
+        indices_df["pdb_id"].astype(str) + "_"
+        + indices_df["assembly_id"].astype(str) + "_"
+        + lo + "_" + hi
     )
 
     entity_member_num_dict = {}
     for pdb_sorted_entity_id, sub_df in indices_df.groupby("pdb_sorted_entity_id"):
         # Number of repeatative entities in the same assembly
         entity_member_num_dict[pdb_sorted_entity_id] = len(sub_df)
-    indices_df["pdb_sorted_entity_id_member_num"] = indices_df.apply(
-        lambda x: entity_member_num_dict[x["pdb_sorted_entity_id"]], axis=1
+    indices_df["pdb_sorted_entity_id_member_num"] = (
+        indices_df["pdb_sorted_entity_id"].map(entity_member_num_dict)
     )
 
     cluster_size_record = {}
