@@ -1,4 +1,4 @@
-"""Tests for PR 5: Fused Triton dropout+add kernel.
+"""Tests for Fused Triton dropout+add kernel.
 
 Verifies:
 1. Forward correctness: fused result matches reference (no dropout case)
