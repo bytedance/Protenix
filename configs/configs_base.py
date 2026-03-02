@@ -131,6 +131,14 @@ model_configs = {
     "enable_diffusion_shared_vars_cache": False,
     "enable_efficient_fusion": False,
     "enable_tf32": False,
+    # torch.compile: selectively compile submodules for faster training/inference
+    # Set individual modules to True to compile them (requires PyTorch 2.0+)
+    "compile": {
+        "pairformer": False,
+        "diffusion": False,
+        "confidence": False,
+        "msa": False,
+    },
     "find_unused_parameters": False,
     "dtype": "bf16",  # default training dtype: bf16
     "loss_metrics_sparse_enable": True,  # the swicth for both sparse lddt metrics and sparse bond/smooth lddt loss

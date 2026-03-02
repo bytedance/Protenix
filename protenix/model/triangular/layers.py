@@ -257,6 +257,7 @@ def LayerNorm(
 
 
 @torch.jit.ignore
+@torch.compiler.disable
 def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """
     Softmax, but without automatic casting to fp32 when the input is of
@@ -474,6 +475,7 @@ class Attention(nn.Module):
 
 
 @torch.jit.ignore
+@torch.compiler.disable
 def _deepspeed_evo_attn(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -537,6 +539,7 @@ def _deepspeed_evo_attn(
 
 
 @torch.jit.ignore
+@torch.compiler.disable
 def _tri_attention(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -583,6 +586,7 @@ def _tri_attention(
     return o
 
 
+@torch.compiler.disable
 def cuequivariance_triangular_attn(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -695,6 +699,7 @@ class OuterProductMean(nn.Module):
         return outer
 
     @torch.jit.ignore
+    @torch.compiler.disable
     def _chunk(self, a: torch.Tensor, b: torch.Tensor, chunk_size: int) -> torch.Tensor:
         # Since the "batch dim" in this case is not a true batch dimension
         # (in that the shape of the output depends on it), we need to
