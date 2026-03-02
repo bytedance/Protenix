@@ -572,7 +572,7 @@ class SuggestGroup(click.Group):
 
 
 @click.group(cls=SuggestGroup, context_settings=CONTEXT_SETTINGS)
-@click.version_option(version="1.0.0")
+@click.version_option(version="1.0.5")
 def protenix_cli() -> None:
     """
     Protenix: A trainable reproduction of AlphaFold 3.
