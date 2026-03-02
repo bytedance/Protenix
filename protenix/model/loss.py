@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from functools import lru_cache
 from typing import Any, Callable, Optional
 
 import torch
@@ -28,6 +29,14 @@ from protenix.utils.logger import get_logger
 from protenix.utils.torch_utils import cdist
 
 logger = get_logger(__name__)
+
+
+@lru_cache(maxsize=8)
+def _get_off_diagonal_mask(
+    n: int, device: torch.device, dtype: torch.dtype
+) -> torch.Tensor:
+    """Cached (1 - eye(n)) tensor. Avoids repeated allocation and CPU-GPU transfer."""
+    return 1 - torch.eye(n, device=device, dtype=dtype)
 
 
 def loss_reduction(loss: torch.Tensor, method: str = "mean") -> torch.Tensor:
@@ -223,8 +232,9 @@ class SmoothLDDTLoss(nn.Module):
         true_coordinate: torch.Tensor,
         lddt_mask: torch.Tensor,
         diffusion_chunk_size: Optional[int] = None,
+        true_distance: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """SmoothLDDTLoss sparse implementation
+        """SmoothLDDTLoss dense implementation
 
         Args:
             pred_coordinate (torch.Tensor): the diffusion denoised atom coordinates
@@ -234,6 +244,8 @@ class SmoothLDDTLoss(nn.Module):
             lddt_mask (torch.Tensor, optional): whether true distance is within radius (30A for nuc and 15A for others)
                 [N_atom, N_atom]
             diffusion_chunk_size (Optional[int]): Chunk size over the N_sample dimension. Defaults to None.
+            true_distance (Optional[torch.Tensor]): pre-computed true pairwise distances.
+                [..., N_atom, N_atom]. If None, computed from true_coordinate.
 
         Returns:
             torch.Tensor: the smooth lddt loss
@@ -242,7 +254,8 @@ class SmoothLDDTLoss(nn.Module):
         c_lm = lddt_mask.bool().unsqueeze(dim=-3).detach()  # [..., 1, N_atom, N_atom]
         # Compute distance error
         # [...,  N_sample , N_atom, N_atom]
-        true_distance = torch.cdist(true_coordinate, true_coordinate)
+        if true_distance is None:
+            true_distance = torch.cdist(true_coordinate, true_coordinate)
         if diffusion_chunk_size is None:
             pred_distance = torch.cdist(pred_coordinate, pred_coordinate)
             lddt = self._chunk_forward(
@@ -470,9 +483,7 @@ def compute_lddt_mask(
     )  # [..., N_atom, N_atom]
 
     # Zero-out diagonals of c_lm and cast to float
-    c_lm = c_lm * (
-        1 - torch.eye(n=c_lm.size(-1), device=c_lm.device, dtype=true_distance.dtype)
-    )
+    c_lm = c_lm * _get_off_diagonal_mask(c_lm.size(-1), c_lm.device, true_distance.dtype)
     # Zero-out atom pairs without true coordinates
     # Note: the sparsity of c_lm is ~10% in 5000 atom-pairs,
     # and becomes more sparse as the number of atoms increases,
@@ -1238,13 +1249,13 @@ def calculate_atom_bespoke_lddt(
     delta_d_lm = torch.abs(
         pred_d_lm - true_d_lm.unsqueeze(dim=-3)
     )  # [..., N_sample, N_atom, N_atom(m)]
-    # Pair-wise lddt
-    thresholds = [0.5, 1, 2, 4]
+    # Pair-wise lddt: fused threshold comparison (avoids 5D stack intermediate)
     lddt_lm = (
-        torch.stack([delta_d_lm < t for t in thresholds], dim=-1)
-        .to(dtype=delta_d_lm.dtype)
-        .mean(dim=-1)
-    )  # [..., N_sample, N_atom, N_atom(m)]
+        (delta_d_lm < 0.5).to(dtype=delta_d_lm.dtype)
+        + (delta_d_lm < 1.0)
+        + (delta_d_lm < 2.0)
+        + (delta_d_lm < 4.0)
+    ) * 0.25  # [..., N_sample, N_atom, N_atom(m)]
     # Select atoms that are within certain threshold to l in ground truth
     # Restrict to bespoke inclusion radius
     is_nucleotide = is_nucleotide[
@@ -1256,7 +1267,7 @@ def calculate_atom_bespoke_lddt(
         ~is_nucleotide.unsqueeze(dim=-2)
     )  # [..., N_atom, N_atom(m)]
     # Remove self-distance computation
-    diagonal_mask = ((1 - torch.eye(n=N_atom)).bool().to(true_d_lm.device))[
+    diagonal_mask = _get_off_diagonal_mask(N_atom, true_d_lm.device, true_d_lm.dtype).bool()[
         ..., atom_m_mask
     ]  # [N_atom, N_atom(m)]
     pair_mask = (locality_mask * diagonal_mask).unsqueeze(
@@ -1513,7 +1524,10 @@ class ProtenixLoss(nn.Module):
 
         label_dict["lddt_mask"] = lddt_mask
         label_dict["distance_mask"] = distance_mask
-        if not self.configs.loss_metrics_sparse_enable:
+        if (
+            not self.configs.loss_metrics_sparse_enable
+            or self.configs.loss.diffusion_lddt_loss_dense
+        ):
             label_dict["distance"] = distance
         del distance, distance_mask, lddt_mask
         return label_dict
@@ -1645,6 +1659,7 @@ class ProtenixLoss(nn.Module):
                             true_coordinate=label_dict["coordinate"],
                             lddt_mask=label_dict["lddt_mask"],
                             diffusion_chunk_size=self.configs.loss.diffusion_lddt_chunk_size,
+                            true_distance=label_dict.get("distance"),
                         )  # it's faster is not OOM
                     }
                 )
