@@ -157,7 +157,7 @@ class PairformerBlock(nn.Module):
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
-            z = z.transpose(-2, -3)
+            z = z.transpose(-2, -3).contiguous()
             z += self.tri_att_end(
                 z,
                 mask=pair_mask.transpose(-1, -2) if pair_mask is not None else None,
@@ -165,7 +165,7 @@ class PairformerBlock(nn.Module):
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
             )
-            z = z.transpose(-2, -3)
+            z = z.transpose(-2, -3).contiguous()
             z += self.pair_transition(z)
         else:
             tmu_update = self.tri_mul_out(
