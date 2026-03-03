@@ -129,5 +129,52 @@ class TestDropoutAddRowwiseFallback(unittest.TestCase):
         self.assertFalse(torch.allclose(result, residual + x))
 
 
+try:
+    import cuequivariance_ops_torch  # noqa: F401
+
+    _CUEQ_AVAILABLE = True
+except ImportError:
+    _CUEQ_AVAILABLE = False
+
+
+class TestPairformerCueqContiguity(unittest.TestCase):
+    """Regression test: PairformerBlock must output contiguous z in the
+    inplace_safe path so that cuequivariance operators in subsequent blocks
+    can call .view() without error.  See bytedance/Protenix#250."""
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and _CUEQ_AVAILABLE,
+        "CUDA + cuequivariance required",
+    )
+    def test_stacked_blocks_inplace_safe(self):
+        """3-block stack with cuequivariance + inplace_safe=True must not crash."""
+        from protenix.model.modules.pairformer import PairformerBlock
+
+        N_BLOCKS = 3
+        blocks = [
+            PairformerBlock(c_z=128, c_s=384, no_heads_pair=16).cuda().bfloat16()
+            for _ in range(N_BLOCKS)
+        ]
+
+        z = torch.randn(1, 64, 64, 128, device="cuda", dtype=torch.bfloat16)
+        s = torch.randn(1, 64, 384, device="cuda", dtype=torch.bfloat16)
+        pair_mask = torch.ones(1, 64, 64, device="cuda", dtype=torch.bfloat16)
+
+        with torch.no_grad():
+            for block in blocks:
+                s, z = block(
+                    s,
+                    z,
+                    pair_mask,
+                    triangle_multiplicative="cuequivariance",
+                    triangle_attention="cuequivariance",
+                    inplace_safe=True,
+                )
+                self.assertTrue(
+                    z.is_contiguous(),
+                    "z must be contiguous after inplace_safe block for cueq compat",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
