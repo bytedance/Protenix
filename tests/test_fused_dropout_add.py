@@ -138,9 +138,18 @@ except ImportError:
 
 
 class TestPairformerCueqContiguity(unittest.TestCase):
-    """Regression test: PairformerBlock must output contiguous z in the
-    inplace_safe path so that cuequivariance operators in subsequent blocks
-    can call .view() without error.  See bytedance/Protenix#250."""
+    """Regression test: PairformerBlock must output contiguous z after
+    transpose so that cuequivariance operators (which call .view()) don't
+    crash on non-contiguous tensors.  See bytedance/Protenix#250.
+
+    N_TOKENS must be > 100 because cuequivariance falls back to pure PyTorch
+    for seq_len <= CUEQ_TRIMUL_FALLBACK_THRESHOLD (100). Only the optimized
+    Triton kernel path calls layer_norm_transpose → .view() which requires
+    contiguous input."""
+
+    # Must exceed cueq's fallback threshold (100) to actually exercise the
+    # optimized Triton kernel that calls .view() on the pair tensor.
+    N_TOKENS = 128
 
     @unittest.skipUnless(
         torch.cuda.is_available() and _CUEQ_AVAILABLE,
@@ -150,15 +159,16 @@ class TestPairformerCueqContiguity(unittest.TestCase):
         """3-block stack with cuequivariance + inplace_safe=True must not crash."""
         from protenix.model.modules.pairformer import PairformerBlock
 
+        N = self.N_TOKENS
         N_BLOCKS = 3
         blocks = [
             PairformerBlock(c_z=128, c_s=384, no_heads_pair=16).cuda().bfloat16()
             for _ in range(N_BLOCKS)
         ]
 
-        z = torch.randn(1, 64, 64, 128, device="cuda", dtype=torch.bfloat16)
-        s = torch.randn(1, 64, 384, device="cuda", dtype=torch.bfloat16)
-        pair_mask = torch.ones(1, 64, 64, device="cuda", dtype=torch.bfloat16)
+        z = torch.randn(1, N, N, 128, device="cuda", dtype=torch.bfloat16)
+        s = torch.randn(1, N, 384, device="cuda", dtype=torch.bfloat16)
+        pair_mask = torch.ones(1, N, N, device="cuda", dtype=torch.bfloat16)
 
         with torch.no_grad():
             for block in blocks:
@@ -174,6 +184,37 @@ class TestPairformerCueqContiguity(unittest.TestCase):
                     z.is_contiguous(),
                     "z must be contiguous after inplace_safe block for cueq compat",
                 )
+
+    @unittest.skipUnless(
+        torch.cuda.is_available() and _CUEQ_AVAILABLE,
+        "CUDA + cuequivariance required",
+    )
+    def test_stacked_blocks_training(self):
+        """3-block stack with cuequivariance in training mode must not crash."""
+        from protenix.model.modules.pairformer import PairformerBlock
+
+        N = self.N_TOKENS
+        N_BLOCKS = 3
+        blocks = [
+            PairformerBlock(c_z=128, c_s=384, no_heads_pair=16).cuda().bfloat16()
+            for _ in range(N_BLOCKS)
+        ]
+        for b in blocks:
+            b.train()
+
+        z = torch.randn(1, N, N, 128, device="cuda", dtype=torch.bfloat16)
+        s = torch.randn(1, N, 384, device="cuda", dtype=torch.bfloat16)
+        pair_mask = torch.ones(1, N, N, device="cuda", dtype=torch.bfloat16)
+
+        for block in blocks:
+            s, z = block(
+                s,
+                z,
+                pair_mask,
+                triangle_multiplicative="cuequivariance",
+                triangle_attention="cuequivariance",
+                inplace_safe=False,
+            )
 
 
 if __name__ == "__main__":

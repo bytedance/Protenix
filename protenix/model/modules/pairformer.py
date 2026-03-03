@@ -198,7 +198,7 @@ class PairformerBlock(nn.Module):
                 self.p_drop,
                 self.training,
             )
-            z = z.transpose(-2, -3)
+            z = z.transpose(-2, -3).contiguous()
             z = dropout_add_rowwise(
                 z,
                 self.tri_att_end(
@@ -211,7 +211,7 @@ class PairformerBlock(nn.Module):
                 self.p_drop,
                 self.training,
             )
-            z = z.transpose(-2, -3)
+            z = z.transpose(-2, -3).contiguous()
 
             z = z + self.pair_transition(z)
         if self.c_s > 0:
