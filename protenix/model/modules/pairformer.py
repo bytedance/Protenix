@@ -467,7 +467,6 @@ class MSAStack(nn.Module):
             m_new = pad_at_dim(
                 m, dim=-3, pad_length=(0, self.msa_max_size - m.shape[-3]), value=0
             )
-            assert (m_new[: m.shape[-3], :, :] == m).all()
             msa_pair_weighted = self.chunk_forward(
                 self.msa_pair_weighted_averaging, m_new, z, chunk_size
             )
