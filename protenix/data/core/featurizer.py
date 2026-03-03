@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 from collections import defaultdict
 from typing import Optional, Union
 
@@ -448,10 +447,14 @@ class Featurizer(object):
             ref_mask=ref_features["ref_mask"],
         )
         ref_features["has_frame"] = torch.from_numpy(
-            token_array_with_frame.get_annotation("has_frame").astype(np.int64)
+            np.array(token_array_with_frame.get_annotation("has_frame")).astype(
+                np.int64
+            )
         )  # [N_token]
         ref_features["frame_atom_index"] = torch.from_numpy(
-            token_array_with_frame.get_annotation("frame_atom_index").astype(np.int64)
+            np.array(token_array_with_frame.get_annotation("frame_atom_index")).astype(
+                np.int64
+            )
         )  # [N_token, 3]
         return ref_features
 
@@ -611,10 +614,9 @@ class Featurizer(object):
             near_atom_indices = np.unique(
                 np.concatenate(kdtree.query_radius(lig_pos, 10.0))
             )
-            near_atoms = (
-                np.isin(np.arange(len(atom_array)), near_atom_indices)
-                & atom_array.is_resolved.astype(bool)
-            )
+            near_atoms = np.isin(
+                np.arange(len(atom_array)), near_atom_indices
+            ) & atom_array.is_resolved.astype(bool)
 
             # Get primary chain (protein backone in 10 Angstrom radius)
             primary_chain_candidates = near_atoms & prot_backbone
@@ -847,9 +849,7 @@ class Featurizer(object):
         gt_features["entity_mol_id"] = torch.from_numpy(
             atom_array.entity_mol_id.astype(np.int64)
         )
-        gt_features["mol_id"] = torch.from_numpy(
-            atom_array.mol_id.astype(np.int64)
-        )
+        gt_features["mol_id"] = torch.from_numpy(atom_array.mol_id.astype(np.int64))
         gt_features["mol_atom_index"] = torch.from_numpy(
             atom_array.mol_atom_index.astype(np.int64)
         )
