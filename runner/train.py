@@ -374,6 +374,29 @@ class AF3Trainer(object):
                     k[len("module.") :]: v for k, v in checkpoint["model"].items()
                 }
 
+            # torch.compile wraps submodules with _orig_mod prefix in state_dict.
+            # Remap keys so checkpoints are interchangeable between compiled and
+            # uncompiled models.
+            model_keys = set(self.model.state_dict().keys())
+            ckpt_keys = set(checkpoint["model"].keys())
+            if model_keys != ckpt_keys:
+                # Try stripping _orig_mod from checkpoint keys (compiled → uncompiled)
+                stripped = {k.replace("._orig_mod.", "."): v for k, v in checkpoint["model"].items()}
+                if set(stripped.keys()) == model_keys:
+                    checkpoint["model"] = stripped
+                else:
+                    # Try adding _orig_mod to checkpoint keys (uncompiled → compiled)
+                    added = {}
+                    for k, v in checkpoint["model"].items():
+                        new_k = k
+                        for prefix in ["pairformer_stack.", "diffusion_module.", "confidence_head.", "msa_module."]:
+                            if k.startswith(prefix):
+                                new_k = k.replace(prefix, prefix + "_orig_mod.", 1)
+                                break
+                        added[new_k] = v
+                    if set(added.keys()) == model_keys:
+                        checkpoint["model"] = added
+
             self.model.load_state_dict(
                 state_dict=checkpoint["model"],
                 strict=self.configs.load_strict,
@@ -633,7 +656,7 @@ class AF3Trainer(object):
         }[self.configs.dtype]
         enable_amp = (
             torch.autocast(
-                device_type="cuda", dtype=train_precision, cache_enabled=True
+                device_type="cuda", dtype=train_precision, cache_enabled=False
             )
             if torch.cuda.is_available()
             else nullcontext()

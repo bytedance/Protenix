@@ -105,5 +105,69 @@ class TestGradScalerDtypeKey(unittest.TestCase):
         self.assertFalse(scaler_old.is_enabled())  # Bug: should be enabled
 
 
+class TestAutocastCacheDisabled(unittest.TestCase):
+    """cache_enabled must be False to avoid gradient checkpointing conflicts
+    and vanishing confidence head gradients."""
+
+    def test_cache_enabled_is_false(self):
+        import ast
+        import inspect
+        from runner.train import AF3Trainer as Trainer
+
+        src = inspect.getsource(Trainer)
+        tree = ast.parse(src)
+        found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.keyword) and node.arg == "cache_enabled":
+                if isinstance(node.value, ast.Constant):
+                    self.assertFalse(
+                        node.value.value,
+                        "cache_enabled must be False (breaks gradient checkpointing)",
+                    )
+                    found = True
+        self.assertTrue(found, "cache_enabled keyword not found in Trainer source")
+
+
+class TestOrigModStateDict(unittest.TestCase):
+    """torch.compile adds _orig_mod prefix — checkpoint loading must handle it."""
+
+    def test_strip_orig_mod(self):
+        """Uncompiled model loading compiled checkpoint."""
+        ckpt_keys = {
+            "pairformer_stack._orig_mod.blocks.0.weight": torch.tensor(1.0),
+            "pairformer_stack._orig_mod.blocks.0.bias": torch.tensor(0.0),
+        }
+        stripped = {k.replace("._orig_mod.", "."): v for k, v in ckpt_keys.items()}
+        self.assertEqual(
+            set(stripped.keys()),
+            {"pairformer_stack.blocks.0.weight", "pairformer_stack.blocks.0.bias"},
+        )
+
+    def test_add_orig_mod(self):
+        """Compiled model loading uncompiled checkpoint."""
+        ckpt_keys = {
+            "pairformer_stack.blocks.0.weight": torch.tensor(1.0),
+            "diffusion_module.layers.0.bias": torch.tensor(0.0),
+            "other_param": torch.tensor(2.0),
+        }
+        prefixes = ["pairformer_stack.", "diffusion_module.", "confidence_head.", "msa_module."]
+        added = {}
+        for k, v in ckpt_keys.items():
+            new_k = k
+            for prefix in prefixes:
+                if k.startswith(prefix):
+                    new_k = k.replace(prefix, prefix + "_orig_mod.", 1)
+                    break
+            added[new_k] = v
+        self.assertEqual(
+            set(added.keys()),
+            {
+                "pairformer_stack._orig_mod.blocks.0.weight",
+                "diffusion_module._orig_mod.layers.0.bias",
+                "other_param",
+            },
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
