@@ -235,7 +235,7 @@ def _attention(
     k: torch.Tensor,
     v: torch.Tensor,
     attn_bias: Optional[torch.Tensor] = None,
-    use_efficient_implementation: bool = False,
+    use_efficient_implementation: bool = True,
     inplace_safe: bool = False,
 ) -> torch.Tensor:
     """Attention.
@@ -245,7 +245,7 @@ def _attention(
         k (torch.Tensor): key tensor of shape [..., n_kv, d]
         v (torch.Tensor): value tensor of shape[..., n_kv, d]
         attn_bias (torch.Tensor, optional): attention bias tensor of shape [..., n_q, n_kv]. Defaults to None.
-        use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
+        use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to True.
 
     Returns:
         torch.Tensor: output of tensor [..., n_q, d]
@@ -516,7 +516,7 @@ def _local_attention(
     attn_bias: Optional[torch.Tensor] = None,
     trunked_attn_bias: Optional[torch.Tensor] = None,
     inf: float = 1e10,
-    use_efficient_implementation: bool = False,
+    use_efficient_implementation: bool = True,
     inplace_safe: bool = False,
     chunk_size: Optional[int] = None,
 ) -> torch.Tensor:
@@ -536,7 +536,7 @@ def _local_attention(
         trunked_attn_bias (torch.Tensor, optional): the input biases where shape has been rearranged to dense trunks. Defaults to None.
             [..., n_trunks, n_queries, n_keys]
         inf (float): inf number used for attention bias. Defaults to 1e10.
-        use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
+        use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to True.
     Returns:
         torch.Tensor: standard attention output
             [..., Q, d]
@@ -649,7 +649,7 @@ class Attention(nn.Module):
         local_attention_method (str, optional): local attention method, options:
           - global_attention_with_bias: use full size global attention with sparse attention bias
           - local_cross_attention: use local cross attention to minimize computation
-        use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to False.
+        use_efficient_implementation (bool): whether to use the torch.nn.functional.scaled_dot_product_attention, Defaults to True.
         zero_init (bool, optional): whether to zero-initialize the output layer. Defaults to True.
 
     Notes:
@@ -677,7 +677,7 @@ class Attention(nn.Module):
         gating: bool = True,
         q_linear_bias: bool = True,
         local_attention_method: str = "global_attention_with_bias",
-        use_efficient_implementation: bool = False,
+        use_efficient_implementation: bool = True,
         zero_init: bool = True,
     ) -> None:
         super(Attention, self).__init__()
