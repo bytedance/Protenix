@@ -498,6 +498,12 @@ def calculate_chain_based_ptm(
 
     has_frame = has_frame.bool()
     asym_id = asym_id.long()
+    unique_asym_ids = torch.unique(asym_id)
+    if len(unique_asym_ids) != asym_id.max() + 1:
+        remap = {old.item(): new for new, old in enumerate(unique_asym_ids)}
+        asym_id = torch.tensor(
+            [remap[x.item()] for x in asym_id], dtype=torch.long, device=asym_id.device
+        )
     asym_id_to_asym_mask = {aid.item(): asym_id == aid for aid in torch.unique(asym_id)}
     chain_is_ligand = {
         aid.item(): token_is_ligand[asym_id == aid].sum() >= (asym_id == aid).sum() // 2
@@ -608,7 +614,12 @@ def calculate_chain_based_gpde(
     asym_id = asym_id.long()
     unique_asym_ids = torch.unique(asym_id)
     N_chain = len(unique_asym_ids)
-    assert N_chain == asym_id.max() + 1  # make sure it is from 0 to N_chain-1
+    if N_chain != asym_id.max() + 1:
+        # asym_id has gaps (chains were filtered out); remap to contiguous 0..N_chain-1
+        remap = {old.item(): new for new, old in enumerate(unique_asym_ids)}
+        asym_id = torch.tensor(
+            [remap[x.item()] for x in asym_id], dtype=torch.long, device=asym_id.device
+        )
 
     batch_shape = token_pair_pde.shape[:-2]
     device = token_pair_pde.device
@@ -668,6 +679,12 @@ def calculate_chain_based_plddt(
     """
 
     asym_id = asym_id.long()
+    unique_asym_ids = torch.unique(asym_id)
+    if len(unique_asym_ids) != asym_id.max() + 1:
+        remap = {old.item(): new for new, old in enumerate(unique_asym_ids)}
+        asym_id = torch.tensor(
+            [remap[x.item()] for x in asym_id], dtype=torch.long, device=asym_id.device
+        )
     asym_id_to_asym_mask = {aid.item(): asym_id == aid for aid in torch.unique(asym_id)}
     N_chain = len(asym_id_to_asym_mask)
     assert N_chain == asym_id.max() + 1  # make sure it is from 0 to N_chain-1
