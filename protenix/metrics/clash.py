@@ -85,12 +85,16 @@ class Clash(nn.Module):
     ):
         # Get chain info
         asym_id = asym_id.long()
+        unique_asym_ids = torch.unique(asym_id)
+        if len(unique_asym_ids) != asym_id.max() + 1:
+            remap = {old.item(): new for new, old in enumerate(unique_asym_ids)}
+            asym_id = torch.tensor(
+                [remap[x.item()] for x in asym_id], dtype=torch.long, device=asym_id.device
+            )
         asym_id_to_asym_mask = {
             aid.item(): asym_id == aid for aid in torch.unique(asym_id)
         }
         N_chains = len(asym_id_to_asym_mask)
-        # Make sure it is from 0 to N_chain-1
-        assert N_chains == asym_id.max() + 1
 
         # Check and compute chain_types
         chain_types = []
