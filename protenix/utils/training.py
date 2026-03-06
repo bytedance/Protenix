@@ -74,14 +74,13 @@ def get_optimizer(
     configs, model: torch.nn.Module, param_names=None
 ) -> torch.optim.Optimizer:
     print("param_names: ", param_names)
-    if len(param_names) == 0 or param_names[0] == "":
+    if param_names is None or len(param_names) == 0 or param_names[0] == "":
         param_names = None
     if configs.adam.use_adamw:
         optimizer = get_adamw(
             model=model,
             weight_decay=configs.adam.weight_decay,
             learning_rate=configs.adam.lr,
-            other_learning_rate=configs.other_lr,
             betas=(configs.adam.beta1, configs.adam.beta2),
             device_type="cuda" if torch.cuda.is_available() else "cpu",
         )
