@@ -95,7 +95,7 @@ def eye_mask(L, device=None, opposite=False):
     if opposite:
         return 1.0 - torch.eye(L, device=device)
     else:
-        torch.eye(L, device=device)
+        return torch.eye(L, device=device)
 
 
 def glorot_uniform(t):
