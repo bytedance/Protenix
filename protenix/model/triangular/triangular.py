@@ -25,6 +25,7 @@ from protenix.model.triangular.layers import Attention, LayerNorm, OpenfoldLinea
 from protenix.model.utils import chunk_layer, is_fp16_enabled, permute_final_dims
 
 
+@torch.compiler.disable
 def kernel_triangular_mult(
     x: torch.Tensor,
     direction: str,
@@ -628,6 +629,7 @@ class TriangleAttention(nn.Module):
         )
 
     @torch.jit.ignore
+    @torch.compiler.disable
     def _chunk(
         self,
         x: torch.Tensor,

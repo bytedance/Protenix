@@ -186,12 +186,53 @@ class AF3Trainer(object):
         )
         self.lddt_metrics = LDDTMetrics(self.configs)
 
+    def _compile_submodules(self) -> None:
+        """
+        Selectively apply torch.compile to model submodules.
+        Follows the pattern from boltz: dynamic=False, fullgraph=False.
+        Must be called BEFORE DDP wrapping.
+        """
+        compile_cfg = self.configs.get("compile", {})
+        if not any(compile_cfg.get(k, False) for k in ["pairformer", "diffusion", "confidence", "msa"]):
+            return
+
+        # Large models hit the default dynamo cache limit (8)
+        torch._dynamo.config.cache_size_limit = 512
+        torch._dynamo.config.accumulated_cache_size_limit = 512
+
+        compile_kwargs = dict(dynamic=False, fullgraph=False)
+
+        if compile_cfg.get("pairformer", False):
+            self.raw_model.pairformer_stack = torch.compile(
+                self.raw_model.pairformer_stack, **compile_kwargs
+            )
+            self.print("torch.compile enabled for pairformer_stack")
+
+        if compile_cfg.get("diffusion", False):
+            self.raw_model.diffusion_module = torch.compile(
+                self.raw_model.diffusion_module, **compile_kwargs
+            )
+            self.print("torch.compile enabled for diffusion_module")
+
+        if compile_cfg.get("confidence", False):
+            self.raw_model.confidence_head = torch.compile(
+                self.raw_model.confidence_head, **compile_kwargs
+            )
+            self.print("torch.compile enabled for confidence_head")
+
+        if compile_cfg.get("msa", False):
+            self.raw_model.msa_module = torch.compile(
+                self.raw_model.msa_module, **compile_kwargs
+            )
+            self.print("torch.compile enabled for msa_module")
+
     def init_model(self) -> None:
         """
         Initialize the Protenix model, optimizer, and exponential moving average (EMA).
         Sets up DistributedDataParallel (DDP) if multiple GPUs are used.
         """
         self.raw_model = Protenix(self.configs).to(self.device)
+        self._compile_submodules()
         self.use_ddp = False
         if DIST_WRAPPER.world_size > 1:
             self.print("Using DistributedDataParallel (DDP)")
@@ -224,6 +265,10 @@ class AF3Trainer(object):
             self.ema_wrapper.register()
 
         torch.cuda.empty_cache()
+        self.scaler = torch.GradScaler(
+            device="cuda" if torch.cuda.is_available() else "cpu",
+            enabled=(self.configs.dtype == "fp16"),
+        )
         self.optimizer = get_optimizer(
             self.configs,
             self.model,
@@ -328,6 +373,29 @@ class AF3Trainer(object):
                 checkpoint["model"] = {
                     k[len("module.") :]: v for k, v in checkpoint["model"].items()
                 }
+
+            # torch.compile wraps submodules with _orig_mod prefix in state_dict.
+            # Remap keys so checkpoints are interchangeable between compiled and
+            # uncompiled models.
+            model_keys = set(self.model.state_dict().keys())
+            ckpt_keys = set(checkpoint["model"].keys())
+            if model_keys != ckpt_keys:
+                # Try stripping _orig_mod from checkpoint keys (compiled → uncompiled)
+                stripped = {k.replace("._orig_mod.", "."): v for k, v in checkpoint["model"].items()}
+                if set(stripped.keys()) == model_keys:
+                    checkpoint["model"] = stripped
+                else:
+                    # Try adding _orig_mod to checkpoint keys (uncompiled → compiled)
+                    added = {}
+                    for k, v in checkpoint["model"].items():
+                        new_k = k
+                        for prefix in ["pairformer_stack.", "diffusion_module.", "confidence_head.", "msa_module."]:
+                            if k.startswith(prefix):
+                                new_k = k.replace(prefix, prefix + "_orig_mod.", 1)
+                                break
+                        added[new_k] = v
+                    if set(added.keys()) == model_keys:
+                        checkpoint["model"] = added
 
             self.model.load_state_dict(
                 state_dict=checkpoint["model"],
@@ -594,11 +662,6 @@ class AF3Trainer(object):
             else nullcontext()
         )
 
-        scaler = torch.GradScaler(
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            enabled=(self.configs.dtype == "float16"),
-        )
-
         with enable_amp:
             batch, _ = self.model_forward(batch, mode="train")
             loss, loss_dict, _ = self.get_loss(batch, mode="train")
@@ -607,17 +670,17 @@ class AF3Trainer(object):
             if is_loss_nan_check(loss):
                 self.print(f"Skip iteration with NaN loss at step {self.step}")
                 loss = torch.tensor(0.0, device=loss.device, requires_grad=True)
-        scaler.scale(loss / self.iters_to_accumulate).backward()
+        self.scaler.scale(loss / self.iters_to_accumulate).backward()
 
         # Global training step used for accumulation logic
         if (self.global_step + 1) % self.iters_to_accumulate == 0:
             # Unscale gradients before clipping
-            scaler.unscale_(self.optimizer)
+            self.scaler.unscale_(self.optimizer)
             # Apply gradient clipping
             self.update()
             # Optimizer and scaler step
-            scaler.step(self.optimizer)
-            scaler.update()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
             self.optimizer.zero_grad(set_to_none=True)
             self.lr_scheduler.step()
 
@@ -625,7 +688,6 @@ class AF3Trainer(object):
             if "loss" not in key:
                 continue
             self.train_metric_wrapper.add(key, value, namespace="train")
-        torch.cuda.empty_cache()
 
     def progress_bar(self, desc: str = "") -> None:
         """
