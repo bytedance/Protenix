@@ -3285,8 +3285,3 @@ class AddAtomArrayAnnot(object):
         atom_array.set_annotation("ref_mask", ref_mask)
         atom_array.set_annotation("res_perm", str_res_perm)
         return atom_array
-        atom_array.set_annotation("ref_pos", ref_pos)
-        atom_array.set_annotation("ref_charge", ref_charge)
-        atom_array.set_annotation("ref_mask", ref_mask)
-        atom_array.set_annotation("res_perm", str_res_perm)
-        return atom_array
