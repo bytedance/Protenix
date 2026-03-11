@@ -94,6 +94,32 @@ class SampleDictToFeatures:
         Returns:
             AtomArray: Biotite Atom array.
         """
+        used_chain_ids = set()
+        for seq_idx, type2entity_dict in enumerate(self.input_dict["sequences"]):
+            for entity in type2entity_dict.values():
+                if entity.get("id"):
+                    ids = entity["id"]
+                    if not isinstance(ids, list) or not all(
+                        isinstance(x, str) for x in ids
+                    ):
+                        raise ValueError(
+                            f'Invalid "id" field in sequences[{seq_idx}]: expecting list[str].'
+                        )
+                    if len(ids) != entity["count"]:
+                        raise ValueError(
+                            f'Invalid "id" field in sequences[{seq_idx}]: len(id)({len(ids)}) != count({entity["count"]}).'
+                        )
+                    if len(set(ids)) != len(ids):
+                        raise ValueError(
+                            f'Invalid "id" field in sequences[{seq_idx}]: duplicated chain IDs in the same entity.'
+                        )
+                    duplicated = set(ids) & used_chain_ids
+                    if duplicated:
+                        raise ValueError(
+                            f'Invalid "id" field in sequences[{seq_idx}]: duplicated chain IDs across entities: {sorted(duplicated)}.'
+                        )
+                    used_chain_ids.update(ids)
+
         atom_array = None
         asym_chain_idx = 0
         for idx, type2entity_dict in enumerate(self.input_dict["sequences"]):
@@ -101,8 +127,21 @@ class SampleDictToFeatures:
                 entity_id = str(idx + 1)
 
                 entity_atom_array = None
+                ids = entity.get("id")
+
                 for asym_chain_count in range(1, entity["count"] + 1):
-                    asym_id_str = int_to_letters(asym_chain_idx + 1)
+                    if ids:
+                        asym_id_str = str(ids[asym_chain_count - 1])
+                    else:
+                        while True:
+                            candidate = int_to_letters(asym_chain_idx + 1)
+                            if candidate not in used_chain_ids:
+                                asym_id_str = candidate
+                                used_chain_ids.add(asym_id_str)
+                                asym_chain_idx += 1
+                                break
+                            asym_chain_idx += 1
+
                     asym_chain = copy.deepcopy(entity["atom_array"])
                     chain_id = [asym_id_str] * len(asym_chain)
                     copy_id = [asym_chain_count] * len(asym_chain)
@@ -115,7 +154,6 @@ class SampleDictToFeatures:
                         entity_atom_array = asym_chain
                     else:
                         entity_atom_array += asym_chain
-                    asym_chain_idx += 1
 
                 entity_atom_array.set_annotation(
                     "label_entity_id", [entity_id] * len(entity_atom_array)
