@@ -205,7 +205,8 @@ def batched_gather(
             [..., N]
 
     Returns:
-        torch.Tensor: gathered data
+        torch.Tensor: gathered data, have the same number of dimensions as data,
+            only the size of dimension len(inds.shape) - 1 is changed to N
             [..., N, ...]
     """
     assert len(inds.shape) <= len(data.shape), "inds must have less or equal dimensions than data"
