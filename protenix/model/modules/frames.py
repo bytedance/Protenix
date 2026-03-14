@@ -62,47 +62,25 @@ def gather_frame_atom_by_indices(
 
     Args:
         coordinate (torch.Tensor):  the input coordinate
-            [..., N_atom, 3]
+            [..., N_atom, 3[three coordinates]]
         frame_atom_index (torch.Tensor): indices of three atoms in each frame
-            [..., N_frame, 3] or [N_frame, 3]
+            [..., N_frame, 3[three atoms per frame]] or [N_frame, 3[three atoms per frame]]
         dim (int): along which dimension to select the frame atoms
     Returns:
         torch.Tensor: the constructed frames
-            [..., N_frame, 3[three atom], 3[three coordinate]]
+            [..., N_frame, 3[three atoms per frame], 3[three coordinates]]
     """
     if len(frame_atom_index.shape) == 2:
-        # the navie case
-        x1 = torch.index_select(
-            coordinate, dim=dim, index=frame_atom_index[:, 0]
-        )  # [..., N_frame, 3]
-        x2 = torch.index_select(
-            coordinate, dim=dim, index=frame_atom_index[:, 1]
-        )  # [..., N_frame, 3]
-        x3 = torch.index_select(
-            coordinate, dim=dim, index=frame_atom_index[:, 2]
-        )  # [..., N_frame, 3]
-        return torch.stack([x1, x2, x3], dim=dim)
+        # the naive case
+        return coordinate[..., frame_atom_index, :]
     else:
         assert (
             frame_atom_index.shape[:dim] == coordinate.shape[:dim]
-        ), "batch size dims should match"
+        ), f"the size of each batch dim should match, got {frame_atom_index.shape[:dim]} and {coordinate.shape[:dim]}"
 
-    x1 = batched_gather(
+    reshaped_frame_atom_index = frame_atom_index.reshape(*frame_atom_index.shape[:-2], -1)  # [..., N_frame*3]
+    batched_frame_atom_coordinates = batched_gather(
         data=coordinate,
-        inds=frame_atom_index[..., 0],
-        dim=dim,
-        no_batch_dims=len(coordinate.shape[:dim]),
-    )  # [..., N_frame, 3]
-    x2 = batched_gather(
-        data=coordinate,
-        inds=frame_atom_index[..., 1],
-        dim=dim,
-        no_batch_dims=len(coordinate.shape[:dim]),
-    )  # [..., N_frame, 3]
-    x3 = batched_gather(
-        data=coordinate,
-        inds=frame_atom_index[..., 2],
-        dim=dim,
-        no_batch_dims=len(coordinate.shape[:dim]),
-    )  # [..., N_frame, 3]
-    return torch.stack([x1, x2, x3], dim=dim)
+        inds=reshaped_frame_atom_index
+    )  # [..., N_frame*3, 3[three coordinates]]
+    return batched_frame_atom_coordinates.reshape(*batched_frame_atom_coordinates.shape[:-2], frame_atom_index.shape[-2], frame_atom_index.shape[-1], coordinate.shape[-1])  # [..., N_frame, 3, 3]
