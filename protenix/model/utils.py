@@ -193,39 +193,33 @@ def one_hot(
     return dgram
 
 
-# this is mostly from openfold.utils.torch_utils import batched_gather
 def batched_gather(
-    data: torch.Tensor, inds: torch.Tensor, dim: int = 0, no_batch_dims: int = 0
+    data: torch.Tensor, inds: torch.Tensor
 ) -> torch.Tensor:
-    """Gather data according to indices specify by inds
+    """Gather data according to indices specified by inds along the dim = len(inds.shape) - 1
 
     Args:
         data (torch.Tensor): the input data
             [..., K, ...]
         inds (torch.Tensor): the indices for gathering data
             [..., N]
-        dim (int, optional): along which dimension to gather data by inds (the dim of "K" "N"). Defaults to 0.
-        no_batch_dims (int, optional): length of dimensions before the "dim" dimension. Defaults to 0.
 
     Returns:
-        torch.Tensor: gathered data
+        torch.Tensor: gathered data, have the same number of dimensions as data,
+            only the size of dimension len(inds.shape) - 1 is changed to N
             [..., N, ...]
     """
+    assert len(inds.shape) <= len(data.shape), "inds must have less or equal dimensions than data"
+    assert inds.shape[:len(inds.shape)-1] == data.shape[:len(inds.shape)-1], "Batch dimensions must match between data and inds"
+   
+    if len(inds.shape) == len(data.shape):
+        return torch.gather(data, dim=-1, index=inds)
 
-    # for the naive case
-    if len(inds.shape) == 1 and no_batch_dims == 0 and dim == 0:
-        return data[inds]
-
-    ranges = []
-    for i, s in enumerate(data.shape[:no_batch_dims]):
-        r = torch.arange(s)
-        r = r.view(*(*((1,) * i), -1, *((1,) * (len(inds.shape) - i - 1))))
-        ranges.append(r)
-
-    remaining_dims = [slice(None) for _ in range(len(data.shape) - no_batch_dims)]
-    remaining_dims[dim - no_batch_dims if dim >= 0 else dim] = inds
-    ranges.extend(remaining_dims)
-    return data[ranges]
+    append_shape = (1,) * (len(data.shape) - len(inds.shape))
+    append_shape_broadcasted = data.shape[len(inds.shape) - len(data.shape):]
+    inds_broadcasted = inds.reshape(inds.shape + append_shape)
+    inds_broadcasted = inds_broadcasted.expand(inds.shape + append_shape_broadcasted)
+    return torch.gather(data, dim=len(inds.shape) - 1, index=inds_broadcasted)
 
 
 def broadcast_token_to_atom(
@@ -252,9 +246,7 @@ def broadcast_token_to_atom(
 
     return batched_gather(
         data=x_token,
-        inds=atom_to_token_idx,
-        dim=-2,
-        no_batch_dims=len(x_token.shape[:-2]),
+        inds=atom_to_token_idx
     )
 
 
