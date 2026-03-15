@@ -18,6 +18,16 @@ from pathlib import Path
 from setuptools import find_packages, setup
 
 this_directory = Path(__file__).parent
+
+# Read version from version.py
+version_file = this_directory / "protenix" / "version.py"
+version_dict = {}
+if version_file.exists():
+    exec(version_file.read_text(), version_dict)
+    version = version_dict["__version__"]
+else:
+    version = "0.0.0"
+
 long_description = (this_directory / "README.md").read_text()
 # Read requirements from the file
 with open("requirements.txt") as f:
@@ -38,7 +48,7 @@ if "--cpu" in sys.argv:
 setup(
     name="protenix",
     python_requires=">=3.11",
-    version="1.0.6",
+    version=version,
     description="A trainable PyTorch reproduction of AlphaFold 3.",
     long_description=long_description,
     long_description_content_type="text/markdown",

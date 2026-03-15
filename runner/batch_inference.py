@@ -37,6 +37,7 @@ from protenix.data.inference.json_maker import cif_to_input_json
 from protenix.data.inference.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
+from protenix.version import __version__
 from rdkit import Chem
 
 from runner.inference import (
@@ -572,7 +573,7 @@ class SuggestGroup(click.Group):
 
 
 @click.group(cls=SuggestGroup, context_settings=CONTEXT_SETTINGS)
-@click.version_option(version="1.0.5")
+@click.version_option(version=__version__)
 def protenix_cli() -> None:
     """
     Protenix: A trainable reproduction of AlphaFold 3.
