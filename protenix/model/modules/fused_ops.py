@@ -19,7 +19,7 @@ replacing the separate Dropout → multiply → add pattern to reduce
 memory traffic and intermediate allocations.
 """
 
-from typing import Optional
+import os
 
 import torch
 
@@ -27,7 +27,10 @@ try:
     import triton
     import triton.language as tl
 
-    TRITON_FUSED_OPS_AVAILABLE = True
+    # Setting this to True directly causes a very slight drop in foldbench performance.
+    TRITON_FUSED_OPS_AVAILABLE = (
+        os.environ.get("FUSED_DROPOUT_RESIDUAL", "False") == "True"
+    )
 except (ImportError, RuntimeError):
     TRITON_FUSED_OPS_AVAILABLE = False
 
