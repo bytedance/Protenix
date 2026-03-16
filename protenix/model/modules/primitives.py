@@ -907,6 +907,7 @@ def gather_pair_embedding_in_dense_trunk(
     idx_k_expanded = idx_k.unsqueeze(1).expand(-1, N_q, -1)
 
     # Use advanced indexing to gather the desired elements
+    # https://numpy.org/doc/stable/user/basics.indexing.html#combining-advanced-and-basic-indexing
     y = x[..., idx_q_expanded, idx_k_expanded, :]
 
     return y
