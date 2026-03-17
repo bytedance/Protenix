@@ -62,6 +62,9 @@ protenix json --input ./examples/7pzb.pdb --out_dir ./output --altloc first
 # Advanced: Specify assembly ID for biological assemblies
 wget -P ./examples/ https://files.rcsb.org/download/7pzb.cif 
 protenix json --input ./examples/7pzb.cif --out_dir ./output --altloc first
+
+# Advanced: Keep discontinuous polymer-polymer bonds (e.g. cyclic-peptide)
+protenix json --input ./examples/2lwu.cif --out_dir ./output --altloc first --include_discont_poly_poly_bonds
 ```
 
 ### 2. Input Preprocessing (`prep`, `mt`, `msa`)

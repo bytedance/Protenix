@@ -26,24 +26,23 @@ from typing import List, Optional, Union
 import click
 import tqdm
 from Bio import SeqIO
+from ml_collections.config_dict import ConfigDict
+from rdkit import Chem
 
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
 from configs.configs_model_type import model_configs
-from ml_collections.config_dict import ConfigDict
 from protenix.config.config import parse_configs
 from protenix.data.inference.json_maker import cif_to_input_json
 from protenix.data.inference.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
 from protenix.version import __version__
-from rdkit import Chem
-
 from runner.inference import (
+    InferenceRunner,
     download_inference_cache,
     infer_predict,
-    InferenceRunner,
     update_gpu_compatible_configs,
 )
 from runner.msa_search import msa_search, update_infer_json
@@ -847,7 +846,12 @@ def predict(
         "cuequivariance",
         "torch",
     ], "Invalid trimul_kernel. Options: 'cuequivariance', 'torch'."
-    assert triatt_kernel in ["triattention", "cuequivariance", "deepspeed", "torch",], (
+    assert triatt_kernel in [
+        "triattention",
+        "cuequivariance",
+        "deepspeed",
+        "torch",
+    ], (
         "Invalid triatt_kernel. Options: 'triattention', "
         "'cuequivariance', 'deepspeed', 'torch'."
     )
@@ -950,11 +954,18 @@ def predict(
     type=str,
     help="Assembly ID for structure extension (default: no extension).",
 )
+@click.option(
+    "--include_discont_poly_poly_bonds",
+    default=False,
+    is_flag=True,
+    help="Whether to include discontinuous polymer-polymer bonds.",
+)
 def tojson(
     input: str,
     out_dir: str = "./output",
     altloc: str = "first",
     assembly_id: Optional[str] = None,
+    include_discont_poly_poly_bonds: bool = False,
 ) -> List[str]:
     """
     Convert PDB or CIF files to JSON files for Protenix inference.
@@ -964,6 +975,7 @@ def tojson(
         out_dir (str): Output directory for JSON files.
         altloc (str): Alternate location conformation selection.
         assembly_id (Optional[str]): Assembly ID for structure extension.
+        include_discont_poly_poly_bonds (bool): Whether to include discontinuous polymer-polymer bonds.
 
     Returns:
         List[str]: List of generated JSON file paths.
@@ -972,6 +984,7 @@ def tojson(
     logger.info(
         f"Run tojson with input={input}, out_dir={out_dir}, "
         f"altloc={altloc}, assembly_id={assembly_id}"
+        f", include_discont_poly_poly_bonds={include_discont_poly_poly_bonds}"
     )
     input_files = []
     if not os.path.exists(input):
@@ -1009,6 +1022,7 @@ def tojson(
                     altloc=altloc,
                     sample_name=pdb_name,
                     output_json=output_json,
+                    include_discont_poly_poly_bonds=include_discont_poly_poly_bonds,
                 )
         elif input_file.endswith(".cif"):
             cif_to_input_json(
@@ -1016,6 +1030,7 @@ def tojson(
                 assembly_id=assembly_id,
                 altloc=altloc,
                 output_json=output_json,
+                include_discont_poly_poly_bonds=include_discont_poly_poly_bonds,
             )
         else:
             raise RuntimeError(f"can not read a special ligand_file: {input_file}")
