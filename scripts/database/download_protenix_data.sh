@@ -76,7 +76,7 @@ else
         "indices.tar.gz"
         "mmcif.tar.gz"
         "mmcif_bioassembly.tar.gz"
-        "mmcif_msa_template.tar"
+        "mmcif_msa_template.tar.gz"
         "posebusters_bioassembly.tar.gz"
         "posebusters_mmcif.tar.gz"
         "recentPDB_bioassembly.tar.gz"
