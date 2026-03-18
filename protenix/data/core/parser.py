@@ -16,6 +16,7 @@ import copy
 import functools
 import gzip
 import io
+import logging
 import random
 from collections import Counter, defaultdict
 from collections.abc import Mapping
@@ -26,6 +27,7 @@ from typing import Any, Optional, Union
 import biotite
 import biotite.structure as struc
 import biotite.structure.io.pdbx as pdbx
+import networkx as nx
 import numpy as np
 import pandas as pd
 from biotite.structure import AtomArray, get_chain_starts, get_residue_starts
@@ -36,7 +38,6 @@ from packaging import version
 from protenix.data.constants import (
     CRYSTALLIZATION_METHODS,
     DNA_STD_RESIDUES,
-    EntityPolyTypeDict,
     GLYCANS,
     IONS,
     LIGAND_EXCLUSION,
@@ -45,6 +46,7 @@ from protenix.data.constants import (
     RES_ATOMS_DICT,
     RNA_STD_RESIDUES,
     STD_RESIDUES,
+    EntityPolyTypeDict,
 )
 from protenix.data.core import ccd
 from protenix.data.core.ccd import get_ccd_ref_info
@@ -54,7 +56,6 @@ from protenix.data.utils import (
     get_inter_residue_bonds,
     get_ligand_polymer_bond_mask,
     get_obsolete_dict,
-    get_starts_by,
     parse_pdb_cluster_file_to_dict,
 )
 from protenix.utils.logger import get_logger
@@ -2868,7 +2869,7 @@ class AddAtomArrayAnnot(object):
     def find_equiv_mol_and_assign_ids(
         atom_array: AtomArray,
         entity_poly_type: Optional[dict[str, str]] = None,
-        check_final_equiv: bool = True,
+        pdb_id: Optional[str] = None,
     ) -> AtomArray:
         """
         Assign a unique integer to each molecule in the structure.
@@ -2880,7 +2881,6 @@ class AddAtomArrayAnnot(object):
             atom_array (AtomArray): Biotite AtomArray object
             entity_poly_type (Optional[dict[str, str]]): label_entity_id to entity.poly_type.
                               Defaults to None.
-            check_final_equiv (bool, optional): check if the final mol_ids of same entity_mol_id are all equivalent.
 
         Returns:
             AtomArray: Biotite AtomArray object with new annotations
@@ -2889,113 +2889,111 @@ class AddAtomArrayAnnot(object):
             - mol_residue_index: mol_atom_index for each mol, 0-based int
         """
         # Re-assign mol_id to AtomArray after break asym bonds
+        # Only use resolved atoms to find molecules.
+        # because excessive atomic quantities can trigger recursion limits. (e.g. 6ydp)
         if entity_poly_type is None:
-            mol_indices: list[np.ndarray] = get_molecule_indices(atom_array)
+            mol_indices: list[np.ndarray] = get_molecule_indices(
+                atom_array[atom_array.is_resolved]
+            )
         else:
             bonds_filtered = AddAtomArrayAnnot.remove_bonds_between_polymer_chains(
-                atom_array, entity_poly_type
+                atom_array[atom_array.is_resolved], entity_poly_type
             )
             mol_indices: list[np.ndarray] = get_molecule_indices(bonds_filtered)
 
         # assign mol_id
-        mol_ids = np.array([-1] * len(atom_array), dtype=np.int32)
-        for mol_id, atom_indices in enumerate(mol_indices):
+        mol_ids = np.array([-1] * len(atom_array), dtype=int)
+        chain_graph = nx.Graph()
+        chain_graph.add_nodes_from(np.unique(atom_array.chain_id))
+        for atom_indices in mol_indices:
+            chain_ids_in_mol = np.unique(
+                atom_array.chain_id[atom_array.is_resolved][atom_indices]
+            )
+            for i in zip(chain_ids_in_mol[:-1], chain_ids_in_mol[1:]):
+                chain_graph.add_edge(i[0], i[1])
+
+        for mol_id, subgraph in enumerate(nx.connected_components(chain_graph)):
+            atom_indices = np.where(np.isin(atom_array.chain_id, list(subgraph)))[0]
             mol_ids[atom_indices] = mol_id
         atom_array.set_annotation("mol_id", mol_ids)
-
         assert ~np.isin(-1, atom_array.mol_id), "Some mol_id is not assigned."
-        assert len(np.unique(atom_array.mol_id)) == len(
-            mol_indices
-        ), "Some mol_id is duplicated."
 
         # assign entity_mol_id
-        # --------------------
-        # first atom of mol with infos in attrubites, eg: info.num_atoms, info.bonds, ...
-        ref_mol_infos = []
-        chain_starts = struc.get_chain_starts(atom_array, add_exclusive_stop=False)
-        entity_mol_ids = np.zeros_like(mol_ids)
-        for mol_id, atom_indices in enumerate(mol_indices):
-            atom_indices = np.sort(atom_indices)
-            # keep multiple chains-mol has same chain order in different copies
-            chain_perm = np.argsort(
-                atom_array.label_entity_id[atom_indices], kind="stable"
+        mol_id_to_atom_name = {}
+        entity_mol_dict = defaultdict(list)
+        for mol_id in np.unique(atom_array.mol_id):
+            mol_mask = atom_array.mol_id == mol_id
+            _, chain_starts = np.unique(
+                atom_array.chain_id[mol_mask], return_index=True
             )
-            atom_indices = atom_indices[chain_perm]
+            entity_ids = atom_array.label_entity_id[mol_mask][chain_starts].tolist()
+            entity_mol_dict[tuple(sorted(entity_ids))].append(mol_id)
+            mol_id_to_atom_name[mol_id] = atom_array.atom_name[mol_mask]
 
-            # check mol equal, keep chain order consistent with atom_indices
-            mol_chain_mask = np.isin(atom_indices, chain_starts)
-            entity_ids = atom_array.label_entity_id[atom_indices][
-                mol_chain_mask
-            ].tolist()
+        entity_mol_id_num = 0
+        mol_id_to_entity_mol_ids = {}
+        for entity_ids, mol_ids in entity_mol_dict.items():
+            checked_mol_id = []
+            for mol_id in mol_ids:
+                mol_atom_name = mol_id_to_atom_name[mol_id]
+                if checked_mol_id:
+                    for ref_mol_id in checked_mol_id:
+                        ref_atom_name = mol_id_to_atom_name[ref_mol_id]
+                        if len(mol_atom_name) == len(ref_atom_name):
+                            if np.all(ref_atom_name == mol_atom_name):
+                                mol_id_to_entity_mol_ids[mol_id] = (
+                                    mol_id_to_entity_mol_ids[ref_mol_id]
+                                )
+                                break
+                            else:
+                                warning_msg = (
+                                    "Two mols have same entity_ids, but diff atom name:\n"
+                                    f"ref_atom_name={ref_atom_name[:5]}\n"
+                                    f"atom_name={mol_atom_name[:5]}"
+                                )
+                                if pdb_id is not None:
+                                    warning_msg = f"PDB ID: {pdb_id} - " + warning_msg
+                                logging.warning(warning_msg)
+                                continue
+                        else:
+                            warning_msg = (
+                                "Two mols have same entity_ids, but diff atom num:\n"
+                                f"ref_atom_num={len(ref_atom_name)}\n"
+                                f"atom_num={len(mol_atom_name)}"
+                            )
+                            if pdb_id is not None:
+                                warning_msg = f"PDB ID: {pdb_id} - " + warning_msg
+                                logging.warning(warning_msg)
+                            continue
+                    else:
+                        # Same mol not be found, create a new entity_mol_id
+                        entity_mol_id_num += 1
+                        mol_id_to_entity_mol_ids[mol_id] = entity_mol_id_num
 
-            match_entity_mol_id = None
-            for entity_mol_id, mol_info in enumerate(ref_mol_infos):
-                # check mol equal
-                # same entity_ids and same atom name will assign same entity_mol_id
-                if entity_ids != mol_info.entity_ids:
-                    continue
+                else:
+                    # First mol for this entity_ids
+                    mol_id_to_entity_mol_ids[mol_id] = entity_mol_id_num
 
-                if len(atom_indices) != len(mol_info.atom_name):
-                    continue
+                checked_mol_id.append(mol_id)
 
-                atom_name_not_equal = (
-                    atom_array.atom_name[atom_indices] != mol_info.atom_name
-                )
-                if np.any(atom_name_not_equal):
-                    diff_indices = np.where(atom_name_not_equal)[0]
-                    query_atom = atom_array[atom_indices[diff_indices[0]]]
-                    ref_atom = atom_array[mol_info.atom_indices[diff_indices[0]]]
-                    logger.warning(
-                        f"Two mols have entity_ids and same number of atoms, but diff atom name:\n{query_atom=}\n{  ref_atom=}"
-                    )
-                    continue
+            # Add 1 to entity_mol_id of new group
+            entity_mol_id_num += 1
 
-                # pass all checks, it is a match
-                match_entity_mol_id = entity_mol_id
-                break
-
-            if match_entity_mol_id is None:  # not found match mol
-                # use first atom as a placeholder for mol info.
-                mol_info = atom_array[atom_indices[0]]
-                mol_info.atom_indices = atom_indices
-                mol_info.entity_ids = entity_ids
-                mol_info.atom_name = atom_array.atom_name[atom_indices]
-                mol_info.entity_mol_id = len(ref_mol_infos)
-                ref_mol_infos.append(mol_info)
-                match_entity_mol_id = mol_info.entity_mol_id
-
-            entity_mol_ids[atom_indices] = match_entity_mol_id
-
+        entity_mol_ids = np.array(
+            [mol_id_to_entity_mol_ids[mol_id] for mol_id in atom_array.mol_id],
+            dtype=np.int32,
+        )
         atom_array.set_annotation("entity_mol_id", entity_mol_ids)
 
         # assign mol_atom_index
-        mol_starts = get_starts_by(
-            atom_array, by_annot="mol_id", add_exclusive_stop=True
-        )
-        mol_atom_index = np.zeros_like(atom_array.mol_id, dtype=np.int32)
-        for start, stop in zip(mol_starts[:-1], mol_starts[1:]):
-            mol_atom_index[start:stop] = np.arange(stop - start)
+        # e.g. mol_id = [1, 1, 2, 2, 1, 3] -> mol_atom_index = [0, 1, 0, 1, 2, 0]
+        unique, indices = np.unique(atom_array.mol_id, return_inverse=True)
+        counts = np.bincount(indices)
+
+        mol_atom_index = np.zeros_like(atom_array.mol_id)
+        for i in range(len(unique)):
+            mol_atom_index[indices == i] = np.arange(counts[i])
         atom_array.set_annotation("mol_atom_index", mol_atom_index)
-
-        # check mol equivalence again
-        if check_final_equiv:
-            num_mols = len(mol_starts) - 1
-            for i in range(num_mols):
-                for j in range(i + 1, num_mols):
-                    start_i, stop_i = mol_starts[i], mol_starts[i + 1]
-                    start_j, stop_j = mol_starts[j], mol_starts[j + 1]
-                    if (
-                        atom_array.entity_mol_id[start_i]
-                        != atom_array.entity_mol_id[start_j]
-                    ):
-                        continue
-                    for key in ["res_name", "atom_name", "mol_atom_index"]:
-                        # not check res_id for ligand may have different res_id
-                        annot = getattr(atom_array, key)
-                        assert np.all(
-                            annot[start_i:stop_i] == annot[start_j:stop_j]
-                        ), f"not equal {key} when find_equiv_mol_and_assign_ids()"
-
         return atom_array
 
     @staticmethod

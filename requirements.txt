@@ -29,3 +29,4 @@ icecream==2.1.7
 ipdb==0.13.13
 wandb==0.21.1
 numpy==2.4.1
+networkx>=3.4.2
