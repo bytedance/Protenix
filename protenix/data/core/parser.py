@@ -2891,13 +2891,18 @@ class AddAtomArrayAnnot(object):
         # Re-assign mol_id to AtomArray after break asym bonds
         # Only use resolved atoms to find molecules.
         # because excessive atomic quantities can trigger recursion limits. (e.g. 6ydp)
+        if hasattr(atom_array, "is_resolved"):
+            valid_mask = atom_array.is_resolved
+        else:
+            valid_mask = np.ones(len(atom_array), dtype=bool)
+
         if entity_poly_type is None:
             mol_indices: list[np.ndarray] = get_molecule_indices(
-                atom_array[atom_array.is_resolved]
+                atom_array[valid_mask]
             )
         else:
             bonds_filtered = AddAtomArrayAnnot.remove_bonds_between_polymer_chains(
-                atom_array[atom_array.is_resolved], entity_poly_type
+                atom_array[valid_mask], entity_poly_type
             )
             mol_indices: list[np.ndarray] = get_molecule_indices(bonds_filtered)
 
@@ -2907,7 +2912,7 @@ class AddAtomArrayAnnot(object):
         chain_graph.add_nodes_from(np.unique(atom_array.chain_id))
         for atom_indices in mol_indices:
             chain_ids_in_mol = np.unique(
-                atom_array.chain_id[atom_array.is_resolved][atom_indices]
+                atom_array.chain_id[valid_mask][atom_indices]
             )
             for i in zip(chain_ids_in_mol[:-1], chain_ids_in_mol[1:]):
                 chain_graph.add_edge(i[0], i[1])
