@@ -29,7 +29,6 @@ from biotite.structure.io import pdbx
 from biotite.structure.io.pdb import PDBFile
 
 from configs.configs_data import data_configs
-
 from protenix.data.constants import (
     DNA_STD_RESIDUES,
     PRO_STD_RESIDUES,
@@ -707,6 +706,7 @@ class CIFWriter:
     def _get_chem_comp_block(self):
         ccd_cif = biotite_load_ccd_cif()
         all_ccd = np.unique(self.atom_array.res_name)
+
         chem_comp = defaultdict(list)
         chem_comp_field = [
             "id",
@@ -1083,6 +1083,82 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
     pdbfile = PDBFile.read(input_fname)
     atom_array = pdbfile.get_structure(model=1, include_bonds=True, altloc="first")
 
+    # Before modifying chains, fill missing UNK residues so CIFWriter treats them as unresolved
+    filled_atoms = []
+    output_masks = []
+
+    chain_starts_orig = struc.get_chain_starts(atom_array, add_exclusive_stop=True)
+    for c_start, c_stop in zip(chain_starts_orig[:-1], chain_starts_orig[1:]):
+        chain_arr = atom_array[c_start:c_stop]
+
+        # Only fill for non-hetero chains
+        if all(~chain_arr.hetero):
+            # Determine chain polymer type to assign correct missing residue names
+            prot_cnt, dna_cnt, rna_cnt = 0, 0, 0
+            unique_res_names = np.unique(chain_arr.res_name)
+            for name in unique_res_names:
+                if name in PRO_STD_RESIDUES:
+                    prot_cnt += 1
+                elif name in DNA_STD_RESIDUES:
+                    dna_cnt += 1
+                elif name in RNA_STD_RESIDUES:
+                    rna_cnt += 1
+
+            if dna_cnt >= prot_cnt and dna_cnt >= rna_cnt and dna_cnt > 0:
+                missing_res_name = "DN"
+            elif rna_cnt >= prot_cnt and rna_cnt >= dna_cnt and rna_cnt > 0:
+                missing_res_name = "N"
+            else:
+                missing_res_name = "UNK"
+
+            res_starts = struc.get_residue_starts(chain_arr, add_exclusive_stop=True)
+            for i, (r_start, r_stop) in enumerate(zip(res_starts[:-1], res_starts[1:])):
+                # Add the actual residue
+                filled_atoms.append(chain_arr[r_start:r_stop])
+                output_masks.append(np.ones(r_stop - r_start, dtype=bool))
+
+                # Check gap with next residue
+                if i < len(res_starts) - 2:
+                    current_res_id = chain_arr.res_id[r_start]
+                    next_res_start = res_starts[i + 1]
+                    next_res_id = chain_arr.res_id[next_res_start]
+
+                    if next_res_id > current_res_id + 1:
+                        # Gap detected, create dummy atoms
+                        for missing_id in range(current_res_id + 1, next_res_id):
+                            # Copy the first atom of the current residue as template for dummy
+                            dummy = chain_arr[r_start : r_start + 1].copy()
+                            dummy.res_name[:] = missing_res_name
+                            dummy.res_id[:] = missing_id
+                            # Important: set is_resolved to False if it doesn't exist yet,
+                            # CIFWriter uses is_resolved to detect missing residues
+                            if "is_resolved" not in dummy.get_annotation_categories():
+                                dummy.set_annotation("is_resolved", np.array([False]))
+                            else:
+                                dummy.is_resolved[:] = False
+
+                            filled_atoms.append(dummy)
+                            output_masks.append(np.array([False]))
+        else:
+            # HETATM chains: keep as is
+            filled_atoms.append(chain_arr)
+            output_masks.append(np.ones(len(chain_arr), dtype=bool))
+
+    # Reassemble atom_array with dummy UNK residues included
+    if filled_atoms:
+        atom_array = filled_atoms[0]
+        for arr in filled_atoms[1:]:
+            atom_array += arr
+
+    atom_array_output_mask = np.concatenate(output_masks)
+
+    # Ensure is_resolved annotation exists for original atoms as well
+    if "is_resolved" not in atom_array.get_annotation_categories():
+        is_resolved = np.ones(len(atom_array), dtype=bool)
+        # the dummy ones created above are False, but here we just align with atom_array_output_mask
+        is_resolved[~atom_array_output_mask] = False
+        atom_array.set_annotation("is_resolved", is_resolved)
+
     seq_to_entity_id = {}
     cnt = 0
     chain_starts = struc.get_chain_starts(atom_array, add_exclusive_stop=True)
@@ -1150,10 +1226,13 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
 
         res_cnt = 1
         for res_start, res_stop in zip(residue_starts[:-1], residue_starts[1:]):
+            # Use res_cnt to determine missing sequence instead of original res_id.
+            # E.g. if original res_id jumps from 708 to 766, there is a gap of 57.
             res_id[c_start:c_stop][res_start:res_stop] = res_cnt
             res_cnt += 1
 
     atom_array = atom_array[atom_index]
+    atom_array_output_mask = atom_array_output_mask[atom_index]
 
     # add label entity id
     atom_array.set_annotation("label_entity_id", label_entity_id)
@@ -1193,7 +1272,11 @@ def pdb_to_cif(input_fname: str, output_fname: str, entry_id: str = None):
     atom_array.res_id = res_id  # reset res_id
     atom_array.set_annotation("label_seq_id", atom_array.res_id)
 
-    w = CIFWriter(atom_array=atom_array, entity_poly_type=entity_poly_type)
+    w = CIFWriter(
+        atom_array=atom_array,
+        entity_poly_type=entity_poly_type,
+        atom_array_output_mask=atom_array_output_mask,
+    )
     w.save_to_cif(
         output_fname,
         entry_id=entry_id or os.path.basename(output_fname),
