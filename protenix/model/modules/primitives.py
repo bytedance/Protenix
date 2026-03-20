@@ -364,7 +364,7 @@ def rearrange_qk_to_dense_trunk(
     ]
 
     pad_left = (n_keys - n_queries) // 2
-    pad_right = int((n_trunks - 1 / 2) * n_queries + n_keys / 2 - n + 1 / 2)
+    pad_right = (n_keys - n_queries) // 2 + (n_trunks * n_queries - n)
 
     k_new = [
         pad_at_dim(k[i], dim=dim_k[i], pad_length=(pad_left, pad_right))
@@ -907,6 +907,7 @@ def gather_pair_embedding_in_dense_trunk(
     idx_k_expanded = idx_k.unsqueeze(1).expand(-1, N_q, -1)
 
     # Use advanced indexing to gather the desired elements
+    # https://numpy.org/doc/stable/user/basics.indexing.html#combining-advanced-and-basic-indexing
     y = x[..., idx_q_expanded, idx_k_expanded, :]
 
     return y
