@@ -36,14 +36,25 @@ from typing import Any, Optional, Union
 import torch
 from torch.nn.parameter import Parameter
 
-sys.path.append(os.path.dirname(__file__))
+
+current_dir = os.path.dirname(__file__)
+build_directory = current_dir if os.access(current_dir, os.W_OK | os.X_OK) else None
+
+# 1. Try to load from current directory first
+sys.path.append(current_dir)
+
+# 2. If it falls back to PyTorch's cache, we need to add the cache directory to sys.path
+if build_directory is None:
+    from torch.utils.cpp_extension import _get_build_directory
+
+    cache_dir = _get_build_directory("fast_layer_norm_cuda_v2", False)
+    sys.path.append(cache_dir)
 
 try:
     fast_layer_norm_cuda_v2 = importlib.import_module("fast_layer_norm_cuda_v2")
 except ImportError:
     from protenix.model.layer_norm.torch_ext_compile import compile
 
-    current_dir = os.path.dirname(__file__)
     fast_layer_norm_cuda_v2 = compile(
         name="fast_layer_norm_cuda_v2",
         sources=[
@@ -51,7 +62,7 @@ except ImportError:
             for file in ["layer_norm_cuda.cpp", "layer_norm_cuda_kernel.cu"]
         ],
         extra_include_paths=[f"{current_dir}/kernel"],
-        build_directory=current_dir,
+        build_directory=build_directory,
     )
 
 
