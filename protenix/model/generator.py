@@ -211,6 +211,9 @@ def sample_diffusion(
                 .to(dtype)
             )
 
+            # When PROTENIX_CUDA_GRAPHS=1, the DiffusionTransformer blocks
+            # inside denoise_net are automatically captured as CUDA graphs
+            # (see diffusion.py). No special handling needed here.
             x_denoised = denoise_net(
                 x_noisy=x_noisy,
                 t_hat_noise_level=t_hat,

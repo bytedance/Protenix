@@ -163,6 +163,7 @@ class AttentionPairBias(nn.Module):
         z: torch.Tensor,
         inplace_safe: bool = False,
         enable_efficient_fusion: bool = False,
+        pad_attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Used by Algorithm 7/20
 
@@ -175,6 +176,9 @@ class AttentionPairBias(nn.Module):
                 [..., N_token, N_token, c_z]
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             enable_efficient_fusion (bool): Whether to enable efficient fusion of bias calculation in attention to speed up. Defaults to False. (Alg 24)
+            pad_attn_mask (Optional[torch.Tensor]): Additive attention mask for
+                padded tokens. Shape [..., 1, N_token, N_token]. 0 for valid pairs,
+                -1e9 for padded. Added to bias after z projection.
 
         Returns:
             torch.Tensor: the updated a from AttentionPairBias
@@ -193,6 +197,10 @@ class AttentionPairBias(nn.Module):
                 bias, [2, 0, 1]
             )  # [..., n_heads, N_token, N_token]
 
+        # Mask padded token positions with -inf so softmax gives them zero weight
+        if pad_attn_mask is not None:
+            bias = bias + pad_attn_mask
+
         # Line 11: Multi-head attention with attention bias & gating (and optionally local attention)
         q = self.attention(q_x=q, kv_x=kv, attn_bias=bias, inplace_safe=inplace_safe)
 
@@ -208,6 +216,7 @@ class AttentionPairBias(nn.Module):
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         enable_efficient_fusion: bool = False,
+        pad_attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """Details are given in local_forward and standard_forward"""
         # Input projections
@@ -242,6 +251,7 @@ class AttentionPairBias(nn.Module):
                 z,
                 inplace_safe=inplace_safe,
                 enable_efficient_fusion=enable_efficient_fusion,
+                pad_attn_mask=pad_attn_mask,
             )
 
         # Output projection (from adaLN-Zero [27])
@@ -310,6 +320,7 @@ class DiffusionTransformerBlock(nn.Module):
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         enable_efficient_fusion: bool = False,
+        pad_attn_mask: Optional[torch.Tensor] = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Args:
@@ -324,6 +335,8 @@ class DiffusionTransformerBlock(nn.Module):
             inplace_safe (bool): Whether it is safe to use inplace operations. Defaults to False.
             chunk_size (Optional[int]): Chunk size for memory-efficient operations. Defaults to None.
             enable_efficient_fusion (bool): Whether to enable efficient fusion of bias calculation in attention to speed up. Defaults to False. (Alg 24)
+            pad_attn_mask (Optional[torch.Tensor]): Additive mask for padded tokens.
+                [..., 1, N, N]. 0 for valid, -1e9 for padded.
 
         Returns:
             tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -341,6 +354,7 @@ class DiffusionTransformerBlock(nn.Module):
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
                 enable_efficient_fusion=enable_efficient_fusion,
+                pad_attn_mask=pad_attn_mask,
             )
         )
         if inplace_safe:
@@ -410,6 +424,7 @@ class DiffusionTransformer(nn.Module):
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         enable_efficient_fusion: bool = False,
+        pad_attn_mask: Optional[torch.Tensor] = None,
     ) -> list[Callable]:
         blocks = [
             partial(
@@ -419,6 +434,7 @@ class DiffusionTransformer(nn.Module):
                 inplace_safe=inplace_safe,
                 chunk_size=chunk_size,
                 enable_efficient_fusion=enable_efficient_fusion,
+                pad_attn_mask=pad_attn_mask,
             )
             for b in self.blocks
         ]
@@ -434,6 +450,7 @@ class DiffusionTransformer(nn.Module):
         inplace_safe: bool = False,
         chunk_size: Optional[int] = None,
         enable_efficient_fusion: bool = False,
+        pad_attn_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
                 Args:
@@ -451,12 +468,19 @@ class DiffusionTransformer(nn.Module):
                     torch.Tensor: the output of DiffusionTransformer
                         [..., N, c_a]
         """
+        # When running inside a CUDA graph, the pad_attn_mask is set as a
+        # module attribute by the graph cache (can't pass extra args through
+        # make_graphed_callables).
+        if pad_attn_mask is None:
+            pad_attn_mask = getattr(self, "_cuda_graph_pad_attn_mask", None)
+
         blocks = self._prep_blocks(
             n_queries=n_queries,
             n_keys=n_keys,
             inplace_safe=inplace_safe,
             chunk_size=chunk_size,
             enable_efficient_fusion=enable_efficient_fusion,
+            pad_attn_mask=pad_attn_mask,
         )
         blocks_per_ckpt = self.blocks_per_ckpt
         if not torch.is_grad_enabled():

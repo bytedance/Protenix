@@ -467,14 +467,37 @@ class DiffusionModule(nn.Module):
             z = permute_final_dims(z, [2, 0, 1]).contiguous()
         else:
             z = z_pair.to(dtype=torch.float32)
-        a_token = self.diffusion_transformer(
-            a=a_token.to(dtype=torch.float32),  # Upcast all inputs
-            s=s_single.to(dtype=torch.float32),
-            z=z,
-            inplace_safe=inplace_safe,
-            chunk_size=chunk_size,
-            enable_efficient_fusion=enable_efficient_fusion,
-        )
+
+        # Use CUDA graph cache for DiffusionTransformer blocks if enabled.
+        # Pure token-level attention — no scatter/index ops, safe for graphs.
+        # Note: enable_efficient_fusion is forced off for CUDA graphs because
+        # it permutes z dims in a way that conflicts with padding.
+        from protenix.model.cuda_graph_cache import is_cuda_graphs_enabled
+        n_token = a_token.shape[-2]
+        # n_batch = all dims before (N_token, c_token), i.e. seeds × samples
+        n_batch = a_token[..., 0, 0].numel()
+        if is_cuda_graphs_enabled(n_token, n_batch=n_batch) and not torch.is_grad_enabled():
+            # Force standard z format for padding compatibility
+            z = z_pair.to(dtype=torch.float32)
+            from protenix.model.cuda_graph_cache import get_diff_transformer_cache
+            a_token = get_diff_transformer_cache().forward(
+                transformer=self.diffusion_transformer,
+                a=a_token.to(dtype=torch.float32),
+                s=s_single.to(dtype=torch.float32),
+                z=z,
+                inplace_safe=inplace_safe,
+                chunk_size=chunk_size,
+                enable_efficient_fusion=False,
+            )
+        else:
+            a_token = self.diffusion_transformer(
+                a=a_token.to(dtype=torch.float32),
+                s=s_single.to(dtype=torch.float32),
+                z=z,
+                inplace_safe=inplace_safe,
+                chunk_size=chunk_size,
+                enable_efficient_fusion=enable_efficient_fusion,
+            )
 
         a_token = self.layernorm_a(a_token)
 

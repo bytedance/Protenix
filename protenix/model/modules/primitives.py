@@ -210,7 +210,7 @@ class Transition(nn.Module):
             x = x.reshape(-1, dim_size)
             chunk_num = 1 if size < 3200 else 8
             chunks = torch.chunk(x, chunk_num, dim=-2)
-            outputs = torch.empty(
+            outputs = torch.zeros(
                 (x.shape[0], self.c_in), dtype=x.dtype, device=x.device
             )
             start = 0
