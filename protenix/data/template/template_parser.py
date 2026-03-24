@@ -20,6 +20,7 @@ import io
 import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
+import numpy as np
 from Bio import PDB
 from Bio.Data import PDBData
 
@@ -635,18 +636,35 @@ class HmmsearchA3MParser:
 
     @staticmethod
     def _get_indices(seq: str, start: int) -> List[int]:
-        """Calculates residue indices for a sequence with gaps or insertions."""
-        indices = []
-        curr = start
-        for char in seq:
-            if char == "-":
-                indices.append(-1)
-            elif char.islower():
-                curr += 1
-            else:
-                indices.append(curr)
-                curr += 1
-        return indices
+        """Calculates residue indices for a sequence with gaps or insertions.
+
+        Vectorized equivalent of::
+
+            indices = []
+            counter = start
+            for char in seq:
+                if char == '-':
+                    indices.append(-1)
+                elif char.islower():
+                    counter += 1
+                else:  # uppercase
+                    indices.append(counter)
+                    counter += 1
+        """
+        char_arr = np.frombuffer(seq.encode("ascii"), dtype=np.uint8)
+        is_gap = char_arr == ord("-")
+        is_lower = (char_arr >= ord("a")) & (char_arr <= ord("z"))
+        is_upper = ~is_gap & ~is_lower
+        # Positions that produce output (gap or uppercase)
+        is_output = is_gap | is_upper
+        # Positions that increment the counter (uppercase or lowercase)
+        is_increment = is_upper | is_lower
+        counter = np.cumsum(is_increment) + start
+        # For output positions: gap -> -1, uppercase -> counter value
+        gap_at_output = is_gap[is_output]
+        counter_at_output = counter[is_output]
+        indices = np.where(gap_at_output, -1, counter_at_output)
+        return indices.tolist()
 
     @staticmethod
     def _parse_description(desc: str) -> HitMetadata:

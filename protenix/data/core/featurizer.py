@@ -68,23 +68,22 @@ class Featurizer(object):
         """
         num_keys = len(encode_def_dict_or_list)
         if isinstance(encode_def_dict_or_list, dict):
-            items = encode_def_dict_or_list.items()
             assert (
                 num_keys == max(encode_def_dict_or_list.values()) + 1
             ), "Do not use discontinuous number, which might causing potential bugs in the code"
+            idx_map = encode_def_dict_or_list
         elif isinstance(encode_def_dict_or_list, list):
-            items = ((key, idx) for idx, key in enumerate(encode_def_dict_or_list))
+            idx_map = {key: idx for idx, key in enumerate(encode_def_dict_or_list)}
         else:
             raise TypeError(
                 "encode_def_dict_or_list must be a list or dict, "
                 f"but got {type(encode_def_dict_or_list)}"
             )
-        onehot_dict = {
-            key: [int(i == idx) for i in range(num_keys)] for key, idx in items
-        }
-        onehot_encoded_data = [onehot_dict[item] for item in input_list]
-        onehot_tensor = torch.Tensor(onehot_encoded_data)
-        return onehot_tensor
+        # Vectorized: map input items to integer indices, then use F.one_hot
+        indices = torch.tensor(
+            [idx_map[item] for item in input_list], dtype=torch.long
+        )
+        return torch.nn.functional.one_hot(indices, num_classes=num_keys).float()
 
     @staticmethod
     def restype_onehot_encoded(restype_list: list[str]) -> torch.Tensor:
@@ -132,21 +131,15 @@ class Featurizer(object):
         Returns:
             torch.Tensor:  A Tensor of character encoded atom names
         """
-        onehot_dict = {}
-        for index, key in enumerate(range(64)):
-            onehot = [0] * 64
-            onehot[index] = 1
-            onehot_dict[key] = onehot
-        # [N_atom, 4, 64]
-        mol_encode = []
-        for atom_name in atom_names:
-            # [4, 64]
-            atom_encode = []
-            for name_str in atom_name.ljust(4):
-                atom_encode.append(onehot_dict[ord(name_str) - 32])
-            mol_encode.append(atom_encode)
-        onehot_tensor = torch.Tensor(mol_encode)
-        return onehot_tensor
+        # Vectorized: build padded string, convert to char codes, use one_hot
+        n = len(atom_names)
+        padded = "".join(name.ljust(4)[:4] for name in atom_names)
+        char_codes = np.frombuffer(padded.encode("ascii"), dtype=np.uint8)
+        indices = (char_codes.astype(np.int64) - 32).clip(0, 63)
+        indices_tensor = torch.from_numpy(indices).reshape(n, 4)
+        return torch.nn.functional.one_hot(
+            indices_tensor, num_classes=64
+        ).float()
 
     @staticmethod
     def get_prot_nuc_frame(token: Token, centre_atom: Atom) -> tuple[int, list[int]]:

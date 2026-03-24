@@ -250,10 +250,11 @@ class BaseSingleDataset(Dataset):
                     > 0
                 ]
             else:
+                # Vectorized equivalent of:
+                #   indices_list[indices_list["eval_type"].apply(lambda x: x in EvaluationChainInterface)]
+                # .isin() checks each element of the Series against the set, same semantics as the lambda.
                 indices_list = indices_list[
-                    indices_list["eval_type"].apply(
-                        lambda x: x in EvaluationChainInterface
-                    )
+                    indices_list["eval_type"].isin(EvaluationChainInterface)
                 ]
             self.check_indices_list(indices_list, "find_eval_chain_interface filtering")
         if self.limits > 0 and len(indices_list) > self.limits:
