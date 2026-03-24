@@ -495,8 +495,9 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     cached_batches: list[tuple] = []
 
     # ---- Batched seed mode: run all seeds in one model call ----------------
+    # Enabled by default when multiple seeds; opt out with PROTENIX_NOBATCHED_SEEDS=1
     batched_seeds = (
-        os.environ.get("PROTENIX_BATCHED_SEEDS", "0") == "1"
+        os.environ.get("PROTENIX_NOBATCHED_SEEDS", "0") != "1"
         and len(seeds) > 1
     )
     if batched_seeds:
@@ -614,11 +615,50 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
 
                 if batched_seeds:
                     # Run all seeds in one model forward call
-                    prediction = runner.predict(
-                        data,
-                        already_on_device=(transfer_event is not None),
-                        N_model_seed=len(seeds),
-                    )
+                    try:
+                        prediction = runner.predict(
+                            data,
+                            already_on_device=(transfer_event is not None),
+                            N_model_seed=len(seeds),
+                        )
+                    except torch.cuda.OutOfMemoryError:
+                        logger.warning(
+                            f"Batched seed inference OOM for {sample_name}, "
+                            f"falling back to sequential seeds"
+                        )
+                        torch.cuda.empty_cache()
+                        batched_seeds = False
+                        # Re-transfer data since it may have been consumed
+                        data = copy.deepcopy(cached_batches[-1][0]) if cached_batches else data
+                        if use_cuda:
+                            data, transfer_event = _prefetch_to_device(
+                                data, runner.device, transfer_stream
+                            )
+                            torch.cuda.current_stream().wait_event(transfer_event)
+                        prediction = runner.predict(
+                            data, already_on_device=(transfer_event is not None)
+                        )
+                        runner.dumper.dump(
+                            dataset_name="",
+                            pdb_id=sample_name,
+                            seed=seed,
+                            pred_dict=prediction,
+                            atom_array=atom_array,
+                            entity_poly_type={
+                                k: v
+                                for k, v in data["entity_poly_type"].items()
+                                if v != "non-polymer"
+                            },
+                        )
+                        t2_end = time.time()
+                        logger.info(
+                            f"[Rank {DIST_WRAPPER.rank}] {sample_name} [seed:{seed}] "
+                            f"succeeded (sequential fallback). Model forward time: {t2_end - t2_start:.2f}s. "
+                            f"Results saved to {configs.dump_dir}"
+                        )
+                        torch.cuda.empty_cache()
+                        continue
+
                     # prediction has concatenated results across seeds.
                     # Split and dump per seed.
                     n_samples_per_seed = configs.sample_diffusion.N_sample

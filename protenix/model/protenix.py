@@ -693,9 +693,9 @@ class Protenix(nn.Module):
                 if k in _volatile_keys
             }
 
-            # Try batched evoformer for seeds that don't use mc_dropout.
+            # Batched evoformer is on by default; opt out with PROTENIX_NOBATCHED_SEEDS=1
             use_batched = (
-                os.environ.get('PROTENIX_BATCHED_SEEDS', '0') == '1'
+                os.environ.get('PROTENIX_NOBATCHED_SEEDS', '0') != '1'
             )
 
             if use_batched:
