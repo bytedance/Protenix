@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import copy
 import json
 import logging
 import os
@@ -18,6 +19,7 @@ import time
 import traceback
 import urllib.request
 from argparse import Namespace
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from os.path import exists as opexists, join as opjoin
 from typing import Any, Mapping
@@ -34,7 +36,7 @@ from protenix.data.inference.infer_dataloader import get_inference_dataloader
 from protenix.model.protenix import Protenix
 from protenix.utils.distributed import DIST_WRAPPER
 from protenix.utils.seed import seed_everything
-from protenix.utils.torch_utils import to_device
+from protenix.utils.torch_utils import pin_memory, to_device
 from protenix.web_service.dependency_url import URL
 
 from runner.dumper import DataDumper
@@ -201,12 +203,22 @@ class InferenceRunner(object):
 
     # Adapted from runner.train.AF3Trainer.evaluate
     @torch.no_grad()
-    def predict(self, data: Mapping[str, Mapping[str, Any]]) -> dict[str, torch.Tensor]:
+    def predict(
+        self,
+        data: Mapping[str, Mapping[str, Any]],
+        already_on_device: bool = False,
+        N_model_seed: int = 1,
+    ) -> dict[str, torch.Tensor]:
         """
         Run model prediction on the provided data.
 
         Args:
-            data (Mapping[str, Mapping[str, Any]]): Input data dictionary.
+            data: Input data dictionary.
+            already_on_device: If True, skip the to_device call (data was
+                already transferred via the async prefetch pipeline).
+            N_model_seed: Number of model seeds to run in batched mode.
+                When > 1, the model runs evoformer for each seed with
+                seed as leading batch dim, then diffusion per seed.
 
         Returns:
             dict[str, torch.Tensor]: Prediction results.
@@ -223,7 +235,8 @@ class InferenceRunner(object):
             else nullcontext()
         )
 
-        data = to_device(data, self.device)
+        if not already_on_device:
+            data = to_device(data, self.device)
         with enable_amp:
             prediction, _, _ = self.model(
                 input_feature_dict=data["input_feature_dict"],
@@ -231,6 +244,7 @@ class InferenceRunner(object):
                 label_dict=None,
                 mode="inference",
                 mc_dropout_apply_rate=self.configs.mc_dropout_apply_rate,
+                N_model_seed_override=N_model_seed if N_model_seed > 1 else None,
             )
 
         return prediction
@@ -407,16 +421,41 @@ def update_inference_configs(configs: Any, n_token: int) -> Any:
     return configs
 
 
+def _prefetch_to_device(data, device, transfer_stream):
+    """Pin CPU tensors and transfer to *device* on *transfer_stream*.
+
+    Returns the data dict (now on GPU) and a CUDA event that the compute
+    stream must wait on before using the tensors.
+    """
+    pin_memory(data)
+    with torch.cuda.stream(transfer_stream):
+        to_device(data, device, non_blocking=True)
+    # Record an event so the compute stream can synchronize with the transfer.
+    transfer_done = transfer_stream.record_event()
+    return data, transfer_done
+
+
 def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     """
-    Run the full inference process for the given runner and configurations.
-    Processes all samples in the dataloader for each specified seed.
+    Run the full inference process with pipelined CPU/GPU overlap.
+
+    The main optimisations over the naive sequential loop are:
+
+    1. **Prefetch pipeline** -- while the GPU runs inference on entry *N*, a
+       background thread starts CPU featurisation for entry *N+1*.  This hides
+       dataloader latency when inference time >= featurisation time.
+    2. **Pinned-memory + async transfer** -- CPU tensors are pinned and copied
+       to GPU on a dedicated CUDA *transfer_stream* with ``non_blocking=True``.
+       The compute stream waits on an event rather than a full device sync.
+    3. **Seed caching** -- when multiple seeds are requested, featurised data is
+       cached after the first seed pass and replayed for subsequent seeds,
+       avoiding redundant CPU featurisation (~7-30 s per entry).
 
     Args:
         runner (InferenceRunner): The initialized runner instance.
         configs (Any): Inference configurations.
     """
-    # Data loading
+    # ---- Data loading -------------------------------------------------------
     logger.info(f"Loading data from {configs.input_json_path}")
     with open(configs.input_json_path, "r", encoding="utf-8") as f:
         json_data = json.load(f)
@@ -446,19 +485,102 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         return
 
     num_data = len(dataloader.dataset)
-    t0_start = time.time()
-    for seed in seeds:
-        seed_everything(seed=seed, deterministic=configs.deterministic)
-        t1_start = time.time()
-        for batch in dataloader:
-            sample_name = "unknown"
-            try:
-                t2_start = time.time()
-                data, atom_array, data_error_message = batch[0]
-                sample_name = data["sample_name"]
 
+    # ---- CUDA streams for pipelining ---------------------------------------
+    use_cuda = runner.use_cuda
+    transfer_stream = torch.cuda.Stream() if use_cuda else None
+
+    # ---- Seed caching (avoids re-featurisation for seeds > 0) ---------------
+    cache_features = len(seeds) > 1
+    cached_batches: list[tuple] = []
+
+    # ---- Batched seed mode: run all seeds in one model call ----------------
+    batched_seeds = (
+        os.environ.get("PROTENIX_BATCHED_SEEDS", "0") == "1"
+        and len(seeds) > 1
+    )
+    if batched_seeds:
+        logger.info(f"Batched seed mode: {len(seeds)} seeds in one forward pass")
+
+    # ---- Main loop ----------------------------------------------------------
+    t0_start = time.time()
+    for seed_idx, seed in enumerate(seeds):
+        seed_everything(seed=seed, deterministic=configs.deterministic)
+        # In batched mode, only featurize on first seed, run all seeds at once
+        if batched_seeds and seed_idx > 0:
+            continue
+        t1_start = time.time()
+
+        # On the first seed iterate the dataloader (triggers featurisation)
+        # and optionally cache results.  On subsequent seeds, replay cache.
+        if seed_idx == 0:
+            batch_iter = dataloader
+        else:
+            batch_iter = cached_batches
+
+        # --- Prefetch pipeline (first-seed only) ---
+        # We use a single-thread executor to run the dataloader iterator one
+        # step ahead so CPU featurisation overlaps with GPU inference.
+        prefetch_executor = (
+            ThreadPoolExecutor(max_workers=1) if (seed_idx == 0) else None
+        )
+        prefetch_future = None
+
+        def _next_from_iter(it):
+            """Fetch next batch from *it*, returning None at exhaustion."""
+            try:
+                return next(it)
+            except StopIteration:
+                return None
+
+        batch_iterator = iter(batch_iter)
+
+        # Kick off the first prefetch.
+        if prefetch_executor is not None:
+            prefetch_future = prefetch_executor.submit(
+                _next_from_iter, batch_iterator
+            )
+
+        while True:
+            # Get the prefetched (or next) batch.
+            if prefetch_future is not None:
+                batch_item = prefetch_future.result()
+            else:
+                batch_item = _next_from_iter(batch_iterator)
+
+            if batch_item is None:
+                break
+
+            # Unpack depending on dataloader vs cache replay.
+            if seed_idx == 0:
+                batch = batch_item
+                data, atom_array, data_error_message = batch[0]
+                if cache_features:
+                    cached_batches.append(
+                        (copy.deepcopy(data), atom_array, data_error_message)
+                    )
+            else:
+                data_orig, atom_array, data_error_message = batch_item
+                # Deep-copy so the cached version survives model's in-place
+                # mutations (template/MSA key deletion etc.).
+                data = copy.deepcopy(data_orig)
+
+            # Immediately kick off prefetch for the NEXT batch so CPU
+            # featurisation overlaps with GPU inference below.
+            if prefetch_executor is not None:
+                prefetch_future = prefetch_executor.submit(
+                    _next_from_iter, batch_iterator
+                )
+            else:
+                prefetch_future = None
+
+            sample_name = data.get("sample_name", "unknown")
+            t2_start = time.time()
+            try:
                 if len(data_error_message) > 0:
-                    logger.error(f"Data error for {sample_name}: {data_error_message}")
+                    logger.error(
+                        f"Data error for {sample_name}: {data_error_message}"
+                    )
                     with open(
                         opjoin(runner.error_dir, f"{sample_name}.txt"),
                         "a",
@@ -468,30 +590,79 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                     continue
 
                 logger.info(
-                    f"[Rank {DIST_WRAPPER.rank} ({data['sample_index'] + 1}/{num_data})] "
+                    f"[Rank {DIST_WRAPPER.rank} "
+                    f"({data['sample_index'] + 1}/{num_data})] "
                     f"{sample_name} [seed:{seed}]: "
-                    f"N_asym {data['N_asym'].item()}, N_token {data['N_token'].item()}, "
-                    f"N_atom {data['N_atom'].item()}, N_msa {data['N_msa'].item()}"
+                    f"N_asym {data['N_asym'].item()}, "
+                    f"N_token {data['N_token'].item()}, "
+                    f"N_atom {data['N_atom'].item()}, "
+                    f"N_msa {data['N_msa'].item()}"
                 )
-                new_configs = update_inference_configs(configs, data["N_token"].item())
+                new_configs = update_inference_configs(
+                    configs, data["N_token"].item()
+                )
                 runner.update_model_configs(new_configs)
-                prediction = runner.predict(data)
-                runner.dumper.dump(
-                    dataset_name="",
-                    pdb_id=sample_name,
-                    seed=seed,
-                    pred_dict=prediction,
-                    atom_array=atom_array,
-                    entity_poly_type={
-                        k: v
-                        for k, v in data["entity_poly_type"].items()
-                        if v != "non-polymer"
-                    },
-                )
+
+                # Async H2D transfer on a separate CUDA stream.
+                transfer_event = None
+                if use_cuda:
+                    data, transfer_event = _prefetch_to_device(
+                        data, runner.device, transfer_stream
+                    )
+                    # Wait for transfer to finish before compute.
+                    torch.cuda.current_stream().wait_event(transfer_event)
+
+                if batched_seeds:
+                    # Run all seeds in one model forward call
+                    prediction = runner.predict(
+                        data,
+                        already_on_device=(transfer_event is not None),
+                        N_model_seed=len(seeds),
+                    )
+                    # prediction has concatenated results across seeds.
+                    # Split and dump per seed.
+                    n_samples_per_seed = configs.sample_diffusion.N_sample
+                    for s_idx, s_seed in enumerate(seeds):
+                        sliced_pred = {}
+                        for k, v in prediction.items():
+                            if isinstance(v, torch.Tensor) and v.shape[0] == len(seeds) * n_samples_per_seed:
+                                sliced_pred[k] = v[s_idx * n_samples_per_seed:(s_idx + 1) * n_samples_per_seed]
+                            elif isinstance(v, list) and len(v) == len(seeds) * n_samples_per_seed:
+                                sliced_pred[k] = v[s_idx * n_samples_per_seed:(s_idx + 1) * n_samples_per_seed]
+                            else:
+                                sliced_pred[k] = v
+                        runner.dumper.dump(
+                            dataset_name="",
+                            pdb_id=sample_name,
+                            seed=s_seed,
+                            pred_dict=sliced_pred,
+                            atom_array=atom_array,
+                            entity_poly_type={
+                                k: v
+                                for k, v in data["entity_poly_type"].items()
+                                if v != "non-polymer"
+                            },
+                        )
+                else:
+                    prediction = runner.predict(
+                        data, already_on_device=(transfer_event is not None)
+                    )
+                    runner.dumper.dump(
+                        dataset_name="",
+                        pdb_id=sample_name,
+                        seed=seed,
+                        pred_dict=prediction,
+                        atom_array=atom_array,
+                        entity_poly_type={
+                            k: v
+                            for k, v in data["entity_poly_type"].items()
+                            if v != "non-polymer"
+                        },
+                    )
                 t2_end = time.time()
                 logger.info(
-                    f"[Rank {DIST_WRAPPER.rank}] {sample_name} [seed:{seed}] succeeded. "
-                    f"Model forward time: {t2_end - t2_start:.2f}s. "
+                    f"[Rank {DIST_WRAPPER.rank}] {sample_name} [seed:{seed}] "
+                    f"succeeded. Model forward time: {t2_end - t2_start:.2f}s. "
                     f"Results saved to {configs.dump_dir}"
                 )
                 torch.cuda.empty_cache()
@@ -508,10 +679,19 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 ) as f:
                     f.write(error_message)
                 torch.cuda.empty_cache()
+
+        if prefetch_executor is not None:
+            prefetch_executor.shutdown(wait=False)
+
         t1_end = time.time()
         logger.info(
-            f"[Rank {DIST_WRAPPER.rank}] Seed {seed} completed in {t1_end - t1_start:.2f}s."
+            f"[Rank {DIST_WRAPPER.rank}] Seed {seed} completed in "
+            f"{t1_end - t1_start:.2f}s."
         )
+
+    # Free the cache
+    cached_batches.clear()
+
     # Remove the error directory if it's empty
     if opexists(runner.error_dir):
         try:

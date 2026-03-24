@@ -592,7 +592,8 @@ def cuequivariance_triangular_attn(
     scale: float,
 ) -> torch.Tensor:
     from cuequivariance_torch.primitives.triangle import triangle_attention
-
+    # cuequivariance natively supports [B, N, H, Q, D] with B > 1
+    # via ensure_dims() which pads to 5D.
     return triangle_attention(q, k, v, bias, mask=mask, scale=scale)
 
 
