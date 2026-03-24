@@ -577,45 +577,61 @@ class Templates:
             "template_atom_mask": self.atom_mask,
         }
 
+    # Shared config instance to avoid repeated object creation
+    _DGRAM_CONFIG = DistogramFeaturesConfig(
+        min_bin=3.25, max_bin=50.75, num_bins=39
+    )
+
     def as_protenix_dict(self) -> BatchDict:
         """Compute additional features and return as Protenix dictionary."""
         features = self.as_data_dict()
-        dgrams, pb_masks = [], []
-        unit_vectors, bb_masks = [], []
-
         num_templates = self.aatype.shape[0]
+        num_res = self.aatype.shape[1]
+
+        # Pre-allocate output arrays instead of list append + stack
+        all_pb_masks = np.empty(
+            (num_templates, num_res, num_res), dtype=np.float32
+        )
+        all_dgrams = np.empty(
+            (num_templates, num_res, num_res, 39), dtype=np.float32
+        )
+        all_unit_vectors = np.empty(
+            (num_templates, num_res, num_res, 3), dtype=np.float32
+        )
+        all_bb_masks = np.empty(
+            (num_templates, num_res, num_res), dtype=np.float32
+        )
+
+        config = Templates._DGRAM_CONFIG
+        is_lig = getattr(self, "is_ligand", None)
         for i in range(num_templates):
             aatype = self.aatype[i]
             mask = self.atom_mask[i]
             pos = self.atom_positions[i] * mask[..., None]
 
-            # Compute pseudo-beta positions and mask
-            pb_pos, pb_mask = TemplateFeatures.pseudo_beta_fn(aatype, pos, mask)
+            pb_pos, pb_mask = TemplateFeatures.pseudo_beta_fn(
+                aatype, pos, mask, is_ligand=is_lig
+            )
             pb_mask_2d = pb_mask[:, None] * pb_mask[None, :]
 
-            # Compute distogram
             dgram = TemplateFeatures.dgram_from_positions(
-                pb_pos,
-                config=DistogramFeaturesConfig(
-                    min_bin=3.25, max_bin=50.75, num_bins=39
-                ),
+                pb_pos, config=config
             )
-            dgrams.append(dgram * pb_mask_2d[..., None])
-            pb_masks.append(pb_mask_2d)
+            all_dgrams[i] = dgram * pb_mask_2d[..., None]
+            all_pb_masks[i] = pb_mask_2d
 
-            # Compute normalized unit vectors between residues
             uv, bb_mask_2d = TemplateFeatures.compute_template_unit_vector(
                 aatype, pos, mask
             )
-            unit_vectors.append(uv * bb_mask_2d[..., None])
-            bb_masks.append(bb_mask_2d)
+            all_unit_vectors[i] = uv * bb_mask_2d[..., None]
+            all_bb_masks[i] = bb_mask_2d
 
         features.update(
             {
-                "template_pseudo_beta_mask": np.stack(pb_masks),
-                "template_distogram": np.stack(dgrams),
-                "template_unit_vector": np.stack(unit_vectors),
-                "template_backbone_frame_mask": np.stack(bb_masks),
+                "template_pseudo_beta_mask": all_pb_masks,
+                "template_distogram": all_dgrams,
+                "template_unit_vector": all_unit_vectors,
+                "template_backbone_frame_mask": all_bb_masks,
             }
         )
         return features
