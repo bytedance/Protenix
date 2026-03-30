@@ -32,18 +32,38 @@ def grad_norm(params):
     return total_norm
 
 
-def to_device(obj, device):
-    """Move tensor or dict of tensors to device"""
+def to_device(obj, device, non_blocking=False):
+    """Move tensor or dict of tensors to device.
+
+    Args:
+        obj: A tensor or (nested) dict of tensors.
+        device: Target device.
+        non_blocking: If True, use non-blocking transfers (requires pinned
+            memory for CPU->GPU to actually overlap with compute).
+    """
     if isinstance(obj, dict):
         for k, v in obj.items():
             if isinstance(v, dict):
-                to_device(v, device)
+                to_device(v, device, non_blocking=non_blocking)
             elif isinstance(v, torch.Tensor):
-                obj[k] = obj[k].to(device)
+                obj[k] = obj[k].to(device, non_blocking=non_blocking)
     elif isinstance(obj, torch.Tensor):
-        obj = obj.to(device)
+        obj = obj.to(device, non_blocking=non_blocking)
     else:
         raise Exception(f"type {type(obj)} not supported")
+    return obj
+
+
+def pin_memory(obj):
+    """Pin CPU tensors in a (nested) dict so non-blocking transfers are fast."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, dict):
+                pin_memory(v)
+            elif isinstance(v, torch.Tensor) and not v.is_pinned():
+                obj[k] = v.pin_memory()
+    elif isinstance(obj, torch.Tensor) and not obj.is_pinned():
+        obj = obj.pin_memory()
     return obj
 
 
