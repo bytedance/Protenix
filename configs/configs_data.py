@@ -136,6 +136,11 @@ data_configs = {
         "sampler_type": "weighted",
     },
     "test_sets": ListValue(["recentPDB_1536_sample384_0925"]),
+    # NOTE:
+    # `weightedPDB_before2109_wopb_nometalc_0925` is compatible with the `2024.05.22` data version
+    # downloaded via `scripts/database/download_protenix_data.sh`.
+    # `weightedPDB_before250701_v20260101` and `weightedPDB_before210930_v20260101` are compatible
+    # with the `2026.01.01` data version.
     "weightedPDB_before2109_wopb_nometalc_0925": {
         "base_info": {
             "mmcif_dir": os.path.join(PROTENIX_ROOT_DIR, "mmcif"),
@@ -145,6 +150,48 @@ data_configs = {
             "indices_fpath": os.path.join(
                 PROTENIX_ROOT_DIR,
                 "indices/weightedPDB_indices_before_2021-09-30_wo_posebusters_resolution_below_9.csv.gz",
+            ),
+            "pdb_list": "",
+            "random_sample_if_failed": True,
+            "max_n_token": -1,  # can be used for removing data with too many tokens.
+            "use_reference_chains_only": False,
+            "exclusion": {  # do not sample the data based on ions.
+                "mol_1_type": ListValue(["ions"]),
+                "mol_2_type": ListValue(["ions"]),
+            },
+        },
+        **deepcopy(default_weighted_pdb_configs),
+    },
+    "weightedPDB_before250701_v20260101": {
+        "base_info": {
+            "mmcif_dir": os.path.join(PROTENIX_ROOT_DIR, "mmcif"),
+            "bioassembly_dict_dir": os.path.join(
+                PROTENIX_ROOT_DIR, "mmcif_bioassembly"
+            ),
+            "indices_fpath": os.path.join(
+                PROTENIX_ROOT_DIR,
+                "indices/indices_20260107-20chains_before_2025-07-01_res4.5.csv.gz",
+            ),
+            "pdb_list": "",
+            "random_sample_if_failed": True,
+            "max_n_token": -1,  # can be used for removing data with too many tokens.
+            "use_reference_chains_only": False,
+            "exclusion": {  # do not sample the data based on ions.
+                "mol_1_type": ListValue(["ions"]),
+                "mol_2_type": ListValue(["ions"]),
+            },
+        },
+        **deepcopy(default_weighted_pdb_configs),
+    },
+    "weightedPDB_before210930_v20260101": {
+        "base_info": {
+            "mmcif_dir": os.path.join(PROTENIX_ROOT_DIR, "mmcif"),
+            "bioassembly_dict_dir": os.path.join(
+                PROTENIX_ROOT_DIR, "mmcif_bioassembly"
+            ),
+            "indices_fpath": os.path.join(
+                PROTENIX_ROOT_DIR,
+                "indices/indices_20260107-20chains_before_2021-09-30_res4.5.csv.gz",
             ),
             "pdb_list": "",
             "random_sample_if_failed": True,

@@ -14,15 +14,16 @@
 
 import argparse
 import csv
+import random
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-from joblib import delayed, Parallel
+from joblib import Parallel, delayed
+from tqdm import tqdm
 
 from protenix.data.pipeline.data_pipeline import DataPipeline
 from protenix.utils.file_io import dump_gzip_pickle
-from tqdm import tqdm
 
 
 def gen_a_bioassembly_data(
@@ -78,6 +79,7 @@ def gen_data_from_mmcifs(
         distillation (bool, optional): Flag indicating whether to use the 'Distillation' setting. Defaults to False.
         num_workers (int, optional): Number of parallel workers to use. Defaults to 1.
     """
+    random.shuffle(mmcif_list)
 
     all_sample_indices_list = [
         r

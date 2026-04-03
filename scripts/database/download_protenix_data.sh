@@ -14,6 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+################################################################################
+# IMPORTANT NOTICE:
+# The `--version` option specifies the download date of the mmCIF files from wwPDB.
+# Other associated files (such as MSA, template, bioassembly, etc.) are also
+# generated relative to this specific date.
+#
+# Note: The `protenix_base_20250630_v1.0.0` model mentioned in `docs/supported_models.md`
+# requires the wwPDB data version `2026.01.01`.
+################################################################################
+
 # --- Script Configuration & Safety Settings ---
 set -euo pipefail
 
@@ -28,6 +38,7 @@ usage() {
     echo "Options:"
     echo "  --inference_only    Download only the data needed for inference (common, mmcif, search_database) (default)"
     echo "  --full              Download all data components for training and finetuning"
+    echo "  --version           Specify the data version: '2024.05.22' (default) or '2026.01.01'"
     echo "  -h, --help          Show this help message"
     echo ""
     exit 0
@@ -35,6 +46,7 @@ usage() {
 
 # --- Parse Arguments ---
 DOWNLOAD_MODE="inference"
+DATA_VERSION="2024.05.22"
 while [[ $# -gt 0 ]]; do
     case $1 in
         --inference_only)
@@ -45,6 +57,14 @@ while [[ $# -gt 0 ]]; do
             DOWNLOAD_MODE="full"
             shift
             ;;
+        --version)
+            if [[ -n "${2:-}" && "$2" != -* ]]; then
+                DATA_VERSION="$2"
+                shift 2
+            else
+                err "Error: Argument for $1 is missing"
+            fi
+            ;;
         -h|--help)
             usage
             ;;
@@ -54,6 +74,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ "$DATA_VERSION" != "2024.05.22" && "$DATA_VERSION" != "2026.01.01" ]]; then
+    err "Invalid data version: $DATA_VERSION. Supported versions are '2024.05.22' and '2026.01.01'"
+fi
+
 # --- Check Environment Variable ---
 if [ -z "${PROTENIX_ROOT_DIR:-}" ]; then
     err "PROTENIX_ROOT_DIR is not set. Please set it before running this script.\nExample: export PROTENIX_ROOT_DIR=/path/to/your/data_root"
@@ -61,6 +85,7 @@ fi
 
 info "Using PROTENIX_ROOT_DIR: $PROTENIX_ROOT_DIR"
 info "Download mode: $DOWNLOAD_MODE"
+info "Data version: $DATA_VERSION"
 mkdir -p "$PROTENIX_ROOT_DIR"
 # --- Download & Extract Data Components ---
 if [ "$DOWNLOAD_MODE" == "inference" ]; then
@@ -84,7 +109,11 @@ else
     )
 fi
 
-BASE_URL="https://protenix.tos-cn-beijing.volces.com"
+if [ "$DATA_VERSION" == "2026.01.01" ]; then
+    BASE_URL="https://protenix.tos-cn-beijing.volces.com/protenix.20260101"
+else
+    BASE_URL="https://protenix.tos-cn-beijing.volces.com"
+fi
 
 for file in "${DATA_FILES[@]}"; do
     info "Downloading $file from $BASE_URL/$file ..."

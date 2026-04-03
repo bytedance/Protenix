@@ -1357,6 +1357,24 @@ def pad_to(arr: np.ndarray, shape: tuple, **kwargs) -> np.ndarray:
     return padded_arr
 
 
+def map_annotations_to_atom_indices(
+    atom_array: AtomArray, annot_keys: list[str]
+) -> dict[tuple, list[int]]:
+    """
+    map annotations to atom indices
+    Args:
+        atom_array (AtomArray): Biotite AtomArray
+        annot_keys (list[str]): annotation keys, eg: ['chain_id','res_id','res_name']
+    Returns:
+        dict[tuple, list[int]]: annotation to atom indices map, eg: {(chain_id, res_id, res_name): [atom_indices]}
+    """
+    annot_arrays = [getattr(atom_array, k) for k in annot_keys]
+    annots_to_indices = defaultdict(list)
+    for i, atom_annots in enumerate(zip(*annot_arrays)):
+        annots_to_indices[atom_annots].append(i)
+    return annots_to_indices
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(

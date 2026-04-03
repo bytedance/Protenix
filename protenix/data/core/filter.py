@@ -12,12 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import defaultdict
+
 import biotite.structure as struc
+import networkx as nx
 import numpy as np
-from biotite.structure import AtomArray, get_molecule_indices
+from biotite.structure import AtomArray, get_residue_starts
+from scipy.spatial import KDTree
 from scipy.spatial.distance import cdist
 
 from protenix.data.constants import CRYSTALLIZATION_AIDS
+from protenix.data.utils import get_inter_residue_bonds
 
 
 class Filter(object):
@@ -83,178 +88,6 @@ class Filter(object):
         return atom_array[poly_mask | non_aids_mask]
 
     @staticmethod
-    def _get_clashing_chains(
-        atom_array: AtomArray, chain_ids: list[str]
-    ) -> tuple[np.ndarray, list[int]]:
-        """
-        Calculate the number of atoms clashing with other chains for each chain
-        and return a matrix that records the count of clashing atoms.
-
-        Note: if two chains are covalent, they are not considered as clashing.
-
-        Args:
-            atom_array (AtomArray): All atoms, including those not resolved.
-            chain_ids (list[str]): Unique chain indices of resolved atoms.
-
-        Returns:
-            tuple:
-                clash_records (numpy.ndarray): Matrix of clashing atom num.
-                                               (i, j) means the ratio of i's atom clashed with j's atoms.
-                                               Note: (i, j) != (j, i).
-                chain_resolved_atom_nums (list[int]): The number of resolved atoms corresponding to each chain ID.
-        """
-        is_resolved_centre_atom = (
-            atom_array.centre_atom_mask == 1
-        ) & atom_array.is_resolved
-        cell_list = struc.CellList(
-            atom_array, cell_size=1.7, selection=is_resolved_centre_atom
-        )
-
-        # (i, j) means the ratio of i's atom clashed with j's atoms
-        clash_records = np.zeros((len(chain_ids), len(chain_ids)))
-
-        # record the number of resolved atoms for each chain
-        chain_resolved_atom_nums = []
-
-        # record covalent relationship between chains
-        chains_covalent_dict = {}
-        for idx, chain_id_i in enumerate(chain_ids):
-            for chain_id_j in chain_ids[idx + 1 :]:
-                mol_indices = get_molecule_indices(
-                    atom_array[np.isin(atom_array.chain_id, [chain_id_i, chain_id_j])]
-                )
-                if len(mol_indices) == 1:
-                    covalent = 1
-                else:
-                    covalent = 0
-                chains_covalent_dict[(chain_id_i, chain_id_j)] = covalent
-                chains_covalent_dict[(chain_id_j, chain_id_i)] = covalent
-
-        for i, chain_id in enumerate(chain_ids):
-            coords = atom_array.coord[
-                (atom_array.chain_id == chain_id) & is_resolved_centre_atom
-            ]
-            chain_resolved_atom_nums.append(len(coords))
-            chain_atom_ids = np.where(atom_array.chain_id == chain_id)[0]
-            chain_atom_ids_set = set(chain_atom_ids) | {-1}
-
-            # Get atom indices from the current cell and the eight surrounding cells.
-            neighbors_ids_2d = cell_list.get_atoms_in_cells(coords, cell_radius=1)
-            neighbors_ids = np.unique(neighbors_ids_2d)
-
-            # Remove the atom indices of the current chain.
-            other_chain_atom_ids = list(set(neighbors_ids) - chain_atom_ids_set)
-
-            if not other_chain_atom_ids:
-                continue
-            else:
-                # Calculate the distance matrix with neighboring atoms.
-                other_chain_atom_coords = atom_array.coord[other_chain_atom_ids]
-                dist_mat = cdist(coords, other_chain_atom_coords, metric="euclidean")
-                clash_mat = dist_mat < 1.6  # change 1.7 to 1.6 for more compatibility
-                if np.any(clash_mat):
-                    clashed_other_chain_ids = atom_array.chain_id[other_chain_atom_ids]
-
-                    for other_chain_id in set(clashed_other_chain_ids):
-
-                        # two chains covalent with each other
-                        if chains_covalent_dict[(chain_id, other_chain_id)]:
-                            continue
-
-                        cols = np.where(clashed_other_chain_ids == other_chain_id)[0]
-
-                        # how many i's atoms clashed with j
-                        any_atom_clashed = np.any(
-                            clash_mat[:, cols].astype(int), axis=1
-                        )
-                        clashed_atom_num = np.sum(any_atom_clashed.astype(int))
-
-                        if clashed_atom_num > 0:
-                            j = chain_ids.index(other_chain_id)
-                            clash_records[i][j] += clashed_atom_num
-        return clash_records, chain_resolved_atom_nums
-
-    @staticmethod
-    def _get_removed_clash_chain_ids(
-        clash_records: np.ndarray,
-        chain_ids: list[str],
-        chain_resolved_atom_nums: list[int],
-        core_chain_id: np.ndarray = [],
-    ) -> list[str]:
-        """
-        Perform pairwise comparisons on the chains, and select the chain IDs
-        to be deleted according to the clahsing chain rules.
-
-        Args:
-            clash_records (numpy.ndarray): Matrix of clashing atom num.
-                                           (i, j) means the ratio of i's atom clashed with j's atoms.
-                                           Note: (i, j) != (j, i).
-            chain_ids (list[str]): Unique chain indices of resolved atoms.
-            chain_resolved_atom_nums (list[int]): The number of resolved atoms corresponding to each chain ID.
-            core_chain_id (np.ndarray): The chain ID of the core chain.
-
-        Returns:
-            list[str]: A list of chain IDs that have been determined for deletion.
-        """
-        removed_chain_ids = []
-        for i in range(len(chain_ids)):
-            atom_num_i = chain_resolved_atom_nums[i]
-            chain_idx_i = chain_ids[i]
-
-            if chain_idx_i in removed_chain_ids:
-                continue
-
-            for j in range(i + 1, len(chain_ids)):
-                atom_num_j = chain_resolved_atom_nums[j]
-                chain_idx_j = chain_ids[j]
-
-                if chain_idx_j in removed_chain_ids:
-                    continue
-
-                clash_num_ij, clash_num_ji = (
-                    clash_records[i][j],
-                    clash_records[j][i],
-                )
-
-                clash_ratio_ij = clash_num_ij / atom_num_i
-                clash_ratio_ji = clash_num_ji / atom_num_j
-
-                if clash_ratio_ij <= 0.3 and clash_ratio_ji <= 0.3:
-                    # not reaches the threshold
-                    continue
-                else:
-                    # clashing chains
-                    if (
-                        chain_idx_i in core_chain_id
-                        and chain_idx_j not in core_chain_id
-                    ):
-                        removed_chain_idx = chain_idx_j
-                    elif (
-                        chain_idx_i not in core_chain_id
-                        and chain_idx_j in core_chain_id
-                    ):
-                        removed_chain_idx = chain_idx_i
-
-                    elif clash_ratio_ij > clash_ratio_ji:
-                        removed_chain_idx = chain_idx_i
-                    elif clash_ratio_ij < clash_ratio_ji:
-                        removed_chain_idx = chain_idx_j
-                    else:
-                        if atom_num_i < atom_num_j:
-                            removed_chain_idx = chain_idx_i
-                        elif atom_num_i > atom_num_j:
-                            removed_chain_idx = chain_idx_j
-                        else:
-                            removed_chain_idx = sorted([chain_idx_i, chain_idx_j])[1]
-
-                    removed_chain_ids.append(removed_chain_idx)
-
-                    if removed_chain_idx == chain_idx_i:
-                        # chain i already removed
-                        break
-        return removed_chain_ids
-
-    @staticmethod
     def remove_polymer_chains_all_residues_unknown(
         atom_array: AtomArray,
         entity_poly_type: dict,
@@ -264,7 +97,7 @@ class Filter(object):
         invalid_chains = []  # list of [start, end)
         for index in range(len(chain_starts) - 1):
             start, end = chain_starts[index], chain_starts[index + 1]
-            entity_id = atom_array[start].label_entity_id
+            entity_id = atom_array.label_entity_id[start]
             if (
                 entity_poly_type.get(entity_id, "non-poly") == "polypeptide(L)"
                 and np.all(atom_array.res_name[start:end] == "UNK")
@@ -291,12 +124,12 @@ class Filter(object):
         invalid_chains = []  # list of [start, end)
         for index in range(len(chain_starts) - 1):
             start, end = chain_starts[index], chain_starts[index + 1]
-            entity_id = atom_array[start].label_entity_id
+            entity_id = atom_array.label_entity_id[start]
             num_residue_ids = len(set(atom_array.label_seq_id[start:end]))
             if (
                 entity_poly_type.get(entity_id, "non-poly")
                 in (
-                    "polypeptide(L)",
+                    "polypeptide(L)",  # TODO: how to handle polypeptide(D)?
                     "polyribonucleotide",
                     "polydeoxyribonucleotide",
                 )
@@ -482,156 +315,758 @@ class Filter(object):
         return atom_array, input_chains_num
 
     @staticmethod
-    def remove_clashing_chains(
+    def _get_clash_mask(
         atom_array: AtomArray,
-        core_indices: list[int] = None,
-    ) -> AtomArray:
+        kdtree_query_result: np.ndarray,
+        removed_chain_ids: set[str],
+    ) -> np.ndarray:
         """
-        Ref: AlphaFold3 SI Chapter 2.5.4
+        Identify atomic clashes between chains using KDTree query results.
 
-        Clashing chains are removed.
-        Clashing chains are defined as those with >30% of atoms within 1.7 Å of an atom in another chain.
-        If two chains are clashing with each other, the chain with the greater percentage of clashing atoms will be removed.
-        If the same fraction of atoms are clashing, the chain with fewer total atoms is removed.
-        If the chains have the same number of atoms, then the chain with the larger chain id is removed.
-
-        Note: if two chains are covalent, they are not considered as clashing.
+        Implements clash detection criteria from AlphaFold3 (SI Chapter 2.5.4):
+        - Atoms within 1.7 Å considered clashing (but we use 1.6 Å here)
+        - Excludes intra-chain clashes and covalent bonds
+        - Respects chain removal priority from previous iterations
 
         Args:
-            atom_array (AtomArray): Biotite AtomArray Object of a Bioassembly.
-            core_indices (list[int]): A list of indices for core structures,
-                                      where these indices correspond to structures that will be preferentially
-                                      retained when pairwise clash chain assessments are performed.
+            atom_array (AtomArray): Full atomic structure data
+            kdtree_query_result (np.ndarray): Precomputed neighbor indices from KDTree.query_ball_point
+            removed_chain_ids (set[str]): Chains already scheduled for removal
 
         Returns:
-            atom_array (AtomArray): An AtomArray that has been processed through this filter.
-            removed_chain_ids (list[str]): A list of chain IDs that have been determined for deletion.
-                                           This is to log whether the filter has been utilized.
+            np.ndarray: Boolean array where True indicates atoms involved in inter-chain clashes
+            meeting removal criteria
         """
-        chain_ids = np.unique(atom_array.chain_id[atom_array.is_resolved]).tolist()
+        clash_mask = np.zeros(len(atom_array), dtype=bool)
+        for atom_idx, clashes in enumerate(kdtree_query_result):
+            chain_id_i = atom_array.chain_id[atom_idx]
+            if chain_id_i in removed_chain_ids:
+                continue
 
-        if core_indices is not None:
-            core_chain_id = np.unique(atom_array.chain_id[core_indices])
-        else:
-            core_chain_id = np.array([])
+            if len(clashes) == 1:
+                # only clash with itself
+                continue
 
-        clash_records, chain_resolved_atom_nums = Filter._get_clashing_chains(
-            atom_array, chain_ids
-        )
-        removed_chain_ids = Filter._get_removed_clash_chain_ids(
-            clash_records,
-            chain_ids,
-            chain_resolved_atom_nums,
-            core_chain_id=core_chain_id,
-        )
+            bonded_atoms, _bond_types = atom_array.bonds.get_bonds(atom_idx)
+            for clashed_atom_idx in clashes:
+                chain_id_j = atom_array.chain_id[clashed_atom_idx]
+                if chain_id_j in removed_chain_ids:
+                    continue
 
-        atom_array = atom_array[~np.isin(atom_array.chain_id, removed_chain_ids)]
-        return atom_array, removed_chain_ids
+                # clash with itself
+                if chain_id_i == chain_id_j:
+                    continue
+
+                # if two atoms are covalent, they are not considered as clashing.
+                if clashed_atom_idx in bonded_atoms:
+                    continue
+                clash_mask[atom_idx] = True
+                break
+        return clash_mask
 
     @staticmethod
-    def remove_unresolved_mols(atom_array: AtomArray) -> AtomArray:
+    def remove_clashing_chains(
+        atom_array: AtomArray,
+        clash_radius=1.6,
+        clash_ratio_threshold=0.3,
+    ) -> list[str]:
         """
-        Remove molecules from a bioassembly object which all atoms are not resolved.
+        Implements AlphaFold3's chain clash removal protocol (SI Chapter 2.5.4).
+
+        Algorithm Steps:
+        1. Identify resolved center atoms for clash detection
+        2. Build spatial index (KDTree) for efficient neighbor lookup
+        3. Iteratively detect and remove worst-offending chains until:
+           - No chains exceed clash ratio threshold
+           - All remaining chains meet quality criteria
+
+        Removal Priority Hierarchy:
+        1. Core chains (from core_indices) get retention priority
+        2. Chains with higher clash ratios removed first
+        3. For equal clash ratios: smaller chains removed first
+        4. For equal size: lexicographically larger chain IDs removed first
+
+        Args:
+            atom_array: Input bioassembly structure
+            clash_radius: Distance threshold (Å) for atomic clashes (1.6Å ~ 0.4Å less than vdW radii)
+            clash_ratio_threshold: Minimum fraction of clashing atoms (0.3 = 30%) to trigger removal
+
+        Returns:
+            List of removed chain IDs for auditing purposes
+        """
+        is_resolved_centre_atom = (
+            atom_array.centre_atom_mask == 1
+        ) & atom_array.is_resolved
+
+        # eg: 1qzb
+        assert is_resolved_centre_atom.sum() > 0, "No resolved center atoms found"
+
+        resolved_centre_atom_array = atom_array[is_resolved_centre_atom]
+
+        kdtree = KDTree(resolved_centre_atom_array.coord)
+        query_result = kdtree.query_ball_point(
+            resolved_centre_atom_array.coord,
+            r=clash_radius,
+        )
+
+        # record basic clash info
+        chain_id_to_clashed_atom_index = defaultdict(set)
+        atom_index_to_num_clashed_chains = {}
+        clash_mask = np.zeros(len(resolved_centre_atom_array), dtype=bool)
+        for atom_idx, clashes in enumerate(query_result):
+            chain_id = resolved_centre_atom_array.chain_id[atom_idx]
+            bonded_atoms, _bond_types = resolved_centre_atom_array.bonds.get_bonds(
+                atom_idx
+            )
+            filtered_clashes = set(clashes) - set(bonded_atoms) - set([atom_idx])
+            filtered_clashes = set(
+                [
+                    clash_atom_idx
+                    for clash_atom_idx in filtered_clashes
+                    if resolved_centre_atom_array.chain_id[clash_atom_idx] != chain_id
+                ]
+            )
+            chain_id_to_clashed_atom_index[chain_id] = (
+                chain_id_to_clashed_atom_index[chain_id] | filtered_clashes
+            )
+            atom_index_to_num_clashed_chains[atom_idx] = len(
+                np.unique(resolved_centre_atom_array.chain_id[list(filtered_clashes)])
+            )
+            clash_mask[atom_idx] = atom_index_to_num_clashed_chains[atom_idx] > 0
+
+        chain_ids = np.unique(resolved_centre_atom_array.chain_id)
+        sorted_chain_indices = np.argsort(chain_ids)
+        avg_occ_per_chain = []
+        clash_ratio_per_chain = []
+        atom_num_per_chain = []
+        clash_num_per_chain = []
+
+        # Some structure has multiple altloc chains in same space, e.g. 3ok4
+        first_altloc_per_chain = [
+            sorted(
+                np.unique(
+                    resolved_centre_atom_array.label_alt_id[
+                        resolved_centre_atom_array.chain_id == chain_id
+                    ]
+                )
+            )[0]
+            for chain_id in chain_ids
+        ]
+
+        # ['A', '.', '.', 'C', 'B'] -> [1 0 0 3 2]
+        ranked_altloc_per_chain = np.searchsorted(
+            np.unique(first_altloc_per_chain), first_altloc_per_chain
+        )
+
+        chain_id_to_index = {}
+        for i, chain_id in enumerate(chain_ids):
+            chain_mask = resolved_centre_atom_array.chain_id == chain_id
+            atom_num = np.sum(chain_mask)
+            clash_num = np.sum(clash_mask[chain_mask])
+            clash_ratio = clash_num / atom_num
+            avg_occ = np.mean(resolved_centre_atom_array.occupancy[chain_mask])
+
+            avg_occ_per_chain.append(avg_occ)
+            atom_num_per_chain.append(atom_num)
+            clash_num_per_chain.append(clash_num)
+            clash_ratio_per_chain.append(clash_ratio)
+            chain_id_to_index[chain_id] = i
+
+        in_core_clashing_chain_ids = [
+            1 if "." not in chain_id else 0 for chain_id in chain_ids
+        ]
+
+        removed_chain_ids = set()
+        last_removed_chain_id = None
+
+        for _cycle in range(len(chain_ids)):
+            if last_removed_chain_id is not None:
+                chain_i = chain_id_to_index[last_removed_chain_id]
+                clashing_atoms = chain_id_to_clashed_atom_index[last_removed_chain_id]
+
+                for atom_idx in clashing_atoms:
+                    chain_id_j = resolved_centre_atom_array.chain_id[atom_idx]
+
+                    if chain_id_j in removed_chain_ids:
+                        continue
+
+                    chain_j = chain_id_to_index[chain_id_j]
+                    assert clash_ratio_per_chain[chain_j] > 0
+
+                    # update atom_index_to_num_clashed_chains after removing a chain
+                    atom_index_to_num_clashed_chains[atom_idx] -= 1
+                    assert atom_index_to_num_clashed_chains[atom_idx] >= 0
+
+                    if atom_index_to_num_clashed_chains[atom_idx] == 0:
+                        # when num_clashed_chains for some atom reach zero, substract 1 from clash_num_per_chain
+                        clash_num_per_chain[chain_j] -= 1
+                        assert clash_num_per_chain[chain_j] >= 0
+
+                        # update clash_ratio_per_chain[chain_j]
+                        clash_ratio_per_chain[chain_j] = (
+                            clash_num_per_chain[chain_j] / atom_num_per_chain[chain_j]
+                        )
+
+                # set clash_ratio_per_chain for last_removed_chain to 0
+                clash_ratio_per_chain[chain_i] = 0
+
+            has_clash_chain = np.any(
+                [
+                    clash_ratio > clash_ratio_threshold
+                    for clash_ratio in clash_ratio_per_chain
+                ]
+            )
+
+            if not has_clash_chain:
+                # no clash over threshold in all chains
+                break
+
+            # filter out non clashing chains and removed chains
+            filtered_chains = [
+                item
+                for item in zip(
+                    in_core_clashing_chain_ids,
+                    avg_occ_per_chain,
+                    ranked_altloc_per_chain,
+                    clash_ratio_per_chain,
+                    atom_num_per_chain,
+                    sorted_chain_indices,
+                    chain_ids,
+                )
+                if item[3] > clash_ratio_threshold
+            ]
+
+            # Sort removal candidates by priority rules
+            remove_priority = sorted(
+                filtered_chains,
+                key=lambda x: (
+                    x[0],
+                    x[1],
+                    -x[2],
+                    -x[3],
+                    x[4],
+                    -x[5],
+                ),
+            )
+
+            # Remove highest priority candidate
+            last_removed_chain_id = remove_priority[0][6]
+            removed_chain_ids.add(last_removed_chain_id)
+        else:
+            raise ValueError(
+                "Find the number of clashes in chain incidents matching the total number of chains, "
+                "indicating a likely record issue with the removed_chain_ids."
+            )
+
+        return list(removed_chain_ids)
+
+    @staticmethod
+    def remove_unresolved_chains(atom_array: AtomArray) -> AtomArray:
+        """
+        Remove chains from a bioassembly object which all atoms are not resolved.
 
         Args:
             atom_array (AtomArray): Biotite AtomArray Object of a bioassembly.
 
         Returns:
-            AtomArray: An AtomArray object with unresolved molecules removed.
+            AtomArray: An AtomArray object with unresolved chains removed.
         """
-        valid_mol_id = []
-        for mol_id in np.unique(atom_array.mol_id):
-            resolved = atom_array.is_resolved[atom_array.mol_id == mol_id]
+        valid_chain_id = []
+        for chain_id in np.unique(atom_array.chain_id):
+            resolved = atom_array.is_resolved[atom_array.chain_id == chain_id]
             if np.any(resolved):
-                valid_mol_id.append(mol_id)
+                valid_chain_id.append(chain_id)
 
-        atom_array = atom_array[np.isin(atom_array.mol_id, valid_mol_id)]
+        atom_array = atom_array[np.isin(atom_array.chain_id, valid_chain_id)]
         return atom_array
 
     @staticmethod
     def remove_asymmetric_polymer_ligand_bonds(
-        atom_array: AtomArray, entity_poly_type: dict
+        atom_array: AtomArray, entity_poly_type: dict[str, str]
     ) -> AtomArray:
-        """remove asymmetric polymer ligand bonds (including protein-protein bond, like disulfide bond).
+        """
+        Remove asymmetric polymer ligand bonds (including protein-protein bond, like disulfide bond).
 
         AF3 SI 5.1 Structure filters
         Bonds for structures with homomeric subcomplexes lacking the corresponding homomeric symmetry are also removed
-        - e.g. if a certain bonded ligand only exists for some of the symmetric copies, but not for all,
+        e.g. 4MZ in 1keq
+
+        - if a certain bonded ligand only exists for some of the symmetric copies, but not for all,
         we remove the corresponding bond information from the input.
         In consequence the model has to learn to infer these bonds by itself.
 
         Args:
             atom_array (AtomArray): input atom array
+            entity_poly_type (dict): entity_poly_type dict from MMCIFParser
 
         Returns:
             AtomArray: output atom array with asymmetric polymer ligand bonds removed.
         """
         # get inter chain bonds
-        inter_chain_bonds = set()
-        for i, j, b in atom_array.bonds.as_array():
-            if atom_array.chain_id[i] != atom_array.chain_id[j]:
-                inter_chain_bonds.add((i, j))
+        bonds = atom_array.bonds.as_array()[:, :2]
+        inter_chain_bonds_all = bonds[
+            atom_array.chain_id[bonds[:, 0]] != atom_array.chain_id[bonds[:, 1]]
+        ]
 
-        # get asymmetric polymer ligand bonds
-        asymmetric_bonds = set()
-        chain_starts = struc.get_chain_starts(atom_array, add_exclusive_stop=False)
-        for bond in inter_chain_bonds:
+        i_is_polymer_mask = np.isin(
+            atom_array.label_entity_id[inter_chain_bonds_all[:, 0]],
+            list(entity_poly_type.keys()),
+        )
+        j_is_polymer_mask = np.isin(
+            atom_array.label_entity_id[inter_chain_bonds_all[:, 1]],
+            list(entity_poly_type.keys()),
+        )
 
-            if bond in asymmetric_bonds:
-                continue
+        # filter to at least one polymer
+        inter_chain_bonds = inter_chain_bonds_all[i_is_polymer_mask | j_is_polymer_mask]
 
-            i, j = bond
-            atom_i = atom_array[i]
-            atom_j = atom_array[j]
-            i_is_polymer = atom_i.label_entity_id in entity_poly_type
-            j_is_polymer = atom_j.label_entity_id in entity_poly_type
-            if i_is_polymer:
-                pass
-            elif j_is_polymer:
-                i, j = j, i
-                atom_i, atom_j = atom_j, atom_i
-                i_is_polymer, j_is_polymer = j_is_polymer, i_is_polymer
-            else:
-                # both entity is not polymer
-                continue
+        if len(inter_chain_bonds) == 0:
+            # no inter chain bonds found
+            return atom_array
 
-            # get atom i mask from all entity i copies
-            entity_mask_i = atom_array.label_entity_id == atom_i.label_entity_id
-            num_copies = np.isin(chain_starts, np.flatnonzero(entity_mask_i)).sum()
-            mask_i = (
-                entity_mask_i
-                & (atom_array.res_id == atom_i.res_id)
-                & (atom_array.atom_name == atom_i.atom_name)
+        # (sorted_entity_key, entity_id): chain_ids
+        bonded_entity_to_chains = defaultdict(set)
+
+        # (bond_site, bonded_entity_id): chain_ids
+        bond_site_and_paired_entity_to_chains = defaultdict(set)
+        for i, j in inter_chain_bonds:
+            chain_i = atom_array.chain_id[i]
+            chain_j = atom_array.chain_id[j]
+            entity_i = atom_array.label_entity_id[i]
+            entity_j = atom_array.label_entity_id[j]
+            sorted_entity_key = tuple(sorted([entity_i, entity_j]))
+            bonded_entity_to_chains[(sorted_entity_key, entity_i)].add(chain_i)
+            bonded_entity_to_chains[(sorted_entity_key, entity_j)].add(chain_j)
+
+            bond_site_i = (
+                atom_array.label_entity_id[i],
+                atom_array.res_id[i],
+                atom_array.res_name[i],
+                atom_array.atom_name[i],
             )
-            indices_i = np.flatnonzero(mask_i)
+            bond_site_j = (
+                atom_array.label_entity_id[j],
+                atom_array.res_id[j],
+                atom_array.res_name[j],
+                atom_array.atom_name[j],
+            )
+            bond_site_and_paired_entity_to_chains[(bond_site_i, entity_j)].add(chain_j)
+            bond_site_and_paired_entity_to_chains[(bond_site_j, entity_i)].add(chain_i)
 
-            if len(indices_i) != num_copies:
-                # not every copy of entity i has atom i.
-                asymmetric_bonds.add(bond)
+        # (sorted_entity_key, entity_id): num_copies
+        bonded_entity_to_num_copies = {
+            entity_key: len(chain_ids)
+            for entity_key, chain_ids in bonded_entity_to_chains.items()
+        }
+
+        # (bond_site, bonded_entity_id):: num_copies of bonded
+        bond_site_and_paired_entity_to_num_copies = {
+            bond_site_and_entity_key: len(chain_ids)
+            for bond_site_and_entity_key, chain_ids in bond_site_and_paired_entity_to_chains.items()
+        }
+
+        # find asymmetric bonds
+        asymmetric_bonds = set()
+        for i, j in inter_chain_bonds:
+            entity_i = atom_array.label_entity_id[i]
+            entity_j = atom_array.label_entity_id[j]
+            i_copies = bonded_entity_to_num_copies[
+                (tuple(sorted([entity_i, entity_j])), entity_i)
+            ]
+            j_copies = bonded_entity_to_num_copies[
+                (tuple(sorted([entity_i, entity_j])), entity_j)
+            ]
+            num_copies = min(i_copies, j_copies)
+
+            if entity_i not in entity_poly_type:
+                # entity_i is not polymer
+                polymer_atom = j
+                ligand_atom = i
+            else:
+                polymer_atom = i
+                ligand_atom = j
+
+            polymer_bond_site = (
+                atom_array.label_entity_id[polymer_atom],
+                atom_array.res_id[polymer_atom],
+                atom_array.res_name[polymer_atom],
+                atom_array.atom_name[polymer_atom],
+            )
+            bonded_ligand_num = bond_site_and_paired_entity_to_num_copies[
+                (polymer_bond_site, atom_array.label_entity_id[ligand_atom])
+            ]
+
+            if bonded_ligand_num != num_copies:
+                # asymmetric bond
+                asymmetric_bonds.add((i, j))
+
+        for i, j in asymmetric_bonds:
+            atom_array.bonds.remove_bond(i, j)
+        return atom_array
+
+    @staticmethod
+    def remove_ligand_absent_atoms(atom_array: AtomArray) -> AtomArray:
+        """
+        Remove ligand atoms absent from the input atom array.
+        For each ligand type (by res_name), retain only atoms present in at least one ligand copy in the input.
+        Args:
+            atom_array (AtomArray): Input atom array.
+        Returns:
+            AtomArray: Output atom array with absent ligand atoms removed.
+        """
+        res_to_atom_name = defaultdict(set)
+        lig_indices = np.flatnonzero(atom_array.label_seq_id == ".")
+        lig_res_name = atom_array.res_name[lig_indices]
+        lig_atom_name = atom_array.atom_name[lig_indices]
+        lig_is_resolved = atom_array.is_resolved[lig_indices]
+
+        for res_name, atom_name in zip(
+            lig_res_name[lig_is_resolved], lig_atom_name[lig_is_resolved]
+        ):
+            res_to_atom_name[res_name].add(atom_name)
+
+        remove_indices = []
+        for idx, res_name, atom_name in zip(lig_indices, lig_res_name, lig_atom_name):
+            if atom_name not in res_to_atom_name[res_name]:
+                remove_indices.append(idx)
+
+        keep_mask = np.ones(len(atom_array), dtype=bool)
+        keep_mask[remove_indices] = False
+
+        return atom_array[keep_mask]
+
+    @staticmethod
+    def remove_ligand_unresolved_leaving_atoms(atom_array: AtomArray) -> AtomArray:
+        """
+        For a ligand involved in covalent bonding, remove the unresolved leaving atoms from the covalently-bonded central atom,
+        regardless of whether they are marked as leaving atoms in the CCD (Chemical Component Dictionary).
+
+        Args:
+            atom_array (AtomArray): Input atom array.
+        Returns:
+            AtomArray: Output atom array with unresolved leaving atoms removed.
+        """
+        inter_residue_bonds = get_inter_residue_bonds(atom_array)
+        bonds = atom_array.bonds.copy()
+
+        removed_indices = []
+        for centre_idx in np.unique(inter_residue_bonds):
+            if atom_array.label_seq_id[centre_idx] != ".":  # not ligand
+                continue
+            neighbors, _ = bonds.get_bonds(centre_idx)
+            bonds.remove_bonds_to(centre_idx)
+            if atom_array.is_resolved[neighbors].sum() == 1:
+                # only one neighbor is resolved, means one atom is resolved, eg: 4MZ in 1keq
+                # do not remove leaving atoms
                 continue
 
-            # check all atom i in entity i bond to an atom j in entity j.
-            target_bonds = []
-            for ii in indices_i:
-                ii_bonds = [b for b in inter_chain_bonds if ii in b]
-                for bond in ii_bonds:
-                    jj = bond[1] if ii == bond[0] else bond[0]
-                    atom_jj = atom_array[jj]
-                    if atom_jj.label_entity_id != atom_j.label_entity_id:
+            for n in neighbors:
+                if not atom_array.is_resolved[n]:
+                    group_idx = struc.find_connected(bonds, n)
+                    if atom_array.is_resolved[group_idx].any():
                         continue
-                    if atom_jj.res_name != atom_j.res_name:
+                    if (
+                        atom_array.chain_id[group_idx]
+                        != atom_array.chain_id[centre_idx]
+                    ).any():
                         continue
-                    if atom_jj.atom_name != atom_j.atom_name:
+                    if (
+                        atom_array.res_id[group_idx] != atom_array.res_id[centre_idx]
+                    ).any():
                         continue
-                    if j_is_polymer and atom_jj.res_id != atom_j.res_id:
-                        # only for polymer, check res_id
-                        continue
-                    # found bond (ii, jj) with same enity_id, res_name, atom_name to bond (i,j)
-                    target_bonds.append((min(ii, jj), max(ii, jj)))
-                    break
-            if len(target_bonds) != num_copies:
-                asymmetric_bonds |= set(target_bonds)
+                    # only remove unresolved atoms in same residue with centre atom
+                    removed_indices.extend(group_idx)
 
-        for bond in asymmetric_bonds:
-            atom_array.bonds.remove_bond(bond[0], bond[1])
+        keep_mask = np.ones(len(atom_array), dtype=bool)
+        keep_mask[removed_indices] = False
+
+        return atom_array[keep_mask]
+
+    @staticmethod
+    def get_rep_chains_for_too_many_chains(
+        atom_array: AtomArray, radius: float = 5.0
+    ) -> list[str]:
+        """
+        Get the representative chains from the given atom array.
+
+        Args:
+            atom_array (AtomArray): Biotite AtomArray Object of a Bioassembly.
+            radius (float): radius to find interface chains.
+
+        Returns:
+            list: A list of chain IDs that are considered representative chains.
+        """
+        core_chains = set()
+        sele_entities = set()
+
+        all_entities = np.unique(atom_array.label_entity_id)
+
+        chains, chain_atom_counts = np.unique(atom_array.chain_id, return_counts=True)
+        sort_idx_by_atom_cnt = np.argsort(chain_atom_counts)[::-1]
+        sorted_chains = chains[sort_idx_by_atom_cnt]
+
+        cell_list = struc.CellList(
+            atom_array, cell_size=radius, selection=atom_array.is_resolved
+        )
+
+        for chain in sorted_chains:
+            chain_mask = (atom_array.chain_id == chain) & atom_array.is_resolved
+            if not np.any(chain_mask):
+                # none of atom are resolved
+                continue
+            entity_id = atom_array.label_entity_id[chain_mask][0]
+            if entity_id in sele_entities:
+                continue
+
+            coords = atom_array.coord[chain_mask]
+
+            # Get atom indices from the current cell and the eight surrounding cells.
+            neighbors_ids_2d = cell_list.get_atoms_in_cells(
+                coords,
+                cell_radius=1,
+            )
+            neighbors_ids = np.unique(neighbors_ids_2d)
+
+            neighbors_entity_ids = np.unique(atom_array.label_entity_id[neighbors_ids])
+            sele_entities |= set(neighbors_entity_ids)
+
+            neighbors_chain_ids = set(atom_array.chain_id[neighbors_ids])
+            core_chains |= neighbors_chain_ids
+
+            if sele_entities == set(all_entities):
+                # Stop when already sele all entities
+                break
+        return list(core_chains)
+
+    @staticmethod
+    def _filter_altloc_by_local_largest(atom_array: AtomArray) -> np.ndarray:
+        """
+        Select alternate conformations with highest average occupancy in contiguous
+        residue groups. Handles multi-residue conformation blocks that must share
+        consistent altloc selection.
+
+        Algorithm:
+        1. Group consecutive residues with altlocs into contiguous blocks
+        2. For each block, calculate average occupancy per altloc character across all
+           residues in the group
+        3. Select altloc with highest average occupancy that exists in all group residues
+        4. Apply selection consistently across the entire residue group
+
+        Args:
+            atom_array: Input structure with potential alternate conformations
+
+        Returns:
+            Boolean mask selecting atoms with either:
+            - The chosen altloc character from contiguous groups
+            - No altloc specification ('.')
+        """
+        res_starts = get_residue_starts(atom_array, add_exclusive_stop=True)
+        res_groups_list = []
+        last_res_has_alt = False
+        last_chain_id = None
+        last_res_id = None
+
+        for start, end in zip(res_starts[:-1], res_starts[1:]):
+            chain_id = atom_array.chain_id[start]
+            res_id = atom_array.res_id[start]
+            altloc = atom_array.label_alt_id[start:end]
+            if np.all(altloc == "."):
+                last_res_has_alt = False
+            elif (chain_id == last_chain_id) and (res_id == last_res_id):
+                # They are same res, but get_residue_starts return 2 starts
+                # e.g. res_id 168 in 3i0v
+                assert last_res_has_alt
+                res_groups_list[-1][-1] = (res_groups_list[-1][-1][0], end)
+            else:
+                if (chain_id == last_chain_id) and last_res_has_alt:
+                    res_groups_list[-1].append((start, end))
+                else:
+                    res_groups_list.append([(start, end)])
+                last_res_has_alt = True
+            last_chain_id = chain_id
+            last_res_id = res_id
+
+        selected_mask = np.ones(len(atom_array), dtype=bool)
+        for group in res_groups_list:
+            occ_dict = defaultdict(list)
+            chars_set = None
+            for start, end in group:
+                label_alt_id = atom_array.label_alt_id[start:end]
+
+                altloc_chars, char_indices = np.unique(label_alt_id, return_index=True)
+                if chars_set is None:
+                    chars_set = set(altloc_chars)
+                else:
+                    chars_set &= set(altloc_chars)
+
+                for altloc_char, idx in zip(altloc_chars, char_indices):
+                    # count occ once for each char of a res
+                    occupancy = atom_array.occupancy[start:end][idx]
+                    occ_dict[altloc_char].append(occupancy)
+
+            alt_and_avg_occ = [
+                (altloc_char, np.mean(occ_list))
+                for altloc_char, occ_list in occ_dict.items()
+            ]
+            sorted_altloc_chars = [
+                i[0] for i in sorted(alt_and_avg_occ, key=lambda x: x[1], reverse=True)
+            ]
+            for start, end in group:
+                label_alt_id = atom_array.label_alt_id[start:end]
+                chosen_char = None
+                for i in sorted_altloc_chars:
+                    if i == ".":
+                        continue
+                    elif i not in label_alt_id:
+                        continue
+                    elif chars_set and i not in chars_set:
+                        continue
+                    else:
+                        chosen_char = i
+                        break
+
+                selected_mask[start:end] = (label_alt_id == chosen_char) + (
+                    label_alt_id == "."
+                )
+        return selected_mask
+
+    @staticmethod
+    def filter_altloc(
+        atom_array: AtomArray, altloc: str = "local_largest"
+    ) -> AtomArray:
+        """
+        Filter alternate conformations (altloc) of a given AtomArray based on the specified criteria.
+        For example, in 2PXS, there are two res_name (XYG|DYG) at res_id 63.
+
+        Args:
+            atom_array : AtomArray
+                The array of atoms to filter.
+            altloc : str, optional
+                The criteria for filtering alternate conformations. Possible values are:
+                - "first": Keep the first alternate conformation.
+                - "all": Keep all alternate conformations.
+                - "A", "B", etc.: Keep the specified alternate conformation.
+                - "local_largest": Keep the alternate conformation with the largest average occupancy of
+                                   a contiguous set of residues with alternate locations.
+
+        Returns:
+            AtomArray
+                The filtered AtomArray based on the specified altloc criteria.
+        """
+        if altloc == "all":
+            return atom_array
+
+        elif altloc == "first":
+            letter_altloc_ids = np.unique(atom_array.label_alt_id)
+            if len(letter_altloc_ids) == 1 and letter_altloc_ids[0] == ".":
+                return atom_array
+            letter_altloc_ids = letter_altloc_ids[letter_altloc_ids != "."]
+            altloc_id = np.sort(letter_altloc_ids)[0]
+            return atom_array[np.isin(atom_array.label_alt_id, [altloc_id, "."])]
+
+        elif altloc == "local_largest":
+            selected_mask = Filter._filter_altloc_by_local_largest(atom_array)
+            return atom_array[selected_mask]
+
+        else:
+            return atom_array[np.isin(atom_array.label_alt_id, [altloc, "."])]
+
+    @staticmethod
+    def remove_dissociation(
+        atom_array: AtomArray, all_chain_pairs: list[tuple[str, str]]
+    ) -> AtomArray:
+        """
+        Remove dissociation chains from the given atom array.
+
+        Args:
+            atom_array (AtomArray): Biotite AtomArray Object of a Bioassembly.
+            all_chain_pairs (list[tuple[str, str]]): A list of chain pairs that represent interfaces.
+
+        Returns:
+            AtomArray: An AtomArray object with dissociation chains removed.
+        """
+        interface_graph = nx.Graph()
+        interface_graph.add_edges_from(all_chain_pairs)
+
+        if len(all_chain_pairs) == 0:
+            # no interface
+            unique_chain_ids = np.unique(atom_array.chain_id)
+            if len(unique_chain_ids) == 1:
+                return atom_array
+            else:
+                chain_info = []
+                for chain_id in unique_chain_ids:
+                    num_resolved_atoms = np.sum(
+                        (atom_array.chain_id == chain_id) & atom_array.is_resolved
+                    )
+                    chain_info.append((chain_id, num_resolved_atoms))
+
+                sorted_chain_info = sorted(chain_info, key=lambda x: x[1], reverse=True)
+                largest_chain = sorted_chain_info[0][0]
+                return atom_array[atom_array.chain_id == largest_chain]
+
+        else:
+            largest_cc = max(nx.connected_components(interface_graph), key=len)
+            atom_array = atom_array[np.isin(atom_array.chain_id, list(largest_cc))]
+            return atom_array
+
+    @staticmethod
+    def remove_too_far_away_chains(
+        atom_array: AtomArray, dist_thres: float = 30.0
+    ) -> AtomArray:
+        """
+        Filter out symmetry copies that are too far from the asymmetric unit.
+
+        Args:
+            atom_array: Input structure containing both main and symmetry copies
+            dist_thres: Maximum allowed distance (Å) from main unit's bounding box
+
+        Returns:
+            AtomArray: Filtered structure with distant symmetry copies removed
+        """
+        resolved_asym_unit_mask = (
+            np.char.find(atom_array.chain_id, ".") == -1
+        ) & atom_array.is_resolved
+
+        other_resolved_mask = (
+            np.char.find(atom_array.chain_id, ".") != -1
+        ) & atom_array.is_resolved
+
+        asym_unit_coord = atom_array.coord[resolved_asym_unit_mask]
+        xyz_min = np.min(asym_unit_coord, axis=0)
+        xyz_max = np.max(asym_unit_coord, axis=0)
+
+        inner_chain_id = list(np.unique(atom_array.chain_id[resolved_asym_unit_mask]))
+        for chain_id in np.unique(atom_array.chain_id[other_resolved_mask]):
+            chain_mask = (atom_array.chain_id == chain_id) & atom_array.is_resolved
+            coords = atom_array.coord[chain_mask]
+            if np.any(
+                (coords - xyz_min > -dist_thres) | (coords - xyz_max < dist_thres)
+            ):
+                inner_chain_id.append(chain_id)
+
+        atom_array = atom_array[np.isin(atom_array.chain_id, inner_chain_id)]
+
+        resolved_asym_unit_mask = (
+            np.char.find(atom_array.chain_id, ".") == -1
+        ) & atom_array.is_resolved
+
+        other_resolved_mask = (
+            np.char.find(atom_array.chain_id, ".") != -1
+        ) & atom_array.is_resolved
+
+        kdtree = KDTree(atom_array.coord[resolved_asym_unit_mask])
+        query_result = kdtree.query_ball_point(
+            atom_array.coord[other_resolved_mask],
+            r=dist_thres,
+        )
+        in_dist_mask = [True if q else False for q in query_result]
+        selected_chain_ids = np.unique(
+            atom_array.chain_id[other_resolved_mask][in_dist_mask]
+        )
+
+        atom_array = atom_array[
+            (np.isin(atom_array.chain_id, selected_chain_ids))
+            | (np.char.find(atom_array.chain_id, ".") == -1)
+        ]
         return atom_array

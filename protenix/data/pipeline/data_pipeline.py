@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import traceback
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -23,7 +24,11 @@ import pandas as pd
 import torch
 from biotite.structure import AtomArray
 
-from protenix.data.core.parser import DistillationMMCIFParser, MMCIFParser
+from protenix.data.core.parser import (
+    DistillationMMCIFParser,
+    MMCIFParser,
+    RecentPDB_MMCIFParser,
+)
 from protenix.data.msa.msa_featurizer import MSAFeaturizer
 from protenix.data.template.template_featurizer import TemplateFeaturizer
 from protenix.data.tokenizer import AtomArrayTokenizer, TokenArray
@@ -46,7 +51,6 @@ class DataPipeline(object):
         mmcif: Union[str, Path],
         pdb_cluster_file: Union[str, Path, None] = None,
         dataset: str = "WeightedPDB",
-        interface_radius: float = 5,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """
         Get raw data from mmcif with tokenizer and a list of chains and interfaces for sampling.
@@ -68,6 +72,9 @@ class DataPipeline(object):
             elif dataset == "Distillation":
                 parser = DistillationMMCIFParser(mmcif_file=mmcif)
                 bioassembly_dict = parser.get_structure_dict()
+            elif dataset == "RecentPDB":
+                parser = RecentPDB_MMCIFParser(mmcif_file=mmcif)
+                bioassembly_dict = parser.get_bioassembly()
             else:
                 raise NotImplementedError(
                     'Unsupported "dataset", please input either "WeightedPDB" or "Distillation".'
@@ -76,7 +83,6 @@ class DataPipeline(object):
             sample_indices_list = parser.make_indices(
                 bioassembly_dict=bioassembly_dict,
                 pdb_cluster_file=pdb_cluster_file,
-                interface_radius=interface_radius,
             )
             if len(sample_indices_list) == 0:
                 # empty indices and AtomArray
@@ -97,6 +103,7 @@ class DataPipeline(object):
 
         except Exception as e:
             logger.warning("Gen data failed for %s due to %s", mmcif, e)
+            traceback.print_exc()
             return [], {}
 
     @staticmethod
@@ -327,7 +334,10 @@ class DataPipeline(object):
             selected_indices=selected_indices,
             template_featurizer=template_featurizer,
         )
-        (cropped_token_array, cropped_atom_array,) = crop.crop_by_indices(
+        (
+            cropped_token_array,
+            cropped_atom_array,
+        ) = crop.crop_by_indices(
             selected_token_indices=selected_indices,
         )
 
