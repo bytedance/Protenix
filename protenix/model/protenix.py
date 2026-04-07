@@ -331,6 +331,13 @@ class Protenix(nn.Module):
                 ),
             }
         )
+        _configs.update(
+            {
+                "guidance_configs": self.configs.sample_diffusion.to_dict().get(
+                    "guidance"
+                )
+            }
+        )
         return autocasting_disable_decorator(self.configs.skip_amp.sample_diffusion)(
             sample_diffusion
         )(**_configs, **kwargs)

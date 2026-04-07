@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import concurrent.futures
 import copy
 import random
 import warnings
@@ -444,6 +443,10 @@ def rdkit_mol_to_atom_info(mol: Chem.Mol) -> dict[str, Any]:
 
     # Atom_array without hydrogens
     atom_info["atom_array"] = rdkit_mol_to_atom_array(mol, removeHs=True)
+    mol.atom_map = {atom.GetProp("name"): atom.GetIdx() for atom in mol.GetAtoms()}
+    mol.ref_conf_id = 0
+    mol.ref_mask = np.ones(mol.GetNumAtoms(), dtype=bool)
+    atom_info["mol"] = mol
     return atom_info
 
 
@@ -615,6 +618,7 @@ def add_entity_atom_array(single_job_dict: dict) -> dict:
     """
     single_job_dict = copy.deepcopy(single_job_dict)
     sequences = single_job_dict["sequences"]
+    single_job_dict["ccd_mols"] = {}
     smiles_ligand_count = 0
     for entity_info in sequences:
         if info := entity_info.get("proteinChain"):
@@ -630,6 +634,10 @@ def add_entity_atom_array(single_job_dict: dict) -> dict:
                 assert smiles_ligand_count <= 99, "too many smiles ligands"
                 # use lower case res_name (l01, l02, ..., l99) to avoid conflict with CCD code
                 atom_info["atom_array"].res_name[:] = f"l{smiles_ligand_count:02d}"
+                assert "mol" in atom_info, "failed to build rdkit mol from smiles/files"
+                single_job_dict["ccd_mols"][f"l{smiles_ligand_count:02d}"] = atom_info[
+                    "mol"
+                ]
         elif info := entity_info.get("ion"):
             atom_info = build_ligand(entity_info)
         else:

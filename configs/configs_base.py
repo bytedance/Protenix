@@ -182,6 +182,67 @@ model_configs = {
         "N_sample": 5,
         "N_step_mini_rollout": 20,
         "N_sample_mini_rollout": 1,
+        "guidance": {
+            # config for Training-Free Guidance (TFG).
+            "enable": False,
+            "log_last_step_energy": True,
+            "rho": 0.0,
+            "mu": 0.1,
+            "mc": {
+                "std": 0.0,
+                "batch": 1,
+            },
+            "steps": {
+                "tfg_outer": 1,
+                "tfg_inner": 20,
+                "projection_outer": 2,
+                "projection_inner": 10,
+            },
+            "terms": {
+                "VinaStericPotential": {
+                    "interval": 1,
+                    "weight": 0.1,
+                    "buffer": 0.225,
+                },
+                "ExperimentalTorsionPotential": {
+                    "interval": 1,
+                    "weight": 0.0015,
+                },
+                "InterchainBondPotential": {
+                    "interval": 1,
+                    "weight": 0.15,
+                    "buffer": 2.0,
+                },
+                "PairwiseDistancePotential": {
+                    "interval": 1,
+                    "weight": 0.5,
+                    "enable_projection": True,
+                    "bond_buffer": 0.00,
+                    "angle_buffer": 0.00,
+                    "clash_buffer": 0.00,
+                },
+                "ChiralAtomPotential": {
+                    "interval": 1,
+                    "weight": 0.0,
+                    "enable_projection": True,
+                    "buffer": 0.6155,
+                },
+                "StereoBondPotential": {
+                    "interval": 1,
+                    "weight": 0.25,
+                    "buffer": 0.52360,
+                },
+                "PlanarImproperPotential": {
+                    "interval": 1,
+                    "weight": 0.12,
+                },
+                "LinearBondPotential": {
+                    "interval": 1,
+                    "weight": 0.25,
+                    "buffer": 0.08726646259,
+                },
+            },
+        },
     },
     "model": {
         "N_model_seed": 1,  # for inference

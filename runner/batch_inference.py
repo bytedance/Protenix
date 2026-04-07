@@ -26,23 +26,24 @@ from typing import List, Optional, Union
 import click
 import tqdm
 from Bio import SeqIO
-from ml_collections.config_dict import ConfigDict
-from rdkit import Chem
 
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
 from configs.configs_model_type import model_configs
+from ml_collections.config_dict import ConfigDict
 from protenix.config.config import parse_configs
 from protenix.data.inference.json_maker import cif_to_input_json
 from protenix.data.inference.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
 from protenix.version import __version__
+from rdkit import Chem
+
 from runner.inference import (
-    InferenceRunner,
     download_inference_cache,
     infer_predict,
+    InferenceRunner,
     update_gpu_compatible_configs,
 )
 from runner.msa_search import msa_search, update_infer_json
@@ -301,6 +302,7 @@ def get_default_runner(
     use_seeds_in_json: bool = False,
     need_atom_confidence: bool = False,
     kalign_binary_path: Optional[str] = None,
+    use_tfg_guidance: bool = False,
 ) -> InferenceRunner:
     """
     Get a default InferenceRunner with the specified configurations.
@@ -322,6 +324,7 @@ def get_default_runner(
         use_rna_msa (bool): Whether to use RNA MSA.
         use_seeds_in_json (bool): Whether to use seeds defined in the JSON file.
         kalign_binary_path (Optional[str]): Path to kalign binary.
+        use_tfg_guidance (bool): Whether to use TFG guidance.
 
     Returns:
         InferenceRunner: An instance of InferenceRunner.
@@ -338,6 +341,12 @@ def get_default_runner(
     model_name_parts = model_name.split("_", 3)
     if len(model_name_parts) == 4:
         _, model_size, model_feature, model_version = model_name_parts
+    elif model_name == "protenix-v2":
+        # The model naming convention has been simplified for newer versions.
+        # Hardcoding these values here to maintain backward compatibility.
+        model_size = "464M"
+        model_feature = "default"
+        model_version = "v2"
     else:
         model_size = "unknown"
         model_feature = "unknown"
@@ -398,6 +407,7 @@ def get_default_runner(
                     "3. Download from: https://github.com/TimoLassmann/kalign\n"
                     "After installation, make sure the binary is accessible in PATH or provide kalign_binary_path."
                 )
+    configs.sample_diffusion.guidance.enable = use_tfg_guidance
 
     configs = update_gpu_compatible_configs(configs)
     logger.info(
@@ -439,6 +449,7 @@ def inference_jsons(
     use_seeds_in_json: bool = False,
     need_atom_confidence: bool = False,
     kalign_binary_path: Optional[str] = None,
+    use_tfg_guidance: bool = False,
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
@@ -473,6 +484,7 @@ def inference_jsons(
         use_rna_msa (bool): Whether to use RNA MSA.
         use_seeds_in_json (bool): Whether to use seeds from JSON.
         kalign_binary_path (Optional[str]): Path to kalign binary.
+        use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
         seqres_database_path (Optional[str]): Path to sequence database.
@@ -520,6 +532,7 @@ def inference_jsons(
         use_seeds_in_json=use_seeds_in_json,
         need_atom_confidence=need_atom_confidence,
         kalign_binary_path=kalign_binary_path,
+        use_tfg_guidance=use_tfg_guidance,
     )
     configs = runner.configs
     for _, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
@@ -682,6 +695,12 @@ def protenix_cli() -> None:
     help="Path to kalign (searches in PATH if not provided).",
 )
 @click.option(
+    "--use_tfg_guidance",
+    type=bool,
+    default=False,
+    help="Use Training-Free Guidance (TFG) for inference.",
+)
+@click.option(
     "--hmmsearch_binary_path",
     type=str,
     default=None,
@@ -763,6 +782,7 @@ def predict(
     use_seeds_in_json: bool,
     need_atom_confidence: bool,
     kalign_binary_path: Optional[str] = None,
+    use_tfg_guidance: bool = False,
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
@@ -799,6 +819,7 @@ def predict(
         use_seeds_in_json (bool): Use seeds from JSON.
         need_atom_confidence (bool): Compute atom-level confidence scores.
         kalign_binary_path (Optional[str]): Path to kalign binary.
+        use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
         seqres_database_path (Optional[str]): Path to sequence database.
@@ -818,6 +839,7 @@ def predict(
             "protenix_base_constraint_v0.5.0",
             "protenix_base_default_v1.0.0",
             "protenix_base_20250630_v1.0.0",
+            "protenix-v2",
         ]:
             cycle = 10
             step = 200
@@ -846,12 +868,7 @@ def predict(
         "cuequivariance",
         "torch",
     ], "Invalid trimul_kernel. Options: 'cuequivariance', 'torch'."
-    assert triatt_kernel in [
-        "triattention",
-        "cuequivariance",
-        "deepspeed",
-        "torch",
-    ], (
+    assert triatt_kernel in ["triattention", "cuequivariance", "deepspeed", "torch",], (
         "Invalid triatt_kernel. Options: 'triattention', "
         "'cuequivariance', 'deepspeed', 'torch'."
     )
@@ -861,7 +878,8 @@ def predict(
         assert model_name in [
             "protenix_base_default_v1.0.0",
             "protenix_base_20250630_v1.0.0",
-        ], "Only protenix_base_default_v1.0.0 and protenix_base_20250630_v1.0.0 supports template inference."
+            "protenix-v2",
+        ], "Only protenix_base_default_v1.0.0, protenix_base_20250630_v1.0.0 and protenix-v2 supports template inference."
         logger.info("=" * 50)
         logger.info(
             "Using templates for inference. Template files should have "
@@ -876,7 +894,8 @@ def predict(
         assert model_name in [
             "protenix_base_default_v1.0.0",
             "protenix_base_20250630_v1.0.0",
-        ], "Only protenix_base_default_v1.0.0 and protenix_base_20250630_v1.0.0 supports RNA MSA inference."
+            "protenix-v2",
+        ], "Only protenix_base_default_v1.0.0, protenix_base_20250630_v1.0.0 and protenix-v2 supports RNA MSA inference."
         logger.info("=" * 50)
         logger.info(
             "Using RNA MSA for inference. RNA MSA files should have .a3m "
@@ -895,7 +914,10 @@ def predict(
             "using seeds from modelSeeds defined in the JSON."
         )
         logger.info("=" * 50)
-
+    if use_tfg_guidance:
+        logger.info("=" * 50)
+        logger.info("Using Training-Free Guidance (TFG) for inference.\n")
+        logger.info("=" * 50)
     inference_jsons(
         input,
         out_dir,
@@ -917,6 +939,7 @@ def predict(
         use_seeds_in_json=use_seeds_in_json,
         need_atom_confidence=need_atom_confidence,
         kalign_binary_path=kalign_binary_path,
+        use_tfg_guidance=use_tfg_guidance,
         hmmsearch_binary_path=hmmsearch_binary_path,
         hmmbuild_binary_path=hmmbuild_binary_path,
         seqres_database_path=seqres_database_path,

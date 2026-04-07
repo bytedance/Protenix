@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import functools
 import pickle
 from collections import defaultdict
@@ -217,7 +218,12 @@ def get_component_rdkit_mol(ccd_code: str) -> Union[Chem.Mol, None]:
 
 
 @functools.lru_cache
-def get_ccd_ref_info(ccd_code: str, return_perm: bool = True) -> dict[str, Any]:
+def get_ccd_ref_info(
+    ccd_code: str,
+    return_perm: bool = True,
+    ccd_mols: Optional[tuple[tuple[str, Chem.Mol]]] = None,
+    return_atomic_number: bool = False,
+) -> dict[str, Any]:
     """
     Ref: AlphaFold3 SI Chapter 2.8
     Reference features. Features derived from a residue, nucleotide or ligand’s reference conformer.
@@ -232,6 +238,8 @@ def get_ccd_ref_info(ccd_code: str, return_perm: bool = True) -> dict[str, Any]:
     Args:
         name (str): CCD name
         return_perm (bool): return atom permutations.
+        ccd_mols (Optional[tuple[tuple[str, Chem.Mol]]]): The self-defined CCD molecules. Defaults to None.
+        return_atomic_number (bool): whether to return atomic numbers.
 
     Returns:
         Dict:
@@ -240,8 +248,18 @@ def get_ccd_ref_info(ccd_code: str, return_perm: bool = True) -> dict[str, Any]:
             coord: atom coordinates
             charge: atom formal charge
             perm: atom permutation
+            atomic_number: atomic number
     """
-    mol = get_component_rdkit_mol(ccd_code)
+    if ccd_mols is None:
+        ccd_mols = {}
+    else:
+        ccd_mols = {k: v for k, v in ccd_mols}
+
+    if ccd_code in ccd_mols:
+        mol = copy.deepcopy(ccd_mols[ccd_code])
+    else:
+        mol = copy.deepcopy(get_component_rdkit_mol(ccd_code))
+
     if mol is None:
         return {}
     if mol.GetNumAtoms() == 0:  # eg: "UNL"
@@ -261,6 +279,10 @@ def get_ccd_ref_info(ccd_code: str, return_perm: bool = True) -> dict[str, Any]:
         "mask": mol.ref_mask,  # np.ndarray[bool]: atom mask, shape:(n_atom,)
         "charge": charge,  # np.ndarray[int]: atom formal charge, shape:(n_atom,)
     }
+    if return_atomic_number:
+        results["atomic_number"] = np.array(
+            [atom.GetAtomicNum() for atom in mol.GetAtoms()]
+        )
 
     if return_perm:
         try:

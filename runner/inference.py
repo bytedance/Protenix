@@ -394,6 +394,11 @@ def update_inference_configs(configs: Any, n_token: int) -> Any:
         Any: Updated configurations.
     """
     # Adjust configurations based on sequence length to manage memory usage
+    if n_token > 2560 and configs.model_name in ["protenix-v2"]:
+        raise AssertionError(
+            "protenix-v2 model does not support n_token > 2560. It might cause OOM."
+        )
+
     if n_token > 3840:
         configs.skip_amp.confidence_head = False
         configs.skip_amp.sample_diffusion = False
@@ -401,7 +406,10 @@ def update_inference_configs(configs: Any, n_token: int) -> Any:
         configs.skip_amp.confidence_head = False
         configs.skip_amp.sample_diffusion = True
     else:
-        configs.skip_amp.confidence_head = True
+        if configs.model_name in ["protenix-v2"]:
+            configs.skip_amp.confidence_head = False
+        else:
+            configs.skip_amp.confidence_head = True
         configs.skip_amp.sample_diffusion = True
 
     return configs
@@ -621,6 +629,12 @@ def run() -> None:
     model_name_parts = model_name.split("_", 3)
     if len(model_name_parts) == 4:
         _, model_size, model_feature, model_version = model_name_parts
+    elif model_name == "protenix-v2":
+        # The model naming convention has been simplified for newer versions.
+        # Hardcoding these values here to maintain backward compatibility.
+        model_size = "464M"
+        model_feature = "default"
+        model_version = "v2"
     else:
         model_size = "unknown"
         model_feature = "unknown"

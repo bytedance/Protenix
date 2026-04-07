@@ -491,6 +491,12 @@ class RequestParser(object):
             command_parts.extend(
                 [f"--use_template {self.request.get('use_template', False)}"]
             )
+        if self.request.get("use_tfg", False):
+            command_parts.extend(
+                [
+                    f"--sample_diffusion.guidance.enable {self.request.get('use_tfg', False)}"
+                ]
+            )
         command = " ".join(command_parts)
         print(f"Launching inference process with the command below:\n{command}")
         subprocess.call(command, shell=True)

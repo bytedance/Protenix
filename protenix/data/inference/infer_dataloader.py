@@ -157,6 +157,7 @@ class InferenceDataset(Dataset):
         t0 = time.time()
         sample2feat = SampleDictToFeatures(
             single_sample_dict,
+            extract_features_for_tfg=self.configs.sample_diffusion.guidance.enable,
         )
         features_dict, atom_array, token_array = sample2feat.get_feature_dict()
         features_dict["distogram_rep_atom_mask"] = torch.Tensor(

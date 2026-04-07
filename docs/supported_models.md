@@ -14,6 +14,7 @@ Model names follow the format:
 ## Supported Models Summary
 | Model Name | ESM | MSA | Constraint | RNA MSA | Template | Params | Training Data Cutoff |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `protenix-v2` | ❌ | ✅ | ❌ | ✅ | ✅ | 464.44 M | 2021-09-30 |
 | `protenix_base_default_v1.0.0` | ❌ | ✅ | ❌ | ✅ | ✅ | 368.48 M | 2021-09-30 |
 | `protenix_base_20250630_v1.0.0` * | ❌ | ✅ | ❌ | ✅ | ✅ | 368.48 M | 2025-06-30 |
 | `protenix_base_default_v0.5.0` | ❌ | ✅ | ❌ | ❌ | ❌ | 368.09 M | 2021-09-30 |
@@ -22,8 +23,6 @@ Model names follow the format:
 | `protenix_mini_ism_v0.5.0` | ✅ | ✅ | ❌ | ❌ | ❌ | 135.22 M | 2021-09-30 |
 | `protenix_mini_default_v0.5.0` | ❌ | ✅ | ❌ | ❌ | ❌ | 134.06 M | 2021-09-30 |
 | `protenix_tiny_default_v0.5.0` | ❌ | ✅ | ❌ | ❌ | ❌ | 109.50 M | 2021-09-30 |
-
-*\*Note: For practical application scenarios, `protenix_base_20250630_v1.0.0` is trained based on the 2025-06-30 wwPDB cutoff and is also released to the community. For fair benchmarks of model improvements across different versions, please use `protenix_base_default_v1.0.0` (trained on the 2021-09-30 cutoff).*
 
 ---
 
@@ -55,3 +54,10 @@ Model names follow the format:
 - **Characteristics**: Integrates the single-sequence protein language model (ESM2-3B), performing better when MSAs are unavailable.
 - **Difference**: `ESM` uses standard ESM2 embeddings, while `ISM` uses specific ISM embeddings.
 - **Note**: For efficiency, these models do not use MSA by default.
+
+### 5. Protenix-v2 (Enhanced Capacity Model)
+- **Characteristics**: An enhanced-capacity version of the base model, featuring increased representation dimensionality (e.g., c_z=256) and expanded parameter space (~464M), along with substantial training and optimization improvements. 
+- **Key Configurations**:
+    - `N_cycle`: 10
+    - `sample_diffusion.N_step`: 200
+- **Use Case**: Designed for tasks requiring richer representations and improved modeling fidelity.

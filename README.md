@@ -1,17 +1,9 @@
 # Protenix: Protein + X
 
-
-> 📣📣📣 **We're hiring!** \
-> Positions in **_Beijing_** 🇨🇳 and **_Seattle_** 🇺🇸 \
-> Interested in machine learning, computational chemistry/biology, structural biology, or drug discovery?  Join us to build cutting-edge AI for biology!
-\
-> 👉 [**Join us »**](#join-us)
-
-
-
 <div align="center" style="margin: 20px 0;">
   <span style="margin: 0 10px;">⚡ <a href="https://protenix-server.com">Protenix Web Server</a></span>
-  &bull; <span style="margin: 0 10px;">📄 <a href="docs/PTX_V1_Technical_Report_202602042356.pdf">Technical Report</a></span>
+  &bull; <span style="margin: 0 10px;">📄 <a href="docs/PTX_V1_Technical_Report_202602042356.pdf">Protenix-v1</a></span>
+  &bull; <span style="margin: 0 10px;">📄 <a href="docs/PX2.pdf">Protenix-v2</a></span>
 </div>
 
 <div align="center">
@@ -36,7 +28,9 @@ Protenix is built for high-accuracy structure prediction. It serves as an initia
 - **[Protenix-Dock](https://github.com/bytedance/Protenix-Dock)**: Our implementation of a classical protein-ligand docking framework that leverages empirical scoring functions. Without using deep neural networks, Protenix-Dock delivers competitive performance in rigid docking tasks.
 
 ## 🎉 Latest Updates
-- **2026-02-05: Protenix-v1 Released** 💪 [[Technical Report](docs/PTX_V1_Technical_Report_202602042356.pdf)]
+- **2026-04-08: Protenix-v2 Released** 💪💪 [[Protenix-v2 Technical Report](docs/PX2.pdf)]
+  - Protenix-v2 shows clear gains on antibody-antigen structure prediction, together with an additional update in ligand-related plausibility.
+- **2026-02-05: Protenix-v1 Released** 💪 [[Protenix-v1 Technical Report](docs/PTX_V1_Technical_Report_202602042356.pdf)]
   - Supported Template/RNA MSA features and improved training dynamics, along with further Inference-time model performance enhancements.
 - **2025-11-05: Protenix-v0.7.0 Released** 🚀
   - Introduced advanced diffusion inference optimizations: Shared variable caching, efficient kernel fusion, and TF32 acceleration. See our [performance analysis](./assets/inference_time_vs_ntoken.png).
@@ -66,13 +60,13 @@ protenix pred -i examples/input.json -o ./output -n protenix_base_default_v1.0.0
 #### Key Model Descriptions
 | Model Name | MSA | RNA MSA | Template | Params | Training Data Cutoff | Model Release Date |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `protenix-v2` | ✅ | ✅ | ✅ | 464 M | 2021-09-30 | 2026-04-08 |
 | `protenix_base_default_v1.0.0` | ✅ | ✅ | ✅ | 368 M | 2021-09-30 | 2026-02-05 |
 | `protenix_base_20250630_v1.0.0` | ✅ | ✅ | ✅ | 368 M | 2025-06-30 | 2026-02-05 |
 | `protenix_base_default_v0.5.0` | ✅ | ❌ | ❌ | 368 M | 2021-09-30 | 2025-05-30 |
 
-- **protenix_base_default_v1.0.0**: Default model, trained with a data cutoff aligned with AlphaFold3 (2021-09-30).
-  > 💡
-  > This is the **highly recommended** model for conducting fair, rigorous public benchmarks and comparative studies against other state-of-the-art methods.
+- **protenix-v2**: An enhanced-capacity version of the base model, featuring increased representation dimensionality and expanded parameter space (~464M), along with substantial training and optimization improvements.
+- **protenix_base_default_v1.0.0**: Base model, trained with a data cutoff aligned with AlphaFold3 (2021-09-30). The total parameter count of protenix_base_default_v1.0.0 is close to that of AlphaFold3.
 - **protenix_base_20250630_v1.0.0**: Applied model, trained with an updated data cutoff (2025-06-30) for better practical performance. This model can be used for practical application scenarios.
 - **protenix_base_default_v0.5.0**: Previous version of the model, maintained primarily for backward compatibility with users who developed based on v0.5.0.
 
@@ -83,7 +77,16 @@ For detailed instructions on installation, data preprocessing, inference, and tr
 
 ### 📊 Benchmark
 
-**Protenix-v1 (refers to the `protenix_base_default_v1.0.0` model)**, the first fully open-source model that outperforms AlphaFold3 across diverse benchmark sets while adhering to the same training data cutoff, model scale, and inference budget as AlphaFold3. For challenging targets, such as antigen-antibody complexes, the prediction accuracy of Protenix-v1 can be further enhanced through inference-time scaling – increasing the sampling budget from several to hundreds of candidates leads to consistent log-linear gains.
+#### Protenix-v2
+
+Protenix-v2 (refers to the `protenix-v2` model) shows clear gains on antibody-antigen structure prediction, together with an additional update in ligand-related plausibility. Compared to baselines and the earlier Protenix-v1, Protenix-v2 demonstrates a substantial improvement trend. At the DockQ > 0.23 threshold, Protenix-v2 achieves absolute success rate gains of 9 to 13 percentage points over Protenix-v1 across three collections. Remarkably, Protenix-v2 at only 5 seeds already exceeds the performance of Protenix-v1 at 1000 seeds, indicating a clear gain in efficiency.
+
+<img src="./assets/protenix-v2.png" style="width: 100%; height: auto;" alt="Protenix-v2 model Metrics">
+
+
+#### Protenix-v1
+
+Protenix-v1 (refers to the `protenix_base_default_v1.0.0` model), the first fully open-source model that outperforms AlphaFold3 across diverse benchmark sets while adhering to the same training data cutoff, model scale, and inference budget as AlphaFold3. For challenging targets, such as antigen-antibody complexes, the prediction accuracy of Protenix-v1 can be further enhanced through inference-time scaling – increasing the sampling budget from several to hundreds of candidates leads to consistent log-linear gains.
 
 <img src="./assets/protenix_base_default_v1.0.0_metrics.png" style="width: 100%; height: auto;" alt="protenix-v1 model Metrics">
 
@@ -189,29 +192,3 @@ The Protenix project including both code and model parameters is released under 
 ## Contact Us
 
 We welcome inquiries and collaboration opportunities for advanced applications of our model, such as developing new features, fine-tuning for specific use cases, and more. Please feel free to contact us at ai4s-bio@bytedance.com.
-
-## Join Us
-
-We're expanding the **Protenix team** at ByteDance Seed-AI for Science! We’re looking for talented individuals in machine learning and computational biology/chemistry (*“Computational Biology/Chemistry” covers structural biology, computational biology, computational chemistry, drug discovery, and more*). Opportunities are available in both **Beijing** and **Seattle**, across internships, new grad roles, and experienced full-time positions. 
-
-Outstanding applicants will be considered for **ByteDance’s Top Seed Talent Program** — with enhanced support.
-
-
-### 📍 Beijing, China
-| Type       | Expertise                          | Apply Link |
-|------------|------------------------------------|------------|
-| Full-Time  | Protein Design Scientist       | [Experienced](https://jobs.bytedance.com/society/position/detail/7550992796392982792) |
-| Full-Time  | Computational Biology / Chemistry       | [Experienced](https://jobs.bytedance.com/society/position/detail/7505998274429421842), [New Grad](https://job.toutiao.com/s/HGwWBs1UGR4) |
-| Full-Time  | Machine Learning                   | [Experienced](https://jobs.bytedance.com/society/position/detail/7505999453133015314), [New Grad](https://job.toutiao.com/s/upy82CljXlY) |
-| Internship | Computational Biology / Chemistry       | [Internship](https://job.toutiao.com/s/Wr3yig1Wet4) |
-| Internship | Machine Learning                   | [Internship](https://job.toutiao.com/s/w2GQQDfQUkc) |
-
-
-### 📍 Seattle, US
-
-| Type       | Expertise                          | Apply Link |
-|------------|------------------------------------|------------|
-| Full-Time  | Computational Biology / Chemistry       | [Experienced](https://jobs.bytedance.com/en/position/7270666468370614585/detail), [New Grad](https://job.toutiao.com/s/iH00nSEvrFo) |
-| Full-Time  | Machine Learning                   | [Experienced](https://jobs.bytedance.com/en/position/7270665658072926521/detail), [New Grad](https://job.toutiao.com/s/dmU_fbEHGOw) |
-| Internship | Computational Biology / Chemistry       | [Internship](https://job.toutiao.com/s/aiCZz0kJexs) |
-| Internship | Machine Learning                   | [Internship](https://job.toutiao.com/s/DiGnn5l1QpQ) |

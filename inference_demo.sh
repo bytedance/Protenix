@@ -36,6 +36,7 @@
 #   --use_template (bool):   Enable template features (v1.0.0+ only).
 #   --use_rna_msa (bool):    Enable RNA MSA features (v1.0.0+ only).
 #   --use_seeds_in_json:     Prioritize seeds defined in the input JSON.
+#   --use_tfg_guidance (bool): Use Training-Free Guidance (TFG) for inference.
 #
 # Available Models (Ref: configs/configs_model_type.py, docs/supported_models.md):
 #   * protenix_base_default_v1.0.0:    [DEFAULT] Advanced model supporting Template & RNA MSA (Training Data Cutoff: 2021-09-30).
@@ -148,6 +149,15 @@ protenix pred \
     -o ./test_outputs/cmd/output_tiny \
     -s 106 \
     -n "protenix_tiny_default_v0.5.0" \
+    --use_default_params true
+
+# Example 1.10: Scaled-up model v1.0.0
+protenix pred \
+    -i examples/input.json \
+    -o ./test_outputs/cmd/output_w2x \
+    -s 101 \
+    -n protenix-v2 \
+    --use_template true \
     --use_default_params true
 
 
@@ -328,6 +338,25 @@ python3 runner/inference.py \
     --sample_diffusion.N_step ${N_step} \
     --triangle_attention "torch" \
     --triangle_multiplicative "torch"
+
+# Test 2.9: Inference with Training-Free Guidance (TFG) enabled
+N_sample=1
+N_step=200
+N_cycle=10
+seed=101
+input_json_path="./examples/input.json"
+dump_dir="./test_outputs/sh/output_tfg"
+model_name="protenix_base_default_v1.0.0"
+
+python3 runner/inference.py \
+    --model_name ${model_name} \
+    --seeds ${seed} \
+    --dump_dir ${dump_dir} \
+    --input_json_path ${input_json_path} \
+    --model.N_cycle ${N_cycle} \
+    --sample_diffusion.N_sample ${N_sample} \
+    --sample_diffusion.N_step ${N_step} \
+    --sample_diffusion.guidance.enable true
 
 echo "All inference tests completed."
 
