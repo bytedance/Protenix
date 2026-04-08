@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import copy
-import copy
 import functools
 import pickle
 from collections import defaultdict
