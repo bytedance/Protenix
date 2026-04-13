@@ -99,6 +99,18 @@ For detailed benchmark metrics on each dataset, please refer to [docs/model_1.0.
 If you use Protenix in your research, please cite the following:
 
 ```
+@article {Zhang2026.04.10.717613,
+	author = {Zhang, Yuxuan and Gong, Chengyue and Sun, Jinyuan and Guan, Jiaqi and Ren, Milong and Xue, Song and Zhang, Hanyu and Ma, Wenzhi and Liu, Zhenyu and Chen, Xinshi and Xiao, Wenzhi},
+	title = {Protenix-v2: Broadening the Reach of Structure Prediction and Biomolecular Design},
+	elocation-id = {2026.04.10.717613},
+	year = {2026},
+	doi = {10.64898/2026.04.10.717613},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/early/2026/04/11/2026.04.10.717613},
+	eprint = {https://www.biorxiv.org/content/early/2026/04/11/2026.04.10.717613.full.pdf},
+	journal = {bioRxiv}
+}
+
 @article {Zhang2026.02.05.703733,
 	author = {Zhang, Yuxuan and Gong, Chengyue and Zhang, Hanyu and Ma, Wenzhi and Liu, Zhenyu and Chen, Xinshi and Guan, Jiaqi and Wang, Lan and Yang, Yanping and Xia, Yu and Xiao, Wenzhi},
 	title = {Protenix-v1: Toward High-Accuracy Open-Source Biomolecular Structure Prediction},
@@ -108,6 +120,18 @@ If you use Protenix in your research, please cite the following:
 	publisher = {Cold Spring Harbor Laboratory},
 	URL = {https://www.biorxiv.org/content/early/2026/02/22/2026.02.05.703733.1},
 	eprint = {https://www.biorxiv.org/content/early/2026/02/22/2026.02.05.703733.1.full.pdf},
+	journal = {bioRxiv}
+}
+
+@article {2025.01.08.631967,
+	author = {ByteDance AML AI4Science Team and Chen, Xinshi and Zhang, Yuxuan and Lu, Chan and Ma, Wenzhi and Guan, Jiaqi and Gong, Chengyue and Yang, Jincai and Zhang, Hanyu and Zhang, Ke and Wu, Shenghao and Zhou, Kuangqi and Yang, Yanping and Liu, Zhenyu and Wang, Lan and Shi, Bo and Shi, Shaochen and Xiao, Wenzhi},
+	title = {Protenix - Advancing Structure Prediction Through a Comprehensive AlphaFold3 Reproduction},
+	elocation-id = {2025.01.08.631967},
+	year = {2025},
+	doi = {10.1101/2025.01.08.631967},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/early/2025/01/11/2025.01.08.631967},
+	eprint = {https://www.biorxiv.org/content/early/2025/01/11/2025.01.08.631967.full.pdf},
 	journal = {bioRxiv}
 }
 ```
