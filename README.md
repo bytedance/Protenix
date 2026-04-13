@@ -47,8 +47,10 @@ Protenix is built for high-accuracy structure prediction. It serves as an initia
 ### 🛠 Quick Installation
 
 ```bash
-pip install protenix
+pip install --upgrade protenix --index-url https://pypi.org/simple
 ```
+
+If your package mirror lags behind the latest GitHub release, use the official PyPI index above to make sure the installed CLI matches the commands shown in this README.
 
 ### 🧬 Quick Prediction
 
