@@ -215,4 +215,4 @@ The Protenix project including both code and model parameters is released under 
 
 ## Contact Us
 
-We welcome inquiries and collaboration opportunities for advanced applications of our model, such as developing new features, fine-tuning for specific use cases, and more. Please feel free to contact us at ai4s-bio@bytedance.com.
+We welcome inquiries and collaboration opportunities for advanced applications of our model, such as developing new features, fine-tuning for specific use cases, and more. Please feel free to contact us at anewbt_mind@bytedance.com.
