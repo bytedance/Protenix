@@ -40,7 +40,8 @@ def kernel_triangular_mult(
     eps: float,
 ) -> torch.Tensor:
     from cuequivariance_torch.primitives.triangle import triangle_multiplicative_update
-
+    # cuequivariance natively supports arbitrary leading batch dims
+    # via ensure_dims() which collapses them internally.
     """
         This function performs a triangle multiplicative update operation, which is a key component
     in the AlphaFold2 architecture. The operation consists of:

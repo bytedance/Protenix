@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import copy
+import os
 import random
 import time
 from typing import Any, Optional
@@ -303,6 +304,299 @@ class Protenix(nn.Module):
 
         return s_inputs, s, z
 
+    def _shared_input_embedding(
+        self,
+        input_feature_dict: dict[str, Any],
+        chunk_size: Optional[int],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Run input embedding once (deterministic in eval mode).
+        Returns: (s_inputs, s_init, z_init)"""
+        if self.train_confidence_only:
+            self.input_embedder.eval()
+            self.template_embedder.eval()
+            self.msa_module.eval()
+            self.pairformer_stack.eval()
+
+        s_inputs = self.input_embedder(
+            input_feature_dict, inplace_safe=False, chunk_size=chunk_size
+        )
+        z_constraint = None
+        if "constraint_feature" in input_feature_dict:
+            z_constraint = self.constraint_embedder(
+                input_feature_dict["constraint_feature"]
+            )
+        s_init = self.linear_no_bias_sinit(s_inputs)
+        z_init = (
+            self.linear_no_bias_zinit1(s_init)[..., None, :]
+            + self.linear_no_bias_zinit2(s_init)[..., None, :, :]
+        )
+        z_init = z_init + self.relative_position_encoding(input_feature_dict["relp"])
+        z_init = z_init + self.linear_no_bias_token_bond(
+            input_feature_dict["token_bonds"].unsqueeze(dim=-1)
+        )
+        if z_constraint is not None:
+            z_init = z_init + z_constraint
+        return s_inputs, s_init, z_init
+
+    def _batched_seed_inference(
+        self,
+        base_features: dict[str, Any],
+        volatile_cache: dict[str, Any],
+        volatile_keys: set,
+        label_dict: dict[str, Any],
+        N_cycle: int,
+        N_model_seed: int,
+        mode: str,
+        inplace_safe: bool,
+        chunk_size: Optional[int],
+        symmetric_permutation,
+        mc_dropout_apply_rate: float,
+    ) -> tuple[list, list, list]:
+        """
+        Batched multi-seed inference with seed as leading dim [N_seeds, ...].
+
+        Phase 1: Shared computation (input embedder, template embedder) -- run ONCE.
+        Phase 2: Per-seed evoformer -- MSA subsampled N_seeds times, each seed gets
+                 its own evoformer pass. Pairformer runs per seed.
+        Phase 3: Batched diffusion -- stack evoformer outputs, run diffusion with
+                 [N_seeds, ...] tensors. prepare_cache runs per-seed since it mixes
+                 batched z with unbatched atom features.
+        Phase 4: Per-seed confidence head and summary.
+
+        Returns: (pred_dicts, log_dicts, time_trackers)
+        """
+        step_st = time.time()
+        B = N_model_seed
+
+        # --- Phase 1: Shared input embedding (run ONCE) ---
+        # Input embedder is deterministic in eval mode -- same output for all seeds.
+        input_feature_dict = dict(base_features)
+        for k, v in volatile_cache.items():
+            input_feature_dict[k] = v.clone() if hasattr(v, 'clone') else copy.deepcopy(v)
+
+        s_inputs_shared, s_init_shared, z_init_shared = self._shared_input_embedding(
+            input_feature_dict, chunk_size
+        )
+        step_shared = time.time()
+
+        # --- Phase 2: Per-seed evoformer ---
+        # MSA subsampling uses global RNG -> different per call.
+        all_s_inputs = []
+        all_s = []
+        all_z = []
+
+        for seed_idx in range(B):
+            seed_input = dict(input_feature_dict)
+            # Clone volatile features so each seed gets fresh copies
+            for k in volatile_keys:
+                if k in volatile_cache:
+                    v = volatile_cache[k]
+                    seed_input[k] = v.clone() if hasattr(v, 'clone') else copy.deepcopy(v)
+
+            z = torch.zeros_like(z_init_shared)
+            s = torch.zeros_like(s_init_shared)
+
+            for cycle_no in range(N_cycle):
+                with torch.set_grad_enabled(False):
+                    z = z_init_shared + self.linear_no_bias_z_cycle(
+                        self.layernorm_z_cycle(z)
+                    )
+                    if self.template_embedder.n_blocks > 0:
+                        z = z + self.template_embedder(
+                            seed_input, z,
+                            triangle_multiplicative=self.configs.triangle_multiplicative,
+                            triangle_attention=self.configs.triangle_attention,
+                            inplace_safe=False, chunk_size=chunk_size,
+                        )
+                    z = self.msa_module(
+                        seed_input, z, s_inputs_shared, pair_mask=None,
+                        triangle_multiplicative=self.configs.triangle_multiplicative,
+                        triangle_attention=self.configs.triangle_attention,
+                        inplace_safe=False, chunk_size=chunk_size,
+                    )
+                    s = s_init_shared + self.linear_no_bias_s(self.layernorm_s(s))
+                    s, z = self.pairformer_stack(
+                        s, z, pair_mask=None,
+                        triangle_multiplicative=self.configs.triangle_multiplicative,
+                        triangle_attention=self.configs.triangle_attention,
+                        inplace_safe=False, chunk_size=chunk_size,
+                    )
+
+            all_s_inputs.append(s_inputs_shared)
+            all_s.append(s)
+            all_z.append(z)
+
+        step_trunk = time.time()
+        logger.info(
+            f"Batched evoformer: {B} seeds in {step_trunk - step_st:.2f}s "
+            f"(shared={step_shared - step_st:.2f}s, "
+            f"per-seed={step_trunk - step_shared:.2f}s, "
+            f"{(step_trunk - step_shared) / B:.2f}s/seed)"
+        )
+
+        # Clean input for diffusion (remove volatile keys)
+        clean_input = dict(base_features)
+        for k in list(clean_input.keys()):
+            if "template_" in k or k in {
+                "msa", "has_deletion", "deletion_value",
+                "profile", "deletion_mean",
+            }:
+                clean_input.pop(k, None)
+
+        # --- Phase 3: Batched diffusion ---
+        # Stack evoformer outputs with seed as leading dim
+        s_inputs_stacked = torch.stack(all_s_inputs)  # [B, N_token, c_s_inputs]
+        s_stacked = torch.stack(all_s)  # [B, N_token, c_s]
+        z_stacked = torch.stack(all_z)  # [B, N_token, N_token, c_z]
+        del all_s_inputs, all_s, all_z
+
+        N_sample = self.configs.sample_diffusion["N_sample"]
+        N_step = self.configs.sample_diffusion["N_step"]
+        noise_schedule = self.inference_noise_scheduler(
+            N_step=N_step, device=s_stacked.device, dtype=s_stacked.dtype
+        )
+
+        step_diff = time.time()
+
+        # Expand shared inputs to batch dim for prepare_cache
+        def _expand(t):
+            if isinstance(t, torch.Tensor):
+                return t.unsqueeze(0).expand(B, *t.shape).contiguous()
+            return t
+
+        cache = dict()
+        if self.enable_diffusion_shared_vars_cache:
+            cache["pair_z"] = autocasting_disable_decorator(
+                self.configs.skip_amp.sample_diffusion
+            )(self.diffusion_module.diffusion_conditioning.prepare_cache)(
+                _expand(clean_input["relp"]), z_stacked, False
+            )
+            # atom_attention_encoder.prepare_cache: atom-level inputs are shared
+            # (no batch dim), only z has the seed batch dim via pair_z.
+            # We need to run per-seed for prepare_cache since it mixes
+            # batched z with unbatched atom features.
+            p_lm_list, c_l_list = [], []
+            for si in range(B):
+                _p, _c = autocasting_disable_decorator(
+                    self.configs.skip_amp.sample_diffusion
+                )(self.diffusion_module.atom_attention_encoder.prepare_cache)(
+                    ref_pos=clean_input["ref_pos"],
+                    ref_charge=clean_input["ref_charge"],
+                    ref_mask=clean_input["ref_mask"],
+                    ref_element=clean_input["ref_element"],
+                    ref_atom_name_chars=clean_input["ref_atom_name_chars"],
+                    atom_to_token_idx=clean_input["atom_to_token_idx"],
+                    d_lm=clean_input["d_lm"],
+                    v_lm=clean_input["v_lm"],
+                    pad_info=clean_input["pad_info"],
+                    r_l=True,
+                    z=cache["pair_z"][si],
+                    inplace_safe=False,
+                )
+                p_lm_list.append(_p)
+                c_l_list.append(_c)
+            cache["p_lm/c_l"] = [
+                torch.stack(p_lm_list) if p_lm_list[0] is not None else None,
+                torch.stack(c_l_list) if c_l_list[0] is not None else None,
+            ]
+        else:
+            cache["pair_z"] = None
+            cache["p_lm/c_l"] = [None, None]
+
+        # Batched diffusion: sample_diffusion handles [..., N_token, c_s]
+        # With [B, N_token, c_s], output is [B, N_sample, N_atom, 3]
+        all_coords = self.sample_diffusion(
+            denoise_net=self.diffusion_module,
+            input_feature_dict=clean_input,
+            s_inputs=s_inputs_stacked,
+            s_trunk=s_stacked,
+            z_trunk=None if cache["pair_z"] is not None else z_stacked,
+            pair_z=cache["pair_z"],
+            p_lm=cache["p_lm/c_l"][0],
+            c_l=cache["p_lm/c_l"][1],
+            N_sample=N_sample,
+            noise_schedule=noise_schedule,
+        )  # [B, N_sample, N_atom, 3]
+
+        step_diffusion_done = time.time()
+        logger.info(
+            f"Batched diffusion: {B} seeds x {N_sample} samples in "
+            f"{step_diffusion_done - step_diff:.2f}s"
+        )
+
+        # --- Phase 4: Per-seed confidence + summary ---
+        pred_dicts = []
+        log_dicts = []
+        time_trackers = []
+
+        for seed_idx in range(B):
+            si = s_inputs_stacked[seed_idx]
+            ss = s_stacked[seed_idx]
+            zz = z_stacked[seed_idx]
+            coords = all_coords[seed_idx]  # [N_sample, N_atom, 3]
+
+            pred_dict = {}
+
+            pred_dict["coordinate"] = coords
+            pred_dict["contact_probs"] = autocasting_disable_decorator(True)(
+                sample_confidence.compute_contact_prob
+            )(
+                distogram_logits=self.distogram_head(zz),
+                **sample_confidence.get_bin_params(self.configs.loss.distogram),
+            )
+
+            (
+                pred_dict["plddt"],
+                pred_dict["pae"],
+                pred_dict["pde"],
+                pred_dict["resolved"],
+            ) = self.run_confidence_head(
+                input_feature_dict=clean_input,
+                s_inputs=si,
+                s_trunk=ss,
+                z_trunk=zz,
+                pair_mask=None,
+                x_pred_coords=coords,
+                triangle_multiplicative=self.configs.triangle_multiplicative,
+                triangle_attention=self.configs.triangle_attention,
+                inplace_safe=False,
+                chunk_size=chunk_size,
+            )
+
+            (
+                pred_dict["summary_confidence"],
+                pred_dict["full_data"],
+            ) = autocasting_disable_decorator(True)(
+                sample_confidence.compute_full_data_and_summary
+            )(
+                configs=self.configs,
+                pae_logits=pred_dict["pae"],
+                plddt_logits=pred_dict["plddt"],
+                pde_logits=pred_dict["pde"],
+                contact_probs=pred_dict["contact_probs"],
+                token_asym_id=clean_input["asym_id"],
+                token_has_frame=clean_input["has_frame"],
+                atom_coordinate=coords,
+                atom_to_token_idx=clean_input["atom_to_token_idx"],
+                atom_is_polymer=1 - clean_input["is_ligand"],
+                N_recycle=N_cycle,
+                interested_atom_mask=None,
+                return_full_data=True,
+                mol_id=None,
+                elements_one_hot=None,
+            )
+
+            time_tracker = {
+                "pairformer": (step_trunk - step_st) / B,
+                "diffusion": (step_diffusion_done - step_diff) / B,
+                "confidence": 0,  # computed per seed inline
+            }
+            pred_dicts.append(pred_dict)
+            log_dicts.append({})
+            time_trackers.append(time_tracker)
+
+        return pred_dicts, log_dicts, time_trackers
+
     def sample_diffusion(self, **kwargs: Any) -> torch.Tensor:
         """
         Samples diffusion process based on the provided configurations.
@@ -388,24 +682,68 @@ class Protenix(nn.Module):
             pred_dicts = []
             log_dicts = []
             time_trackers = []
-            for _ in range(N_model_seed):
-                pred_dict, log_dict, time_tracker = self._main_inference_loop(
-                    input_feature_dict=(
-                        copy.deepcopy(input_feature_dict)
-                        if (N_model_seed > 1 and mode == "inference")
-                        else input_feature_dict
-                    ),  # the input_feature_dict is modified when mode is "inference"
-                    label_dict=label_dict,
-                    N_cycle=N_cycle,
-                    mode=mode,
-                    inplace_safe=inplace_safe,
-                    chunk_size=chunk_size,
-                    symmetric_permutation=symmetric_permutation,
-                    mc_dropout=random.random() < mc_dropout_apply_rate,
-                )
-                pred_dicts.append(pred_dict)
-                log_dicts.append(log_dict)
-                time_trackers.append(time_tracker)
+
+            # Separate features into volatile (deleted by model forward) and
+            # non-volatile (kept). Only clone volatile features per seed.
+            _volatile_keys = {
+                "msa", "has_deletion", "deletion_value",
+                "profile", "deletion_mean",
+            } | {k for k in input_feature_dict if "template_" in k}
+
+            _base_features = {
+                k: v for k, v in input_feature_dict.items()
+                if k not in _volatile_keys
+            }
+            _volatile_cache = {
+                k: v.clone() if hasattr(v, 'clone') else copy.deepcopy(v)
+                for k, v in input_feature_dict.items()
+                if k in _volatile_keys
+            }
+
+            # Batched evoformer is on by default; opt out with PROTENIX_NOBATCHED_SEEDS=1
+            use_batched = (
+                os.environ.get('PROTENIX_NOBATCHED_SEEDS', '0') != '1'
+            )
+
+            if use_batched:
+                try:
+                    pred_dicts, log_dicts, time_trackers = self._batched_seed_inference(
+                        base_features=_base_features,
+                        volatile_cache=_volatile_cache,
+                        volatile_keys=_volatile_keys,
+                        label_dict=label_dict,
+                        N_cycle=N_cycle,
+                        N_model_seed=N_model_seed,
+                        mode=mode,
+                        inplace_safe=inplace_safe,
+                        chunk_size=chunk_size,
+                        symmetric_permutation=symmetric_permutation,
+                        mc_dropout_apply_rate=mc_dropout_apply_rate,
+                    )
+                except Exception as e:
+                    import traceback as _tb
+                    logger.warning(f"Batched seed inference failed ({e}), falling back to sequential\n{_tb.format_exc()}")
+                    use_batched = False
+
+            if not use_batched:
+                for seed_idx in range(N_model_seed):
+                    seed_input = dict(_base_features)
+                    for k, v in _volatile_cache.items():
+                        seed_input[k] = v.clone() if hasattr(v, 'clone') else copy.deepcopy(v)
+
+                    pred_dict, log_dict, time_tracker = self._main_inference_loop(
+                        input_feature_dict=seed_input,
+                        label_dict=label_dict,
+                        N_cycle=N_cycle,
+                        mode=mode,
+                        inplace_safe=inplace_safe,
+                        chunk_size=chunk_size,
+                        symmetric_permutation=symmetric_permutation,
+                        mc_dropout=random.random() < mc_dropout_apply_rate,
+                    )
+                    pred_dicts.append(pred_dict)
+                    log_dicts.append(log_dict)
+                    time_trackers.append(time_tracker)
 
             # Combine outputs of multiple models
             def _cat(dict_list, key):
@@ -857,6 +1195,7 @@ class Protenix(nn.Module):
         symmetric_permutation: SymmetricPermutation = None,
         disable_inplace: bool = False,
         mc_dropout_apply_rate: float = 0.4,
+        N_model_seed_override: Optional[int] = None,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
         """
         Forward pass of the Alphafold3 model.
@@ -868,6 +1207,7 @@ class Protenix(nn.Module):
             mode (str): Mode of operation ('train', 'inference', 'eval'). Defaults to 'inference'.
             current_step (Optional[int]): Current training step. Defaults to None.
             symmetric_permutation (SymmetricPermutation): Symmetric permutation object. Defaults to None.
+            N_model_seed_override (Optional[int]): Override number of model seeds for inference.
 
         Returns:
             tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
@@ -901,6 +1241,7 @@ class Protenix(nn.Module):
             )
             log_dict["N_cycle"] = N_cycle
         elif mode == "inference":
+            _n_seeds = N_model_seed_override if N_model_seed_override else self.N_model_seed
             pred_dict, log_dict, time_tracker = self.main_inference_loop(
                 input_feature_dict=input_feature_dict,
                 label_dict=None,
@@ -908,7 +1249,7 @@ class Protenix(nn.Module):
                 mode=mode,
                 inplace_safe=inplace_safe,
                 chunk_size=self.configs.infer_setting.chunk_size,
-                N_model_seed=self.N_model_seed,
+                N_model_seed=_n_seeds,
                 symmetric_permutation=None,
                 mc_dropout_apply_rate=mc_dropout_apply_rate,
             )
