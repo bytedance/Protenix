@@ -21,7 +21,7 @@ import warnings
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 warnings.filterwarnings(
     "ignore", message="Category 'chem_comp_bond' not found. No bonds will be parsed"
@@ -2683,7 +2683,9 @@ class AddAtomArrayAnnot(object):
 
     @staticmethod
     def add_token_mol_type(
-        atom_array: AtomArray, sequences: dict[str, str]
+        atom_array: AtomArray,
+        sequences: dict[str, str],
+        get_mol_type_fn: Callable[[str], str] = ccd.get_mol_type,
     ) -> AtomArray:
         """
         Add molecule types in atom_arry.mol_type based on ccd pdbx_type.
@@ -2705,7 +2707,7 @@ class AddAtomArrayAnnot(object):
                 continue
             res_name = atom_array.res_name[start]
 
-            mol_types[start:stop] = ccd.get_mol_type(res_name)
+            mol_types[start:stop] = get_mol_type_fn(res_name)
 
         atom_array.set_annotation("mol_type", mol_types)
         return atom_array
@@ -2928,7 +2930,10 @@ class AddAtomArrayAnnot(object):
         return atom_array
 
     @staticmethod
-    def add_cano_seq_resname(atom_array: AtomArray) -> AtomArray:
+    def add_cano_seq_resname(
+        atom_array: AtomArray,
+        get_one_letter_code_fn: Callable[[str], str | None] = ccd.get_one_letter_code,
+    ) -> AtomArray:
         """
         Assign to each atom the three-letter residue name (resname)
         corresponding to its place in the canonical sequences.
@@ -2950,7 +2955,7 @@ class AddAtomArrayAnnot(object):
             mol_type = atom_array.mol_type[start]
             resname = atom_array.res_name[start]
 
-            one_letter_code = ccd.get_one_letter_code(resname)
+            one_letter_code = get_one_letter_code_fn(resname)
             if one_letter_code is None or len(one_letter_code) != 1:
                 # Some non-standard residues cannot be mapped back to one standard residue.
                 one_letter_code = "X" if mol_type == "protein" else "N"

@@ -139,6 +139,9 @@ class RequestParser(object):
             "name": (self.request["name"]),
             "covalent_bonds": self.request["covalent_bonds"],
         }
+        for ccd_key in ("userCCD", "userCCDPath"):
+            if ccd_key in self.request:
+                input_json_dict[ccd_key] = self.request[ccd_key]
         input_json_path = opjoin(self.request_dir, "inputs.json")
 
         sequences = []
@@ -172,6 +175,7 @@ class RequestParser(object):
         ccd.RKDIT_MOL_PKL = Path(cache_paths["ccd_components_rdkit_mol_file"])
         sample2feat = SampleDictToFeatures(
             tmp_json_dict,
+            input_json_dir=self.request_dir,
         )
         atom_array = sample2feat.get_atom_array()
         num_atoms = len(atom_array)
