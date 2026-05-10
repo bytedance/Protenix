@@ -28,6 +28,7 @@ from protenix.data.esm.esm_featurizer import ESMFeaturizer
 from protenix.data.inference.json_to_feature import SampleDictToFeatures
 from protenix.data.msa.msa_featurizer import InferenceMSAFeaturizer
 from protenix.data.template.template_featurizer import InferenceTemplateFeaturizer
+from protenix.data.template.template_path import template_paths_need_mmcif_dir
 from protenix.data.template.template_utils import TemplateHitFeaturizer
 from protenix.data.utils import data_type_transform, make_dummy_feature
 from protenix.utils.distributed import DIST_WRAPPER
@@ -86,12 +87,12 @@ class InferenceDataset(Dataset):
         if self.use_template:
             template_mmcif_dir = configs.data.template.prot_template_mmcif_dir
             fetch_remote = configs.data.template.get("fetch_remote", True)
-            if not fetch_remote:
+            if not fetch_remote and template_paths_need_mmcif_dir(self.inputs):
                 assert template_mmcif_dir is not None and os.path.exists(
                     template_mmcif_dir
                 ), (
-                    "Inference with template depends on the mmcif directory.\n"
-                    "The mmcif directory containing cif files should be placed under $PROTENIX_ROOT_DIR/mmcif.\n"
+                    "Inference with .a3m/.hhr template hits depends on the mmcif directory.\n"
+                    "The mmcif directory containing PDB cif files should be placed under $PROTENIX_ROOT_DIR/mmcif.\n"
                     "You can download it from PDB https://www.wwpdb.org/ftp/pdb-ftp-sites or\n"
                     "refer to scripts/database/download_protenix_data.sh to download inference dependency files, "
                     "set use_template=false for inference, or set data.template.fetch_remote=true "
