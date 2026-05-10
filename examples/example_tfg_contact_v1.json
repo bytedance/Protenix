@@ -1,0 +1,33 @@
+[
+    {
+        "name": "example_tfg_contact_v1",
+        "sequences": [
+            {
+                "proteinChain": {
+                    "count": 1,
+                    "sequence": "AAAAAA"
+                }
+            },
+            {
+                "proteinChain": {
+                    "count": 1,
+                    "sequence": "GGGGGG"
+                }
+            }
+        ],
+        "constraint": {
+            "contact": [
+                {
+                    "entity1": 1,
+                    "copy1": 1,
+                    "position1": 3,
+                    "entity2": 2,
+                    "copy2": 1,
+                    "position2": 4,
+                    "max_distance": 8.0,
+                    "min_distance": 0.0
+                }
+            ]
+        }
+    }
+]

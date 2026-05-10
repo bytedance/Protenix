@@ -221,6 +221,11 @@ model_configs = {
                     "angle_buffer": 0.00,
                     "clash_buffer": 0.00,
                 },
+                "UserDistanceRestraintPotential": {
+                    "interval": 1,
+                    "weight": 1.0,
+                    "enable_projection": False,
+                },
                 "ChiralAtomPotential": {
                     "interval": 1,
                     "weight": 0.0,

@@ -50,6 +50,12 @@ Model names follow the format:
     - `contact_embedder`: Handles contact point information.
 - **Use Case**: Predictions with available structural priors.
 
+For Protenix v1/v2 models, trained constraint embedders are not enabled. JSON
+`contact` constraints can instead be used as Training-Free Guidance distance
+restraints with `--use_tfg_guidance true`; see
+[Training-Free Guidance](./tfg_guidance.md). JSON `pocket` constraints still
+require the v0.5 constraint model.
+
 ### 4. ESM & ISM Models
 - **Characteristics**: Integrates the single-sequence protein language model (ESM2-3B), performing better when MSAs are unavailable.
 - **Difference**: `ESM` uses standard ESM2 embeddings, while `ISM` uses specific ISM embeddings.

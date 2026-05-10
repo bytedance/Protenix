@@ -255,6 +255,19 @@ The `contact` constraint allows you to specify residue/atom-residue/atom level p
 
 > 💡 *This is a **soft constraint**: the model is encouraged, but not strictly required, to satisfy it.*
 
+Model support differs by mechanism:
+
+- `protenix_base_constraint_v0.5.0` uses trained constraint embedders for JSON
+  `contact` and `pocket` constraints.
+- Protenix v1/v2 models do not include trained constraint embedders. For these
+  models, JSON `contact` constraints affect sampling only when Training-Free
+  Guidance is enabled with `--use_tfg_guidance true`.
+- Protenix v1/v2 `pocket` constraints are not converted to TFG restraints yet.
+  Use `protenix_base_constraint_v0.5.0` for pocket constraints.
+
+See [Training-Free Guidance](./tfg_guidance.md) for v1/v2 contact guidance
+examples and tuning notes.
+
 #### contact constraint
 
 The contact field is a list of dictionaries, each defining a distance constraint between two residues or specific atoms. The format uses explicit, named keys for clarity and flexibility.
