@@ -235,6 +235,49 @@ class InferenceRunner(object):
 
         return prediction
 
+    @torch.no_grad()
+    def score(
+        self,
+        data: Mapping[str, Mapping[str, Any]],
+        coordinates: torch.Tensor,
+    ) -> dict[str, torch.Tensor]:
+        """
+        Score externally supplied coordinates with the trunk and confidence heads.
+
+        Args:
+            data (Mapping[str, Mapping[str, Any]]): Input data dictionary.
+            coordinates (torch.Tensor): Atom coordinates in featurized atom order,
+                with shape [N_atom, 3] or [N_sample, N_atom, 3].
+
+        Returns:
+            dict[str, torch.Tensor]: Confidence prediction results.
+        """
+        eval_precision = {
+            "fp32": torch.float32,
+            "bf16": torch.bfloat16,
+            "fp16": torch.float16,
+        }[self.configs.dtype]
+
+        enable_amp = (
+            torch.autocast(device_type="cuda", dtype=eval_precision)
+            if torch.cuda.is_available()
+            else nullcontext()
+        )
+
+        data = to_device(data, self.device)
+        coordinates = coordinates.to(self.device)
+        with enable_amp:
+            prediction, _, _ = self.model(
+                input_feature_dict=data["input_feature_dict"],
+                label_full_dict=None,
+                label_dict=None,
+                mode="inference",
+                mc_dropout_apply_rate=0.0,
+                score_coordinates=coordinates,
+            )
+
+        return prediction
+
     def print(self, msg: str) -> None:
         """
         Print message only on the master rank (rank 0).

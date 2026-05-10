@@ -59,6 +59,17 @@ If your package mirror lags behind the latest GitHub release, use the official P
 protenix pred -i examples/input.json -o ./output -n protenix_base_default_v1.0.0
 ```
 
+### 🧪 Quick Structure Scoring
+
+```bash
+# Score an existing PDB or CIF structure without diffusion sampling
+protenix score -i examples/7pzb.pdb -o ./score_output -n protenix_base_default_v1.0.0
+```
+
+The scoring command reuses Protenix input preprocessing, runs the trunk and
+confidence heads on the supplied atom coordinates, and writes confidence outputs
+such as `summary.csv` and per-structure `summary_confidence.json`.
+
 #### Key Model Descriptions
 | Model Name | MSA | RNA MSA | Template | Params | Training Data Cutoff | Model Release Date |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
