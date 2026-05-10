@@ -17,7 +17,6 @@ import uuid
 from typing import Any, Sequence, Tuple
 
 from protenix.utils.logger import get_logger
-from protenix.web_service.colab_request_parser import RequestParser
 
 logger = get_logger(__name__)
 
@@ -33,29 +32,34 @@ def need_msa_search(json_data: dict) -> bool:
         bool: True if an MSA search is required, False otherwise.
     """
     need_msa = False
-    # the new format of msa filed is `pairedMsaPath` and `unpairedMsaPath`
-    # we need to check `pairedMsaPath` and `unpairedMsaPath`
+    # the new format of msa field is `pairedMsaPath` and `unpairedMsaPath`;
+    # `monomerMsaPath` is an inference-time single-file MSA source.
     for sequence in json_data["sequences"]:
         if "proteinChain" in sequence:
             protein_chain = sequence["proteinChain"]
-            paired_msa_path = protein_chain.get("pairedMsaPath")
-            unpaired_msa_path = protein_chain.get("unpairedMsaPath")
+            split_msa_paths = {
+                "pairedMsaPath": protein_chain.get("pairedMsaPath"),
+                "unpairedMsaPath": protein_chain.get("unpairedMsaPath"),
+            }
+            provided_paths = {
+                field_name: path
+                for field_name, path in split_msa_paths.items()
+                if path is not None
+            }
+            monomer_msa_path = protein_chain.get("monomerMsaPath")
 
-            if paired_msa_path is None and unpaired_msa_path is None:
+            if not provided_paths and monomer_msa_path is not None:
+                provided_paths = {"monomerMsaPath": monomer_msa_path}
+
+            if not provided_paths:
                 need_msa = True
             else:
-                if paired_msa_path is not None and not os.path.exists(paired_msa_path):
-                    logger.warning(
-                        f"pairedMsaPath {paired_msa_path} does not exist, will re-search MSA."
-                    )
-                    need_msa = True
-                if unpaired_msa_path is not None and not os.path.exists(
-                    unpaired_msa_path
-                ):
-                    logger.warning(
-                        f"unpairedMsaPath {unpaired_msa_path} does not exist, will re-search MSA."
-                    )
-                    need_msa = True
+                for field_name, path in provided_paths.items():
+                    if not os.path.exists(path):
+                        logger.warning(
+                            f"{field_name} {path} does not exist, will re-search MSA."
+                        )
+                        need_msa = True
     return need_msa
 
 
@@ -136,6 +140,8 @@ def msa_search(
     Returns:
         Sequence[str]: List of directories containing MSA results for each sequence.
     """
+    from protenix.web_service.colab_request_parser import RequestParser
+
     os.makedirs(msa_res_dir, exist_ok=True)
     tmp_fasta_fpath = os.path.join(msa_res_dir, f"tmp_{uuid.uuid4().hex}.fasta")
     msa_res_subdirs = RequestParser.msa_search(
@@ -180,13 +186,13 @@ def update_seq_msa(infer_seq: dict, msa_res_dir: str, mode: str) -> dict:
                     sequence["proteinChain"]["sequence"]
                 ]
                 if os.path.exists(f"{precomputed_msa_dir}/pairing.a3m"):
-                    sequence["proteinChain"][
-                        "pairedMsaPath"
-                    ] = f"{precomputed_msa_dir}/pairing.a3m"
+                    sequence["proteinChain"]["pairedMsaPath"] = (
+                        f"{precomputed_msa_dir}/pairing.a3m"
+                    )
                 if os.path.exists(f"{precomputed_msa_dir}/non_pairing.a3m"):
-                    sequence["proteinChain"][
-                        "unpairedMsaPath"
-                    ] = f"{precomputed_msa_dir}/non_pairing.a3m"
+                    sequence["proteinChain"]["unpairedMsaPath"] = (
+                        f"{precomputed_msa_dir}/non_pairing.a3m"
+                    )
 
     return infer_seq
 
