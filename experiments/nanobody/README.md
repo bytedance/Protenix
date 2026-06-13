@@ -43,6 +43,26 @@ The script accepts common metadata aliases for PDB ID, release date, nanobody/he
 
 Use `--strict-protenix-cutoff` for a 2021-09-30 train cutoff.
 
+## Download Structure Datasets
+
+Additional structure-dataset download workflows live under `scripts/nanobody/datasets/`. They default to writing below `${PROTENIX_ROOT_DIR}/nanobody`, or `./nanobody` if `PROTENIX_ROOT_DIR` is unset. Override with `OUT_ROOT=/path/to/output`.
+
+Download and build the temporal SAbDab-nano bundle:
+
+```bash
+OUT_ROOT=${PROTENIX_ROOT_DIR}/nanobody \
+bash scripts/nanobody/datasets/download_sabdab_nano_temporal.sh
+```
+
+Download and verify the tFold SAbDab-22H2 nanobody benchmarks:
+
+```bash
+OUT_ROOT=${PROTENIX_ROOT_DIR}/nanobody \
+bash scripts/nanobody/datasets/download_tfold_sabdab22h2.sh
+```
+
+These scripts write source URLs, SHA256 files, canonical manifests, and verification reports under `data/sabdab_nano_temporal/` or `data/tfold_sabdab22h2/` inside the selected output root. Keep those downloaded datasets outside git.
+
 ## Baseline Validation
 
 ```bash
