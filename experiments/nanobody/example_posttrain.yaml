@@ -1,0 +1,17 @@
+experiment_id: posttrain_nanobody_v2_example
+team: posttrain
+model_name: protenix-v2
+base_checkpoint: ${PROTENIX_ROOT_DIR}/checkpoint/protenix-v2.pt
+train_sets:
+  - nanobody_single_train_pre2022
+  - nanobody_complex_train_pre2022
+validation_sets:
+  - nanobody_single_val_2022h1
+  - nanobody_complex_val_2022h1
+output_root: outputs/nanobody/experiments/posttrain_nanobody_v2_example
+command: >
+  TRAIN_SETS=nanobody_single_train_pre2022,nanobody_complex_train_pre2022
+  TRAIN_SAMPLE_WEIGHTS=0.35,0.65
+  TEST_SETS=nanobody_single_val_2022h1,nanobody_complex_val_2022h1
+  scripts/nanobody/finetune_protenix_v2_nanobody.sh
+notes: Fine-tune Protenix-v2 on curated nanobody single-chain and complex splits.

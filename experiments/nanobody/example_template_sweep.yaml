@@ -1,0 +1,21 @@
+experiment_id: template_sweep_v2_example
+team: template
+model_name: protenix-v2
+base_checkpoint: ${PROTENIX_ROOT_DIR}/checkpoint/protenix-v2.pt
+validation_sets:
+  - nanobody_complex_val_2022h1
+template_modes:
+  - no_template
+  - default_template
+  - top1
+  - top5
+output_root: outputs/nanobody/template_sweeps
+command: >
+  python scripts/nanobody/run_template_sweep.py
+  --manifest ${PROTENIX_ROOT_DIR}/nanobody/manifests/nanobody_complex_val_2022h1.csv
+  --base-input-json ${PROTENIX_ROOT_DIR}/nanobody/inference_jsons/complex_val_2022h1.json
+  --checkpoint ${PROTENIX_ROOT_DIR}/checkpoint/protenix-v2.pt
+  --out-root outputs/nanobody/template_sweeps
+  --modes no_template,default_template,top1,top5
+  --seeds 101,102,103
+notes: Template/MSA sweep without changing model weights.

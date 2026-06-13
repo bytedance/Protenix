@@ -1,0 +1,19 @@
+experiment_id: openfold_subset_pretrain_v2_example
+team: pretrain
+model_name: protenix-v2
+base_checkpoint: ${PROTENIX_ROOT_DIR}/checkpoint/protenix-v2.pt
+train_sets:
+  - openfold_subset_train
+validation_sets:
+  - nanobody_single_val_2022h1
+  - nanobody_complex_val_2022h1
+output_root: outputs/nanobody/experiments/openfold_subset_pretrain_v2_example
+prepare_command: >
+  python scripts/nanobody/prepare_openfold_subset.py
+  --input-dir /path/to/openfold/mmcif
+  --out-root ${PROTENIX_ROOT_DIR}/nanobody
+command: >
+  TRAIN_SETS=openfold_subset_train
+  TEST_SETS=nanobody_single_val_2022h1,nanobody_complex_val_2022h1
+  scripts/nanobody/pretrain_protenix_v2_openfold_subset.sh
+notes: Continued pre-training on a Protenix-formatted OpenFold-style structural subset.

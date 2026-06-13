@@ -87,6 +87,9 @@ ipython_config.py
 # data cache and checkpoints
 data_cache/
 checkpoints/
+/checkpoint/
+/nanobody/
+/outputs/
 
 .pdm.toml
 
