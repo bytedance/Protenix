@@ -494,11 +494,15 @@ def rearrange_to_dense_trunk(
         attn_bias = q.new_zeros(
             *(1,) * len(q.shape[:-2]), n + q_pad_length, n + pad_left + pad_right
         )
-        attn_bias[..., :n, 0:pad_left] = -inf
-        attn_bias[..., :n, pad_left + n : :] = -inf
-        attn_bias[..., n::, :] = -inf
+        mask_value = max(-inf, torch.finfo(attn_bias.dtype).min)
+        attn_bias[..., :n, 0:pad_left] = mask_value
+        attn_bias[..., :n, pad_left + n : :] = mask_value
+        attn_bias[..., n::, :] = mask_value
     else:
-        attn_bias = F.pad(attn_bias, (pad_left, pad_right, 0, q_pad_length), value=-inf)
+        mask_value = max(-inf, torch.finfo(attn_bias.dtype).min)
+        attn_bias = F.pad(
+            attn_bias, (pad_left, pad_right, 0, q_pad_length), value=mask_value
+        )
 
     concat_split_data = optimized_concat_split(attn_bias, n_queries)
     attn_bias_trunked = concat_split_data.unfold(

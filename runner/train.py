@@ -321,12 +321,20 @@ class AF3Trainer(object):
             checkpoint = torch.load(
                 checkpoint_path, map_location=self.device, weights_only=False
             )
-            sample_key = list(checkpoint["model"].keys())[0]
-            self.print(f"Sampled key: {sample_key}")
-            if sample_key.startswith("module.") and not self.use_ddp:
-                # DDP checkpoint has module. prefix, remove it if not using DDP
+            sample_key = next(iter(checkpoint["model"]))
+            target_sample_key = next(iter(self.model.state_dict()))
+            self.print(
+                f"Sampled key: {sample_key}; target key: {target_sample_key}"
+            )
+            ckpt_has_module = sample_key.startswith("module.")
+            target_has_module = target_sample_key.startswith("module.")
+            if ckpt_has_module and not target_has_module:
                 checkpoint["model"] = {
                     k[len("module.") :]: v for k, v in checkpoint["model"].items()
+                }
+            elif target_has_module and not ckpt_has_module:
+                checkpoint["model"] = {
+                    f"module.{k}": v for k, v in checkpoint["model"].items()
                 }
 
             self.model.load_state_dict(
@@ -596,7 +604,7 @@ class AF3Trainer(object):
 
         scaler = torch.GradScaler(
             device="cuda" if torch.cuda.is_available() else "cpu",
-            enabled=(self.configs.dtype == "float16"),
+            enabled=(self.configs.dtype == "fp16"),
         )
 
         with enable_amp:

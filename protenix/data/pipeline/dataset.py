@@ -913,6 +913,10 @@ def get_msa_featurizer(configs, dataset_name: str, stage: str) -> Optional[Calla
     if "msa" in (dataset_config := configs["data"][dataset_name]):
         for k, v in dataset_config["msa"].items():
             msa_args[k] = v
+    if not msa_args.get("enable_prot_msa", False) and not msa_args.get(
+        "enable_rna_msa", False
+    ):
+        return None
     return MSAFeaturizer(
         dataset_name=msa_args.dataset_name,
         prot_seq_or_filename_to_msadir_jsons=msa_args.prot_seq_or_filename_to_msadir_jsons,
@@ -938,6 +942,8 @@ def get_template_featurizer(
     if "template" in (dataset_config := configs["data"][dataset_name]):
         for k, v in dataset_config["template"].items():
             template_args[k] = v
+    if not template_args.get("enable_prot_template", False):
+        return None
     template_args.update(
         {
             "stage": stage,

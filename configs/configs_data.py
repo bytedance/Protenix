@@ -191,6 +191,64 @@ def _openfold_subset_train_config() -> dict:
     }
 
 
+def _tiny_finetune_msa_template_overrides() -> dict:
+    return {
+        "msa": {
+            "enable_prot_msa": False,
+            "enable_rna_msa": False,
+        },
+        "template": {
+            "enable_prot_template": False,
+        },
+    }
+
+
+def _tiny_finetune_train_config() -> dict:
+    return {
+        "base_info": {
+            "mmcif_dir": os.path.join(PROTENIX_ROOT_DIR, "tiny_finetune", "mmcif"),
+            "bioassembly_dict_dir": os.path.join(
+                PROTENIX_ROOT_DIR, "tiny_finetune", "bioassembly"
+            ),
+            "indices_fpath": os.path.join(
+                PROTENIX_ROOT_DIR, "tiny_finetune", "indices", "train.csv"
+            ),
+            "pdb_list": "",
+            "random_sample_if_failed": True,
+            "max_n_token": -1,
+            "use_reference_chains_only": False,
+        },
+        **deepcopy(default_weighted_pdb_configs),
+        **_tiny_finetune_msa_template_overrides(),
+    }
+
+
+def _tiny_finetune_val_config() -> dict:
+    tiny_eval_configs = deepcopy(default_test_configs)
+    tiny_eval_configs["cropping_configs"]["method_weights"] = ListValue(
+        [1.0, 0.0, 0.0]
+    )
+    return {
+        "base_info": {
+            "mmcif_dir": os.path.join(PROTENIX_ROOT_DIR, "tiny_finetune", "mmcif"),
+            "bioassembly_dict_dir": os.path.join(
+                PROTENIX_ROOT_DIR, "tiny_finetune", "bioassembly"
+            ),
+            "indices_fpath": os.path.join(
+                PROTENIX_ROOT_DIR, "tiny_finetune", "indices", "val.csv"
+            ),
+            "pdb_list": "",
+            "max_n_token": GlobalConfigValue("test_max_n_token"),
+            "sort_by_n_token": True,
+            "group_by_pdb_id": True,
+            "find_eval_chain_interface": False,
+            "use_reference_chains_only": False,
+        },
+        **tiny_eval_configs,
+        **_tiny_finetune_msa_template_overrides(),
+    }
+
+
 data_configs = {
     "num_dl_workers": 16,
     "epoch_size": 10000,
@@ -317,6 +375,8 @@ data_configs = {
     "nanobody_single_test_2022h2": _nanobody_eval_config("single", "test_2022h2"),
     "nanobody_complex_test_2022h2": _nanobody_eval_config("complex", "test_2022h2"),
     "openfold_subset_train": _openfold_subset_train_config(),
+    "tiny_protenix_finetune_train": _tiny_finetune_train_config(),
+    "tiny_protenix_finetune_val": _tiny_finetune_val_config(),
     "msa": {
         "enable_prot_msa": True,
         "prot_seq_or_filename_to_msadir_jsons": ListValue(
