@@ -16,7 +16,6 @@ import argparse
 import json
 import os
 import subprocess
-import traceback
 from collections import defaultdict
 from copy import deepcopy
 from os.path import exists as opexists, join as opjoin
@@ -273,8 +272,7 @@ class RequestParser(object):
                     server_mode=mode,
                 )
             except Exception as e:
-                error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
-                print(error_message)
+                print(f"WARNING: MMseqs2 MSA search failed ({type(e).__name__}: {e}); continuing without this search.")
 
         elif mode == "colabfold":
             res_dirs = []
@@ -298,8 +296,7 @@ class RequestParser(object):
                     )
                     res_dirs.append(res_dir)
                 except Exception as e:
-                    error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
-                    print(error_message)
+                    print(f"WARNING: MMseqs2 MSA search failed ({type(e).__name__}: {e}); continuing without this search.")
             if len(fasta_dict) > 1:
                 # search paired MSA
                 try:
@@ -318,8 +315,7 @@ class RequestParser(object):
                         server_mode=mode,
                     )
                 except Exception as e:
-                    error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
-                    print(error_message)
+                    print(f"WARNING: MMseqs2 MSA search failed ({type(e).__name__}: {e}); continuing without this search.")
             else:
                 pairing_msa_fpath = os.path.join(
                     msa_res_dir,
