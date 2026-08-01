@@ -22,8 +22,11 @@ from contextlib import nullcontext
 from os.path import exists as opexists, join as opjoin
 from typing import Any, Mapping
 
+import numpy as np
 import torch
 import torch.distributed as dist
+from biotite.structure import AtomArray
+
 
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
@@ -255,6 +258,110 @@ class InferenceRunner(object):
         self.model.configs = new_configs
 
 
+def fix_cterminal_carboxyl_oxygens(
+    pred_coordinate: torch.Tensor,
+    atom_array: AtomArray,
+) -> torch.Tensor:
+    """Rebuild the C-terminal carboxyl oxygens (O / OXT) of every polymer chain.
+
+    Motivation: due to the O<->OXT substructure permutation symmetry, the model
+    may leave one of the two carboxylate oxygens under-constrained (it can drift
+    far away). For each polymer chain's last residue we regularize the two
+    oxygens by an idealized, symmetric carboxylate geometry.
+
+    Per C-terminal residue (identified by having both an ``O`` and an ``OXT``
+    atom), using:
+        A = C atom, C_ca = CA atom.
+    We pick B = the oxygen (``O`` or ``OXT``) nearest to A, keep it and name it
+    ``O``. The other oxygen D (``OXT``) is placed as the reflection of B across
+    the A->C_ca axis, so that:
+        * angle(C_ca, A, B) == angle(C_ca, A, D)   (equal angles at A)
+        * |AB| == |AD|                             (equal bond lengths)
+        * B, D and the A->C_ca axis are coplanar   (plane ABC)
+    Reflection of vector v about unit axis u: v' = 2*(v.u)*u - v.
+
+    The correction is fully vectorized over samples and over all terminal
+    residues. Only the ``O`` and ``OXT`` coordinate slots are modified; all
+    other atoms (and atom names) are left untouched.
+
+    Args:
+        pred_coordinate: predicted coordinates, shape ``[N_sample, N_atom, 3]``.
+        atom_array: the AtomArray whose atom order matches ``pred_coordinate``.
+
+    Returns:
+        The corrected coordinate tensor (same shape/dtype/device as input).
+    """
+    n_atom = pred_coordinate.shape[-2]
+    if len(atom_array) != n_atom:
+        return pred_coordinate
+
+    chain_ids = np.asarray(atom_array.chain_id)
+    res_ids = np.asarray(atom_array.res_id)
+    atom_names = np.asarray(atom_array.atom_name)
+
+    # Locate the last residue of each chain: a chain block ends where chain_id
+    # changes (chains are built as contiguous blocks, residues in order).
+    is_chain_end = np.empty(n_atom, dtype=bool)
+    is_chain_end[-1] = True
+    is_chain_end[:-1] = chain_ids[1:] != chain_ids[:-1]
+    chain_end_idx = np.nonzero(is_chain_end)[0]
+
+    # For each chain's C-terminal residue, gather the C / CA / O / OXT indices.
+    idx_c, idx_ca, idx_o, idx_oxt = [], [], [], []
+    for end_i in chain_end_idx:
+        term_mask = (chain_ids == chain_ids[end_i]) & (res_ids == res_ids[end_i])
+        names = atom_names[term_mask]
+        # only protein C-termini carry an OXT; require the full quartet.
+        if not ({"C", "CA", "O", "OXT"} <= set(names.tolist())):
+            continue
+        term_pos = np.nonzero(term_mask)[0]
+        name_to_pos = {atom_names[p]: p for p in term_pos}
+        idx_c.append(name_to_pos["C"])
+        idx_ca.append(name_to_pos["CA"])
+        idx_o.append(name_to_pos["O"])
+        idx_oxt.append(name_to_pos["OXT"])
+
+    if not idx_c:
+        return pred_coordinate
+
+    device = pred_coordinate.device
+    t_c = torch.as_tensor(idx_c, dtype=torch.long, device=device)
+    t_ca = torch.as_tensor(idx_ca, dtype=torch.long, device=device)
+    t_o = torch.as_tensor(idx_o, dtype=torch.long, device=device)
+    t_oxt = torch.as_tensor(idx_oxt, dtype=torch.long, device=device)
+
+    coords = pred_coordinate.clone()
+    # Compute in float32 for numerical stability regardless of input dtype.
+    work = coords.to(torch.float32)
+
+    A = work[:, t_c, :]  # [S, T, 3]  (C atom, plane point A)
+    CA = work[:, t_ca, :]  # [S, T, 3] (CA atom, plane point C)
+    O = work[:, t_o, :]  # [S, T, 3]
+    OXT = work[:, t_oxt, :]  # [S, T, 3]
+
+    # B = nearest oxygen (O or OXT) to A; this stays and is named O.
+    dist_o = torch.linalg.norm(O - A, dim=-1)  # [S, T]
+    dist_oxt = torch.linalg.norm(OXT - A, dim=-1)  # [S, T]
+    nearest_is_o = (dist_o <= dist_oxt).unsqueeze(-1)  # [S, T, 1]
+    B = torch.where(nearest_is_o, O, OXT)  # [S, T, 3]
+
+    # Reflect B across the A->CA axis to place D (OXT).
+    axis = CA - A
+    axis = axis / axis.norm(dim=-1, keepdim=True).clamp_min(1e-8)  # unit u
+    vB = B - A
+    proj = (vB * axis).sum(dim=-1, keepdim=True)  # vB . u
+    D = A + 2.0 * proj * axis - vB  # reflection: 2(v.u)u - v
+
+    # Write back: O slot gets B (kept oxygen), OXT slot gets D (reconstructed).
+    B = B.to(coords.dtype)
+    D = D.to(coords.dtype)
+    n_sample = coords.shape[0]
+    sample_ax = torch.arange(n_sample, device=device).unsqueeze(-1)  # [S, 1]
+    coords[sample_ax, t_o.unsqueeze(0), :] = B
+    coords[sample_ax, t_oxt.unsqueeze(0), :] = D
+    return coords
+
+
 def progress_callback(block_num: int, block_size: int, total_size: int) -> None:
     """Callback for tracking download progress."""
     downloaded = block_num * block_size
@@ -484,6 +591,16 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 new_configs = update_inference_configs(configs, data["N_token"].item())
                 runner.update_model_configs(new_configs)
                 prediction = runner.predict(data)
+                
+                # Regularize the C-terminal carboxyl oxygens (O / OXT) of each
+                # polymer chain: the O<->OXT substructure-permutation symmetry can
+                # leave one oxygen under-constrained and drift far away. Rebuild
+                # them with an idealized symmetric carboxylate geometry. The
+                # atom_array order matches prediction["coordinate"] 1:1.
+                prediction["coordinate"] = fix_cterminal_carboxyl_oxygens(
+                    prediction["coordinate"], atom_array
+                )
+                
                 runner.dumper.dump(
                     dataset_name="",
                     pdb_id=sample_name,

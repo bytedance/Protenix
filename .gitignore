@@ -137,3 +137,4 @@ wandb/
 output/
 release_data/
 debug/
+.trae/
