@@ -18,6 +18,7 @@ import os
 import time
 import traceback
 import warnings
+from pathlib import Path
 from typing import Any, Mapping
 
 import torch
@@ -158,6 +159,7 @@ class InferenceDataset(Dataset):
         sample2feat = SampleDictToFeatures(
             single_sample_dict,
             extract_features_for_tfg=self.configs.sample_diffusion.guidance.enable,
+            input_json_dir=Path(self.input_json_path).parent,
         )
         features_dict, atom_array, token_array = sample2feat.get_feature_dict()
         features_dict["distogram_rep_atom_mask"] = torch.Tensor(
