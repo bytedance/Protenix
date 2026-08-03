@@ -99,6 +99,130 @@ class ConstraintFeatureGenerator:
         return pocket_pos
 
     @staticmethod
+    def empty_tfg_contact_restraint_features() -> dict[str, torch.Tensor]:
+        """Return stable empty feature tensors for TFG user contact restraints."""
+        return {
+            "user_distance_restraint_index": torch.empty((2, 0), dtype=torch.long),
+            "user_distance_restraint_lower_bound": torch.empty(
+                (0,), dtype=torch.float32
+            ),
+            "user_distance_restraint_upper_bound": torch.empty(
+                (0,), dtype=torch.float32
+            ),
+            "user_distance_restraint_weight": torch.empty((0,), dtype=torch.float32),
+        }
+
+    @staticmethod
+    def generate_tfg_contact_restraint_features(
+        token_array: TokenArray,
+        atom_array: AtomArray,
+        sequences: list[dict[str, Any]],
+        constraint_param: dict,
+    ) -> dict[str, torch.Tensor]:
+        """Convert JSON contact constraints into atom-pair TFG restraints.
+
+        The learned constraint embedder consumes token-pair feature matrices. TFG
+        potentials operate directly on atom coordinates, so this path resolves
+        each contact into a deterministic atom pair and preserves the user
+        distance interval.
+        """
+        contact_inputs = [
+            ConstraintFeatureGenerator._canonicalize_contact_format(sequences, pair)
+            for pair in constraint_param.get("contact", [])
+        ]
+        if len(contact_inputs) == 0:
+            return ConstraintFeatureGenerator.empty_tfg_contact_restraint_features()
+
+        atom_to_token_idx = {}
+        for token_idx, token in enumerate(token_array.tokens):
+            for atom_idx in token.atom_indices:
+                atom_to_token_idx[atom_idx] = token_idx
+
+        def _mask_to_atom(pair: dict[str, Any], side: str) -> int | None:
+            atom_mask = get_atom_mask_by_name(
+                atom_array=atom_array,
+                entity_id=pair[side][0],
+                copy_id=pair[side][1],
+                position=pair[side][2],
+                atom_name=pair[side][3],
+            )
+            atom_ids = np.nonzero(atom_mask)[0]
+            if pair["contact_type"] == "atom_contact" or pair[side][3] is not None:
+                if np.size(atom_ids) != 1:
+                    return None
+                return int(atom_ids[0])
+
+            token_ids = sorted(
+                {
+                    atom_to_token_idx[int(atom_id)]
+                    for atom_id in atom_ids
+                    if int(atom_id) in atom_to_token_idx
+                }
+            )
+            if len(token_ids) == 0:
+                return None
+            # Deterministic phase-1 behavior for residue-level contacts. Exact
+            # ligand atom control is available through atom-level contacts.
+            for atom_name in ("CA", "C1'"):
+                for token_id in token_ids:
+                    atom_idx = int(token_array.tokens[token_id].centre_atom_index)
+                    if atom_array.atom_name[atom_idx] == atom_name:
+                        return atom_idx
+            return int(token_array.tokens[token_ids[0]].centre_atom_index)
+
+        restraints: dict[tuple[int, int], tuple[float, float]] = {}
+        for i, pair in enumerate(contact_inputs):
+            atom_i = _mask_to_atom(pair, "id1")
+            atom_j = _mask_to_atom(pair, "id2")
+            if atom_i is None or atom_j is None:
+                logger.info(f"TFG contact restraint {i} not found for the input")
+                continue
+            if atom_i == atom_j:
+                logger.info(f"TFG contact restraint {i} resolved to the same atom")
+                continue
+
+            lower = float(pair["min_distance"])
+            upper = float(pair["max_distance"])
+            key = tuple(sorted((atom_i, atom_j)))
+            if key in restraints:
+                prev_lower, prev_upper = restraints[key]
+                lower = max(prev_lower, lower)
+                upper = min(prev_upper, upper)
+                if upper < lower:
+                    raise ValueError(
+                        "Conflicting distance restraints for atom pair "
+                        f"{key}: lower={lower}, upper={upper}"
+                    )
+            restraints[key] = (lower, upper)
+
+        if len(restraints) == 0:
+            return ConstraintFeatureGenerator.empty_tfg_contact_restraint_features()
+
+        indices = []
+        lower_bounds = []
+        upper_bounds = []
+        for (atom_i, atom_j), (lower, upper) in sorted(restraints.items()):
+            indices.append([atom_i, atom_j])
+            lower_bounds.append(lower)
+            upper_bounds.append(upper)
+
+        logger.info(f"Loaded TFG contact restraints: #pairs:{len(indices)}")
+        return {
+            "user_distance_restraint_index": torch.tensor(
+                indices, dtype=torch.long
+            ).T,
+            "user_distance_restraint_lower_bound": torch.tensor(
+                lower_bounds, dtype=torch.float32
+            ),
+            "user_distance_restraint_upper_bound": torch.tensor(
+                upper_bounds, dtype=torch.float32
+            ),
+            "user_distance_restraint_weight": torch.ones(
+                len(indices), dtype=torch.float32
+            ),
+        }
+
+    @staticmethod
     def _log_constraint_feature(
         atom_array: AtomArray, token_array: TokenArray, constraint_feature: dict
     ):

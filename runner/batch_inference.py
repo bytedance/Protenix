@@ -21,7 +21,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import click
 import tqdm
@@ -65,6 +65,87 @@ def init_logging() -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
         filemode="w",
     )
+
+
+def _iter_json_tasks(json_path: str) -> list[dict[str, Any]]:
+    with open(json_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if isinstance(payload, list):
+        return [task for task in payload if isinstance(task, dict)]
+    if isinstance(payload, dict):
+        return [payload]
+    return []
+
+
+def _summarize_constraint_usage(json_paths: list[str]) -> dict[str, int]:
+    summary = {
+        "tasks": 0,
+        "constraint_tasks": 0,
+        "contact_tasks": 0,
+        "pocket_tasks": 0,
+        "other_constraint_tasks": 0,
+    }
+    for json_path in json_paths:
+        for task in _iter_json_tasks(json_path):
+            summary["tasks"] += 1
+            constraint = task.get("constraint", {}) or {}
+            if not isinstance(constraint, dict) or len(constraint) == 0:
+                continue
+            summary["constraint_tasks"] += 1
+            if constraint.get("contact"):
+                summary["contact_tasks"] += 1
+            if constraint.get("pocket"):
+                summary["pocket_tasks"] += 1
+            if any(k not in {"contact", "pocket"} for k in constraint):
+                summary["other_constraint_tasks"] += 1
+    return summary
+
+
+def _log_constraint_guidance_status(
+    json_paths: list[str], model_name: str, use_tfg_guidance: bool
+) -> None:
+    summary = _summarize_constraint_usage(json_paths)
+    if summary["constraint_tasks"] == 0:
+        return
+
+    if model_name == "protenix_base_constraint_v0.5.0":
+        logger.info(
+            "Input contains JSON constraints for %d task(s); "
+            "using the trained v0.5 constraint embedder path.",
+            summary["constraint_tasks"],
+        )
+        return
+
+    if not use_tfg_guidance:
+        logger.warning(
+            "Input contains JSON constraints for %d task(s), but model %s does "
+            "not have trained constraint embedders enabled and TFG is disabled. "
+            "These constraints will not affect sampling. Enable "
+            "--use_tfg_guidance true to use contact constraints as TFG restraints.",
+            summary["constraint_tasks"],
+            model_name,
+        )
+        return
+
+    if summary["contact_tasks"] > 0:
+        logger.info(
+            "Using JSON contact constraints as TFG distance restraints for %d task(s).",
+            summary["contact_tasks"],
+        )
+    if summary["pocket_tasks"] > 0:
+        logger.warning(
+            "Input contains pocket constraints for %d task(s). Pocket constraints "
+            "are not converted to TFG restraints yet for model %s, so they will "
+            "not affect sampling unless a trained constraint embedder is active.",
+            summary["pocket_tasks"],
+            model_name,
+        )
+    if summary["other_constraint_tasks"] > 0:
+        logger.warning(
+            "Input contains unsupported constraint keys for %d task(s); only "
+            "contact constraints are converted to TFG restraints for this model.",
+            summary["other_constraint_tasks"],
+        )
 
 
 def preprocess_input(
@@ -303,6 +384,7 @@ def get_default_runner(
     need_atom_confidence: bool = False,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
+    tfg_constraint_weight: Optional[float] = None,
 ) -> InferenceRunner:
     """
     Get a default InferenceRunner with the specified configurations.
@@ -325,6 +407,7 @@ def get_default_runner(
         use_seeds_in_json (bool): Whether to use seeds defined in the JSON file.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Whether to use TFG guidance.
+        tfg_constraint_weight (Optional[float]): Weight for user contact TFG restraints.
 
     Returns:
         InferenceRunner: An instance of InferenceRunner.
@@ -373,6 +456,10 @@ def get_default_runner(
     configs.use_rna_msa = use_rna_msa
     configs.use_seeds_in_json = use_seeds_in_json
     configs.need_atom_confidence = need_atom_confidence
+    if tfg_constraint_weight is not None:
+        configs.sample_diffusion.guidance.terms.UserDistanceRestraintPotential.weight = (
+            tfg_constraint_weight
+        )
     if kalign_binary_path is not None:
         # The path provided by the user is expected to exist by default
         configs.data.template.kalign_binary_path = kalign_binary_path
@@ -450,6 +537,7 @@ def inference_jsons(
     need_atom_confidence: bool = False,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
+    tfg_constraint_weight: Optional[float] = None,
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
@@ -485,6 +573,7 @@ def inference_jsons(
         use_seeds_in_json (bool): Whether to use seeds from JSON.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Use TFG guidance.
+        tfg_constraint_weight (Optional[float]): Weight for user contact TFG restraints.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
         seqres_database_path (Optional[str]): Path to sequence database.
@@ -511,6 +600,7 @@ def inference_jsons(
     logger.info(f"Will infer with {len(infer_jsons)} jsons")
     if len(infer_jsons) == 0:
         return
+    _log_constraint_guidance_status(infer_jsons, model_name, use_tfg_guidance)
 
     infer_errors = {}
     inference_configs["dump_dir"] = out_dir
@@ -533,6 +623,7 @@ def inference_jsons(
         need_atom_confidence=need_atom_confidence,
         kalign_binary_path=kalign_binary_path,
         use_tfg_guidance=use_tfg_guidance,
+        tfg_constraint_weight=tfg_constraint_weight,
     )
     configs = runner.configs
     for _, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
@@ -701,6 +792,12 @@ def protenix_cli() -> None:
     help="Use Training-Free Guidance (TFG) for inference.",
 )
 @click.option(
+    "--tfg_constraint_weight",
+    type=float,
+    default=1.0,
+    help="Weight for JSON contact constraints converted to TFG distance restraints.",
+)
+@click.option(
     "--hmmsearch_binary_path",
     type=str,
     default=None,
@@ -783,6 +880,7 @@ def predict(
     need_atom_confidence: bool,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
+    tfg_constraint_weight: float = 1.0,
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
@@ -820,6 +918,7 @@ def predict(
         need_atom_confidence (bool): Compute atom-level confidence scores.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Use TFG guidance.
+        tfg_constraint_weight (float): Weight for user contact TFG restraints.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
         seqres_database_path (Optional[str]): Path to sequence database.
@@ -940,6 +1039,7 @@ def predict(
         need_atom_confidence=need_atom_confidence,
         kalign_binary_path=kalign_binary_path,
         use_tfg_guidance=use_tfg_guidance,
+        tfg_constraint_weight=tfg_constraint_weight,
         hmmsearch_binary_path=hmmsearch_binary_path,
         hmmbuild_binary_path=hmmbuild_binary_path,
         seqres_database_path=seqres_database_path,
