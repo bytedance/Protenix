@@ -2,8 +2,8 @@
 
 <div align="center" style="margin: 20px 0;">
   <span style="margin: 0 10px;">⚡ <a href="https://protenix-server.com">Protenix Web Server</a></span>
-  &bull; <span style="margin: 0 10px;">📄 <a href="docs/PTX_V1_Technical_Report_202602042356.pdf">Protenix-v1</a></span>
-  &bull; <span style="margin: 0 10px;">📄 <a href="docs/PX2.pdf">Protenix-v2</a></span>
+  &bull; <span style="margin: 0 10px;">📄 <a href="https://github.com/bytedance/Protenix/blob/main/docs/PTX_V1_Technical_Report_202602042356.pdf">Protenix-v1</a></span>
+  &bull; <span style="margin: 0 10px;">📄 <a href="https://github.com/bytedance/Protenix/blob/main/docs/PX2.pdf">Protenix-v2</a></span>
 </div>
 
 <div align="center">
@@ -18,7 +18,7 @@ We’re excited to introduce **Protenix** — Toward High-Accuracy Open-Source B
 
 Protenix is built for high-accuracy structure prediction. It serves as an initial step in our journey toward advancing accessible and extensible research tools for the computational biology community.
 
-<img src="assets/protenix_predictions.gif" style="width: 100%; height: auto;" alt="Protenix predictions">
+<img src="https://raw.githubusercontent.com/bytedance/Protenix/main/assets/protenix_predictions.gif" style="width: 100%; height: auto;" alt="Protenix predictions">
 
 ## 🌟 Related Projects
 - **[PXDesign](https://protenix.github.io/pxdesign/)** is a model suite for de novo protein-binder design built on the Protenix foundation model. PXDesign achieves 20–73% experimental success rates across multiple targets — 2–6× higher than prior SOTA methods such as AlphaProteo and RFdiffusion. The framework is freely accessible via the Protenix Server.
@@ -28,18 +28,18 @@ Protenix is built for high-accuracy structure prediction. It serves as an initia
 - **[Protenix-Dock](https://github.com/bytedance/Protenix-Dock)**: Our implementation of a classical protein-ligand docking framework that leverages empirical scoring functions. Without using deep neural networks, Protenix-Dock delivers competitive performance in rigid docking tasks.
 
 ## 🎉 Latest Updates
-- **2026-04-08: Protenix-v2 Released** 💪💪 [[Protenix-v2 Technical Report](docs/PX2.pdf)]
+- **2026-04-08: Protenix-v2 Released** 💪💪 [[Protenix-v2 Technical Report](https://github.com/bytedance/Protenix/blob/main/docs/PX2.pdf)]
   - Protenix-v2 shows clear gains on antibody-antigen structure prediction, together with an additional update in ligand-related plausibility.
-- **2026-02-05: Protenix-v1 Released** 💪 [[Protenix-v1 Technical Report](docs/PTX_V1_Technical_Report_202602042356.pdf)]
+- **2026-02-05: Protenix-v1 Released** 💪 [[Protenix-v1 Technical Report](https://github.com/bytedance/Protenix/blob/main/docs/PTX_V1_Technical_Report_202602042356.pdf)]
   - Supported Template/RNA MSA features and improved training dynamics, along with further Inference-time model performance enhancements.
 - **2025-11-05: Protenix-v0.7.0 Released** 🚀
-  - Introduced advanced diffusion inference optimizations: Shared variable caching, efficient kernel fusion, and TF32 acceleration. See our [performance analysis](./assets/inference_time_vs_ntoken.png).
+  - Introduced advanced diffusion inference optimizations: Shared variable caching, efficient kernel fusion, and TF32 acceleration. See our [performance analysis](https://raw.githubusercontent.com/bytedance/Protenix/main/assets/inference_time_vs_ntoken.png).
 - **2025-07-17: Protenix-Mini & Constraint Features**
   - Released lightweight model variants ([Protenix-Mini](https://arxiv.org/abs/2507.11839)) that drastically reduce inference costs with minimal accuracy loss.
-  - Added support for [atom-level contact and pocket constraints](docs/infer_json_format.md#constraint), enhancing prediction accuracy through physical priors.
+  - Added support for [atom-level contact and pocket constraints](https://github.com/bytedance/Protenix/blob/main/docs/infer_json_format.md#constraint), enhancing prediction accuracy through physical priors.
 - **2025-01-16: Pipeline Enhancements**
-  - Open-sourced the full [training data pipeline](./docs/prepare_training_data.md) and [MSA pipeline](./docs/msa_template_pipeline.md).
-  - Integrated local [ColabFold-compatible search](./docs/colabfold_compatible_msa.md) for streamlined MSA generation.
+  - Open-sourced the full [training data pipeline](https://github.com/bytedance/Protenix/blob/main/docs/prepare_training_data.md) and [MSA pipeline](https://github.com/bytedance/Protenix/blob/main/docs/msa_template_pipeline.md).
+  - Integrated local [ColabFold-compatible search](https://github.com/bytedance/Protenix/blob/main/docs/colabfold_compatible_msa.md) for streamlined MSA generation.
 
 
 ## 🚀 Getting Started
@@ -72,9 +72,9 @@ protenix pred -i examples/input.json -o ./output -n protenix_base_default_v1.0.0
 - **protenix_base_20250630_v1.0.0**: Applied model, trained with an updated data cutoff (2025-06-30) for better practical performance. This model can be used for practical application scenarios.
 - **protenix_base_default_v0.5.0**: Previous version of the model, maintained primarily for backward compatibility with users who developed based on v0.5.0.
 
-For a complete list of supported models, please refer to [Supported Models](docs/supported_models.md).
+For a complete list of supported models, please refer to [Supported Models](https://github.com/bytedance/Protenix/blob/main/docs/supported_models.md).
 
-For detailed instructions on installation, data preprocessing, inference, and training, please refer to the [Training and Inference Instructions](docs/training_inference_instructions.md). We recommend users refer to [inference_demo.sh](inference_demo.sh) for detailed inference methods and input explanations.
+For detailed instructions on installation, data preprocessing, inference, and training, please refer to the [Training and Inference Instructions](https://github.com/bytedance/Protenix/blob/main/docs/training_inference_instructions.md). We recommend users refer to [inference_demo.sh](https://github.com/bytedance/Protenix/blob/main/inference_demo.sh) for detailed inference methods and input explanations.
 
 
 ### 📊 Benchmark
@@ -83,18 +83,18 @@ For detailed instructions on installation, data preprocessing, inference, and tr
 
 Protenix-v2 (refers to the `protenix-v2` model) shows clear gains on antibody-antigen structure prediction, together with an additional update in ligand-related plausibility. Compared to baselines and the earlier Protenix-v1, Protenix-v2 demonstrates a substantial improvement trend. At the DockQ > 0.23 threshold, Protenix-v2 achieves absolute success rate gains of 9 to 13 percentage points over Protenix-v1 across three collections. Remarkably, Protenix-v2 at only 5 seeds already exceeds the performance of Protenix-v1 at 1000 seeds, indicating a clear gain in efficiency.
 
-<img src="./assets/protenix-v2.png" style="width: 100%; height: auto;" alt="Protenix-v2 model Metrics">
+<img src="https://raw.githubusercontent.com/bytedance/Protenix/main/assets/protenix-v2.png" style="width: 100%; height: auto;" alt="Protenix-v2 model Metrics">
 
 
 #### Protenix-v1
 
 Protenix-v1 (refers to the `protenix_base_default_v1.0.0` model), the first fully open-source model that outperforms AlphaFold3 across diverse benchmark sets while adhering to the same training data cutoff, model scale, and inference budget as AlphaFold3. For challenging targets, such as antigen-antibody complexes, the prediction accuracy of Protenix-v1 can be further enhanced through inference-time scaling – increasing the sampling budget from several to hundreds of candidates leads to consistent log-linear gains.
 
-<img src="./assets/protenix_base_default_v1.0.0_metrics.png" style="width: 100%; height: auto;" alt="protenix-v1 model Metrics">
+<img src="https://raw.githubusercontent.com/bytedance/Protenix/main/assets/protenix_base_default_v1.0.0_metrics.png" style="width: 100%; height: auto;" alt="protenix-v1 model Metrics">
 
-<img src="./assets/protenix_base_default_v1.0.0_metrics2.png" style="width: 100%; height: auto;" alt="protenix-v1 model Metrics 2">
+<img src="https://raw.githubusercontent.com/bytedance/Protenix/main/assets/protenix_base_default_v1.0.0_metrics2.png" style="width: 100%; height: auto;" alt="protenix-v1 model Metrics 2">
 
-For detailed benchmark metrics on each dataset, please refer to [docs/model_1.0.0_benchmark.md](docs/model_1.0.0_benchmark.md).
+For detailed benchmark metrics on each dataset, please refer to [docs/model_1.0.0_benchmark.md](https://github.com/bytedance/Protenix/blob/main/docs/model_1.0.0_benchmark.md).
 
 ## Citing Protenix
 
@@ -177,7 +177,7 @@ Protenix is built upon and inspired by several influential projects. If you use 
 
 We welcome contributions from the community to help improve Protenix!
 
-📄 Check out the [Contributing Guide](CONTRIBUTING.md) to get started.
+📄 Check out the [Contributing Guide](https://github.com/bytedance/Protenix/blob/main/CONTRIBUTING.md) to get started.
 
 ✅ Code Quality: 
 We use `pre-commit` hooks to ensure consistency and code quality. Please install them before making commits:
@@ -195,25 +195,25 @@ pre-commit install
 
 
 The implementation of LayerNorm operators refers to both [OneFlow](https://github.com/Oneflow-Inc/oneflow) and [FastFold](https://github.com/hpcaitech/FastFold).
-We also adopted several [module](protenix/openfold_local/) implementations from [OpenFold](https://github.com/aqlaboratory/openfold), except for [`LayerNorm`](protenix/model/layer_norm/), which is implemented independently.
+We also adopted several module implementations from [OpenFold](https://github.com/aqlaboratory/openfold), except for [`LayerNorm`](https://github.com/bytedance/Protenix/tree/main/protenix/model/layer_norm), which is implemented independently.
 
 
 ## Code of Conduct
 
 We are committed to fostering a welcoming and inclusive environment.
-Please review our [Code of Conduct](CODE_OF_CONDUCT.md) for guidelines on how to participate respectfully.
+Please review our [Code of Conduct](https://github.com/bytedance/Protenix/blob/main/CODE_OF_CONDUCT.md) for guidelines on how to participate respectfully.
 
 
 ## Security
 
 If you discover a potential security issue in this project, or think you may
-have discovered a security issue, we ask that you notify Bytedance Security via our [security center](https://security.bytedance.com/src) or [vulnerability reporting email](sec@bytedance.com).
+have discovered a security issue, we ask that you notify Bytedance Security via our [security center](https://security.bytedance.com/src) or [vulnerability reporting email](mailto:sec@bytedance.com).
 
 Please do **not** create a public GitHub issue.
 
 ## License
 
-The Protenix project including both code and model parameters is released under the [Apache 2.0 License](./LICENSE). It is free for both academic research and commercial use.
+The Protenix project including both code and model parameters is released under the [Apache 2.0 License](https://github.com/bytedance/Protenix/blob/main/LICENSE). It is free for both academic research and commercial use.
 
 ## Contact Us
 
