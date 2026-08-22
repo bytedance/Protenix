@@ -30,7 +30,21 @@ from protenix.model.utils import (
     permute_final_dims,
 )
 
-fastln_is_installed = os.getenv("LAYERNORM_TYPE", "fast_layernorm") == "fast_layernorm"
+
+def _use_fast_layer_norm() -> bool:
+    configured_type = os.getenv("LAYERNORM_TYPE")
+    if configured_type is not None:
+        return configured_type == "fast_layernorm"
+
+    # The custom kernel can produce non-finite outputs on sm_120. Prefer the
+    # native implementation there unless the user explicitly opts in.
+    if torch.cuda.is_available() and torch.cuda.get_device_capability() == (12, 0):
+        return False
+
+    return True
+
+
+fastln_is_installed = _use_fast_layer_norm()
 if fastln_is_installed:
     from protenix.model.layer_norm.layer_norm import FusedLayerNorm
 
