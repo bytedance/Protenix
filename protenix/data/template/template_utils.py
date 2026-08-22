@@ -881,6 +881,13 @@ class TemplateHitFeaturizer:
                 errors.append(f"Invalid template info at index {idx}")
                 continue
                 
+            if any(q_idx < 0 for q_idx in q_indices):
+                errors.append(f"Invalid queryIndices at index {idx}: negative index")
+                continue
+            if any(t_idx < -1 for t_idx in t_indices):
+                errors.append(f"Invalid templateIndices at index {idx}: index below -1")
+                continue
+
             mapping = {q: t for q, t in zip(q_indices, t_indices)}
             
             try:
