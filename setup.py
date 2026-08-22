@@ -67,6 +67,10 @@ setup(
         "protenix": ["model/layer_norm/kernel/*"],
     },
     install_requires=install_requires,
+    extras_require={
+        # Optional fp16 CuTe triangle-multiply backend (inference).
+        "fast_trimul": ["fast_trimul>=2.1.2", "cuda-python<13"],
+    },
     license="Apache 2.0 License",
     platforms="manylinux1",
     entry_points={

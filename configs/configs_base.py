@@ -126,7 +126,7 @@ model_configs = {
     ),  # NOTE: Number of blocks in each activation checkpoint, if None, no checkpointing is performed.
     "hidden_scale_up": False,  # whether to scale up hidden dim in pairformer and confidence head
     # switch of kernels
-    "triangle_multiplicative": "cuequivariance",  # cuequivariance, torch
+    "triangle_multiplicative": "cuequivariance",  # cuequivariance, torch, fast_trimul
     "triangle_attention": "cuequivariance",  # triattention, cuequivariance, deepspeed, torch
     "enable_diffusion_shared_vars_cache": False,
     "enable_efficient_fusion": False,

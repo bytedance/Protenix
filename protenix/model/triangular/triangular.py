@@ -24,6 +24,13 @@ import torch.nn as nn
 from protenix.model.triangular.layers import Attention, LayerNorm, OpenfoldLinear
 from protenix.model.utils import chunk_layer, is_fp16_enabled, permute_final_dims
 
+try:
+    import fast_trimul
+
+    FAST_TRIMUL_AVAILABLE = True
+except ImportError:
+    FAST_TRIMUL_AVAILABLE = False
+
 
 def kernel_triangular_mult(
     x: torch.Tensor,
@@ -195,6 +202,19 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
         self.linear_b_g = OpenfoldLinear(
             self.c_z, self.c_hidden, bias=False, init="gating"
         )
+
+    def _ensure_fast_impl(self, z: torch.Tensor) -> None:
+        """Lazily build the fast_trimul module and load this layer's weights into
+        it once. Stored outside nn.Module registration (via __dict__) so it never
+        appears in state_dict / checkpoints."""
+        if self.__dict__.get("_fast_impl") is not None:
+            return
+        mode = "outgoing" if self._outgoing else "incoming"
+        impl = fast_trimul.FastTriangleMultiplication(
+            d_z=self.c_z, d_c=self.c_hidden, mode=mode, residual=False
+        ).to(z.device)
+        impl.load_weights(self.state_dict(), source="protenix")
+        self.__dict__["_fast_impl"] = impl
 
     def _inference_forward(
         self,
@@ -486,6 +506,18 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
             [*, N_res, N_res, C_z] output tensor
         """
         _input_inplace_safe = inplace_safe is True
+
+        # fast_trimul: optional third-party fp16 CuTe backend. Inference only --
+        # its backward is a correct but slow torch recompute and it holds a
+        # weight copy -- so we fall back to "torch" when unavailable or training.
+        if triangle_multiplicative == "fast_trimul":
+            if FAST_TRIMUL_AVAILABLE and not self.training:
+                self._ensure_fast_impl(z)
+                update = self._fast_impl(z, mask=mask)
+                if _input_inplace_safe and _add_with_inplace:
+                    return update + z
+                return update
+            triangle_multiplicative = "torch"
 
         # Note: cuequivariance requires that the hidden dimension c must equal c_z.
         # If this condition is not met, an AssertionError will be raised.
