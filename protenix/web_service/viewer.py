@@ -139,15 +139,21 @@ class DnaRnaProteinEntityWidget(widgets.VBox):
         result[recode_name]["count"] = self.copies_int_text.value
         result[recode_name]["sequence"] = sequence
         assert len(result[recode_name]["sequence"]) > 0, "sequence length must > 0"
+        if sequence_type == "Protein":
+            modification_type_key = "ptmType"
+            modification_position_key = "ptmPosition"
+        else:
+            modification_type_key = "modificationType"
+            modification_position_key = "basePosition"
         result[recode_name]["modifications"] = [
             {
-                "modificationType": item.children[0].value,
-                "Position": item.children[1].value,
+                modification_type_key: item.children[0].value,
+                modification_position_key: item.children[1].value,
             }
             for item in self.modifications
         ]
         for item in result[recode_name]["modifications"]:
-            pos = item["Position"]
+            pos = item[modification_position_key]
             assert pos <= len(result[recode_name]["sequence"]), "position out of range"
 
         if sequence_type == "Protein":
