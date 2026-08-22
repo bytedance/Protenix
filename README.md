@@ -52,6 +52,12 @@ pip install --upgrade protenix --index-url https://pypi.org/simple
 
 If your package mirror lags behind the latest GitHub release, use the official PyPI index above to make sure the installed CLI matches the commands shown in this README.
 
+Optional: install the [`fast_trimul`](https://github.com/tiagomonteiro0715/fast_trimul) fp16 CuTe triangle-multiply backend (inference-only; enable with `triangle_multiplicative: "fast_trimul"`, see [docs/kernels.md](docs/kernels.md)):
+
+```bash
+pip install "protenix[fast_trimul]"
+```
+
 ### 🧬 Quick Prediction
 
 ```bash

@@ -38,9 +38,9 @@
 
 - **Triangle_multiplicative Kernel Options**
     
-    The Triangle Multiplicative operation supports two implementations, configurable in [configs_base.py](../configs/configs_base.py):
+    The Triangle Multiplicative operation supports three implementations, configurable in [configs_base.py](../configs/configs_base.py):
     ```python
-    triangle_multiplicative = "cuequivariance"  # or "torch"
+    triangle_multiplicative = "cuequivariance"  # or "torch" / "fast_trimul"
     ```
 
     1. cuEquivariance Kernel (Default)
@@ -48,4 +48,14 @@
 
     2. Torch Native
     Standard PyTorch implementation.
+
+    3. fast_trimul (optional, third-party)
+    Fused fp16 [CuTe DSL](https://github.com/tiagomonteiro0715/fast_trimul) kernel. **Inference only** (its
+    backward is a correct but slow torch recompute), and it automatically falls back to the
+    torch path when unavailable or during training. Install with:
+    ```bash
+    pip install "protenix[fast_trimul]"   # brings in fast_trimul + cuda-python<13
+    ```
+    The fast path targets NVIDIA Ampere (sm80) with `N` divisible by 8; other
+    hardware/shapes/dtypes use fast_trimul's built-in pure-torch fallback.
 
