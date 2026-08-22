@@ -395,15 +395,13 @@ def _flat_bottom_parabolic(
     energy = torch.zeros_like(value)
     grad = torch.zeros_like(value)
     if lower is not None:
-        diff_lb = lower - value
-        mask_lb = diff_lb > 0
-        energy += torch.where(mask_lb, 0.5 * k * (diff_lb**2), 0.0)
-        grad -= torch.where(mask_lb, k * diff_lb, 0.0)
+        diff_lb = (lower - value).clamp_min(0)
+        energy += 0.5 * k * (diff_lb**2)
+        grad -= k * diff_lb
     if upper is not None:
-        diff_ub = value - upper
-        mask_ub = diff_ub > 0
-        energy += torch.where(mask_ub, 0.5 * k * (diff_ub**2), 0.0)
-        grad += torch.where(mask_ub, k * diff_ub, 0.0)
+        diff_ub = (value - upper).clamp_min(0)
+        energy += 0.5 * k * (diff_ub**2)
+        grad += k * diff_ub
     return energy, grad
 
 
