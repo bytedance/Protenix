@@ -55,6 +55,7 @@ import io
 from protenix.data.constants import (
     CRYSTALLIZATION_METHODS,
     DNA_STD_RESIDUES,
+    EntityPolyTypeDict,
     GLYCANS,
     IONS,
     LIGAND_EXCLUSION,
@@ -63,11 +64,12 @@ from protenix.data.constants import (
     RES_ATOMS_DICT,
     RNA_STD_RESIDUES,
     STD_RESIDUES,
-    EntityPolyTypeDict,
 )
 from protenix.data.core import ccd
 from protenix.data.core.ccd import get_ccd_ref_info
 from protenix.data.core.filter import Filter
+
+from protenix.data.core.oxygen_branches import absent_oxygen_branch
 from protenix.data.tools.logger import MMCIFStatsLogger
 from protenix.data.tools.rewrite_biotite import _parse_inter_residue_bonds, concatenate
 from protenix.data.utils import (
@@ -526,10 +528,10 @@ class MMCIFParser:
             for i in range(3):
                 for j in range(3):
                     fract_transf_matrix[i][j] = float(
-                        atom_sites[f"fract_transf_matrix[{j+1}][{i+1}]"].as_item()
+                        atom_sites[f"fract_transf_matrix[{j + 1}][{i + 1}]"].as_item()
                     )
                 fract_transf_vector[i] = float(
-                    atom_sites[f"fract_transf_vector[{i+1}]"].as_item()
+                    atom_sites[f"fract_transf_vector[{i + 1}]"].as_item()
                 )
 
         # The below part is the same for both, AtomArray and AtomArrayStack
@@ -613,10 +615,10 @@ class MMCIFParser:
             elif assembly_id not in assembly_ids:
                 raise KeyError(f"File has no Assembly ID '{assembly_id}'")
 
-        ### Calculate all possible transformations
+        # Calculate all possible transformations
         transformations = pdbx_convert._get_transformations(struct_oper_category)
 
-        ### Get transformations and apply them to the affected asym IDs
+        # Get transformations and apply them to the affected asym IDs
         assembly = None
         assembly_1_mask = []
         for id, op_expr, asym_id_expr in zip(
@@ -1060,7 +1062,10 @@ class MMCIFParser:
         # remove atoms based on chain with most leaving atoms
         max_id = np.argmax(map(len, remove_atom_names))
         non_ccd_leaving_atoms = remove_atom_names[max_id]
-        return non_ccd_leaving_atoms
+        branch = absent_oxygen_branch(
+            atom_array, component, non_std_central_atom_name, indices_in_atom_array
+        )
+        return sorted(set(non_ccd_leaving_atoms) | set(branch))
 
     def build_ref_chain_with_atom_array(
         self, atom_array: AtomArray
@@ -3088,9 +3093,9 @@ class AddAtomArrayAnnot(object):
                         ref_atom_name = mol_id_to_atom_name[ref_mol_id]
                         if len(mol_atom_name) == len(ref_atom_name):
                             if np.all(ref_atom_name == mol_atom_name):
-                                mol_id_to_entity_mol_ids[mol_id] = (
-                                    mol_id_to_entity_mol_ids[ref_mol_id]
-                                )
+                                mol_id_to_entity_mol_ids[
+                                    mol_id
+                                ] = mol_id_to_entity_mol_ids[ref_mol_id]
                                 break
                             else:
                                 warning_msg = (
