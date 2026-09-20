@@ -13,10 +13,13 @@
 # limitations under the License.
 
 import itertools
+import logging
 from collections import defaultdict
 
 import numpy as np
 from rdkit import Chem
+
+logger = logging.getLogger(__name__)
 
 
 def neutralize_atoms(mol: Chem.Mol):
@@ -218,19 +221,15 @@ def get_substructure_perms(
         "MaxMatches": MaxMatches,
     }
 
-    if KeepProtonation:
-        perms = _get_substructure_perms(mol, Neutralize=False, **kwargs)
-    else:
-        # Have to deuplicate permutations across the two protonation states
-        perms = np.unique(
-            np.vstack(
-                (
-                    _get_substructure_perms(mol, Neutralize=False, **kwargs),
-                    _get_substructure_perms(mol, Neutralize=True, **kwargs),
-                )
-            ),
-            axis=0,
-        )
+    perms = _get_substructure_perms(mol, Neutralize=False, **kwargs)
+    if not KeepProtonation:
+        try:
+            neutralized_perms = _get_substructure_perms(mol, Neutralize=True, **kwargs)
+        except Chem.rdchem.MolSanitizeException as error:
+            # Optional neutralization must not discard valid original-charge maps.
+            logger.warning("Skipping invalid neutralized symmetry state: %s", error)
+        else:
+            perms = np.unique(np.vstack((perms, neutralized_perms)), axis=0)
 
     nperm = len(perms)
     if nperm > MaxMatches:
