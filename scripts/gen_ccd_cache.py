@@ -150,6 +150,11 @@ def _get_component_rdkit_mol_processing(
     options.clearConfs = False
     try:
         conf_id = rdkit.Chem.AllChem.EmbedMolecule(mol, options)
+        if conf_id < 0:
+            logging.warning(
+                "Warning: fail to generate conf for %s, use idea conf", ccd_code
+            )
+            return mol
         mol.ref_conf_id = conf_id
         mol.ref_conf_type = "rdkit"
         mol.ref_mask[:] = True
