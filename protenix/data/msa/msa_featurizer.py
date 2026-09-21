@@ -33,7 +33,7 @@ from protenix.data.msa.msa_utils import (
     NUM_SEQ_NUM_RES_MSA_FEATURES,
     RawMsa,
 )
-from protenix.utils.file_io import load_json_cached
+from protenix.data.msa.msa_input import split_monomer_msa
 from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -400,6 +400,8 @@ class MSAFeaturizer:
     ) -> None:
         self.dataset_name = dataset_name
         super().__init__()
+        from protenix.utils.file_io import load_json_cached
+
         # Initialize source managers for protein and RNA
         self.prot_mgr = MSASourceManager(
             prot_msadir_raw_paths,
@@ -616,6 +618,30 @@ class InferenceMSAFeaturizer:
                 if p_a3m is None and c.get("pairedMsaPath"):
                     with open(c["pairedMsaPath"]) as f:
                         p_a3m = f.read()
+                if u_a3m is None and (p_a3m is None) and c.get("monomerMsaPath"):
+                    with open(c["monomerMsaPath"]) as f:
+                        monomer_a3m = f.read()
+                    monomer_msa = split_monomer_msa(
+                        query_sequence=seq,
+                        a3m=monomer_a3m,
+                        source_name=c["monomerMsaPath"],
+                    )
+                    p_a3m = monomer_msa.paired_a3m
+                    u_a3m = monomer_msa.unpaired_a3m
+                    if monomer_msa.pairable_rows == 0:
+                        logger.warning(
+                            "monomerMsaPath for protein entity %s contains no "
+                            "recognized species/taxonomy identifiers; using it as "
+                            "unpaired MSA only.",
+                            eid + 1,
+                        )
+                    if monomer_msa.invalid_rows > 0:
+                        logger.warning(
+                            "monomerMsaPath for protein entity %s skipped %s rows "
+                            "whose aligned length did not match the query sequence.",
+                            eid + 1,
+                            monomer_msa.invalid_rows,
+                        )
                 if u_a3m is None and (p_a3m is None):
                     if c.get("msa"):
                         msa_dir = c["msa"].get("precomputed_msa_dir")

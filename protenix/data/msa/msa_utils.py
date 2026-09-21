@@ -42,11 +42,27 @@ _UNIPROT_REGEX = re.compile(
     r"(?:tr|sp)\|[A-Z0-9]{6,10}(?:_\d+)?\|(?:[A-Z0-9]{1,10}_)(?P<SpeciesId>[A-Z0-9]{1,5})"
 )
 _UNIREF_REGEX = re.compile(r"^UniRef100_[^_]+_([^_/]+)")
+_TAXONOMY_TAG_REGEX = re.compile(
+    r"(?:^|\s)(?:OX|TaxID|taxid|Tax)=(?P<SpeciesId>\d+)(?:\b|$)"
+)
 
 MSA_GAP_IDX = STD_RESIDUES_WITH_GAP.get("-")
 NUM_SEQ_NUM_RES_MSA_FEATURES = ("msa", "msa_mask", "deletion_matrix")
 NUM_SEQ_MSA_FEATURES = ("msa_species_identifiers",)
 MSA_PAD_VALUES = {"msa": MSA_GAP_IDX, "msa_mask": 1, "deletion_matrix": 0}
+
+
+def extract_species_id(description: str) -> str:
+    """Extract a species/taxonomy identifier from an MSA description line."""
+    description = description.strip()
+    m = _UNIPROT_REGEX.match(description) or _UNIREF_REGEX.match(description)
+    if m:
+        return m.group("SpeciesId") if "SpeciesId" in m.groupdict() else m.group(1)
+
+    m = _TAXONOMY_TAG_REGEX.search(description)
+    if m:
+        return m.group("SpeciesId")
+    return ""
 
 
 class MSACore:
@@ -265,17 +281,7 @@ class MSAPairingEngine:
     @staticmethod
     def get_species_ids(descriptions: Sequence[str]) -> List[str]:
         """Extracts species identifiers from UniProt or UniRef description lines."""
-        ids = []
-        for d in descriptions:
-            d = d.strip()
-            m = _UNIPROT_REGEX.match(d) or _UNIREF_REGEX.match(d)
-            if m:
-                ids.append(
-                    m.group("SpeciesId") if "SpeciesId" in m.groupdict() else m.group(1)
-                )
-            else:
-                ids.append("")
-        return ids
+        return [extract_species_id(d) for d in descriptions]
 
     @staticmethod
     def _align_species(

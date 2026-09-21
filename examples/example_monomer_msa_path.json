@@ -1,0 +1,21 @@
+[
+  {
+    "name": "example_monomer_msa_path",
+    "sequences": [
+      {
+        "proteinChain": {
+          "sequence": "ACDEFGHIK",
+          "count": 1,
+          "monomerMsaPath": "./examples/monomer_msa/chain_a.a3m"
+        }
+      },
+      {
+        "proteinChain": {
+          "sequence": "LMNPQRSTV",
+          "count": 1,
+          "monomerMsaPath": "./examples/monomer_msa/chain_b.a3m"
+        }
+      }
+    ]
+  }
+]
