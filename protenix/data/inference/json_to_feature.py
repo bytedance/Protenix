@@ -400,5 +400,13 @@ class SampleDictToFeatures:
                 exclude_std_residue=True,
             )
             feature_dict.update(geometry_featurizer.get_features())
+            feature_dict.update(
+                ConstraintFeatureGenerator.generate_tfg_contact_restraint_features(
+                    token_array,
+                    atom_array,
+                    self.input_dict["sequences"],
+                    self.input_dict.get("constraint", {}),
+                )
+            )
 
         return feature_dict, atom_array, token_array

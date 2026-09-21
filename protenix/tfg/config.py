@@ -152,6 +152,12 @@ _REQUIRED_FEATURES: dict[str, set[str]] = {
         "pairwise_distance_lower_bound",
         "ref_element",
     },
+    "UserDistanceRestraintPotential": {
+        "user_distance_restraint_index",
+        "user_distance_restraint_lower_bound",
+        "user_distance_restraint_upper_bound",
+        "user_distance_restraint_weight",
+    },
     "InterchainBondPotential": {"interchain_bond_index"},
     "VinaStericPotential": {
         "asym_id",

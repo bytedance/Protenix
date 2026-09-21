@@ -796,6 +796,59 @@ class PairwiseDistancePotential(Potential):
 
 
 @register
+class UserDistanceRestraintPotential(Potential):
+    """User-provided flat-bottom distance restraints.
+
+    Unlike `PairwiseDistancePotential`, this term is not derived from RDKit
+    molecular bounds and does not reinterpret non-bonded pairs as clash
+    constraints. It directly applies the lower/upper distance interval provided
+    by inference JSON contact constraints.
+
+    Expected `feats`:
+        - `user_distance_restraint_index`: `[2, M]`
+        - `user_distance_restraint_lower_bound`: `[M]`
+        - `user_distance_restraint_upper_bound`: `[M]`
+        - `user_distance_restraint_weight`: `[M]`
+    """
+
+    def _eval(self, coords, feats, params, need_grad: bool):
+        idx = feats["user_distance_restraint_index"].to(
+            device=coords.device, dtype=torch.long
+        )
+        if idx.numel() == 0:
+            return (
+                _zeros_energy_and_grad(coords) if need_grad else _zeros_energy(coords)
+            )
+
+        lower = feats["user_distance_restraint_lower_bound"].to(
+            device=coords.device, dtype=coords.dtype
+        )
+        upper = feats["user_distance_restraint_upper_bound"].to(
+            device=coords.device, dtype=coords.dtype
+        )
+        weight = feats["user_distance_restraint_weight"].to(
+            device=coords.device, dtype=coords.dtype
+        )
+
+        n_pair = idx.shape[-1]
+        if not (
+            lower.shape == upper.shape == weight.shape == torch.Size([n_pair])
+        ):
+            raise ValueError(
+                "UserDistanceRestraintPotential feature shapes are inconsistent: "
+                f"index has {n_pair} pairs, lower={tuple(lower.shape)}, "
+                f"upper={tuple(upper.shape)}, weight={tuple(weight.shape)}"
+            )
+
+        value, grad_value = _distance_value_and_grad(coords, idx, need_grad)
+        e, dE = _flat_bottom_parabolic(value, weight, lower, upper)
+        if not need_grad:
+            return _sum_energy(e)
+        grad_atom = _aggregate_atom_gradients(coords, idx, grad_value, dE)
+        return _sum_energy(e), grad_atom
+
+
+@register
 class StereoBondPotential(Potential):
     """Stereo double-bond (cis/trans) constraint using |dihedral|.
 
