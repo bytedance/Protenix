@@ -467,6 +467,33 @@ class Protenix(nn.Module):
         # For token counts larger than the largest threshold, use smallest chunk_size
         return 32  # extreme case for very large proteins
 
+    def _normalize_score_coordinates(
+        self,
+        score_coordinates: torch.Tensor,
+        input_feature_dict: dict[str, Any],
+    ) -> torch.Tensor:
+        """
+        Normalize externally supplied coordinates for confidence-only scoring.
+        """
+        if score_coordinates.ndim == 2:
+            score_coordinates = score_coordinates.unsqueeze(0)
+        if score_coordinates.ndim != 3 or score_coordinates.shape[-1] != 3:
+            raise ValueError(
+                "score_coordinates must have shape [N_atom, 3] or "
+                f"[N_sample, N_atom, 3], got {tuple(score_coordinates.shape)}"
+            )
+
+        expected_n_atom = input_feature_dict["atom_to_token_idx"].shape[-1]
+        if score_coordinates.shape[-2] != expected_n_atom:
+            raise ValueError(
+                "score_coordinates atom dimension does not match the featurized "
+                f"structure: got {score_coordinates.shape[-2]}, expected {expected_n_atom}"
+            )
+        return score_coordinates.to(
+            device=input_feature_dict["ref_pos"].device,
+            dtype=input_feature_dict["ref_pos"].dtype,
+        )
+
     def _main_inference_loop(
         self,
         input_feature_dict: dict[str, Any],
@@ -477,6 +504,7 @@ class Protenix(nn.Module):
         chunk_size: Optional[int] = 4,
         symmetric_permutation: SymmetricPermutation = None,
         mc_dropout: bool = False,
+        score_coordinates: Optional[torch.Tensor] = None,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
         """
         Main inference loop (single model seed) for the Alphafold3 model.
@@ -526,56 +554,65 @@ class Protenix(nn.Module):
         time_tracker.update({"pairformer": step_trunk - step_st})
         # Sample diffusion
         # [..., N_sample, N_atom, 3]
-        N_sample = self.configs.sample_diffusion["N_sample"]
-        N_step = self.configs.sample_diffusion["N_step"]
+        if score_coordinates is None:
+            N_sample = self.configs.sample_diffusion["N_sample"]
+            N_step = self.configs.sample_diffusion["N_step"]
 
-        noise_schedule = self.inference_noise_scheduler(
-            N_step=N_step, device=s_inputs.device, dtype=s_inputs.dtype
-        )
-        cache = dict()
-        if self.enable_diffusion_shared_vars_cache:
-            # line 1-5 of algorithm 21 calculate z in diffusion conditioning
-            cache["pair_z"] = autocasting_disable_decorator(
-                self.configs.skip_amp.sample_diffusion
-            )(self.diffusion_module.diffusion_conditioning.prepare_cache)(
-                input_feature_dict["relp"], z, False
+            noise_schedule = self.inference_noise_scheduler(
+                N_step=N_step, device=s_inputs.device, dtype=s_inputs.dtype
             )
-            cache["p_lm/c_l"] = autocasting_disable_decorator(
-                self.configs.skip_amp.sample_diffusion
-            )(self.diffusion_module.atom_attention_encoder.prepare_cache)(
-                ref_pos=input_feature_dict["ref_pos"],
-                ref_charge=input_feature_dict["ref_charge"],
-                ref_mask=input_feature_dict["ref_mask"],
-                ref_element=input_feature_dict["ref_element"],
-                ref_atom_name_chars=input_feature_dict["ref_atom_name_chars"],
-                atom_to_token_idx=input_feature_dict["atom_to_token_idx"],
-                d_lm=input_feature_dict["d_lm"],
-                v_lm=input_feature_dict["v_lm"],
-                pad_info=input_feature_dict["pad_info"],
-                r_l=True,
-                z=cache["pair_z"],
-                inplace_safe=False,
+            cache = dict()
+            if self.enable_diffusion_shared_vars_cache:
+                # line 1-5 of algorithm 21 calculate z in diffusion conditioning
+                cache["pair_z"] = autocasting_disable_decorator(
+                    self.configs.skip_amp.sample_diffusion
+                )(self.diffusion_module.diffusion_conditioning.prepare_cache)(
+                    input_feature_dict["relp"], z, False
+                )
+                cache["p_lm/c_l"] = autocasting_disable_decorator(
+                    self.configs.skip_amp.sample_diffusion
+                )(self.diffusion_module.atom_attention_encoder.prepare_cache)(
+                    ref_pos=input_feature_dict["ref_pos"],
+                    ref_charge=input_feature_dict["ref_charge"],
+                    ref_mask=input_feature_dict["ref_mask"],
+                    ref_element=input_feature_dict["ref_element"],
+                    ref_atom_name_chars=input_feature_dict["ref_atom_name_chars"],
+                    atom_to_token_idx=input_feature_dict["atom_to_token_idx"],
+                    d_lm=input_feature_dict["d_lm"],
+                    v_lm=input_feature_dict["v_lm"],
+                    pad_info=input_feature_dict["pad_info"],
+                    r_l=True,
+                    z=cache["pair_z"],
+                    inplace_safe=False,
+                )
+            else:
+                cache["pair_z"] = None
+                cache["p_lm/c_l"] = [None, None]
+            pred_dict["coordinate"] = self.sample_diffusion(
+                denoise_net=self.diffusion_module,
+                input_feature_dict=input_feature_dict,
+                s_inputs=s_inputs,
+                s_trunk=s,
+                z_trunk=None if cache["pair_z"] is not None else z,
+                pair_z=cache["pair_z"],
+                p_lm=cache["p_lm/c_l"][0],
+                c_l=cache["p_lm/c_l"][1],
+                N_sample=N_sample,
+                noise_schedule=noise_schedule,
+                inplace_safe=inplace_safe,
+                enable_efficient_fusion=self.enable_efficient_fusion,
             )
         else:
-            cache["pair_z"] = None
-            cache["p_lm/c_l"] = [None, None]
-        pred_dict["coordinate"] = self.sample_diffusion(
-            denoise_net=self.diffusion_module,
-            input_feature_dict=input_feature_dict,
-            s_inputs=s_inputs,
-            s_trunk=s,
-            z_trunk=None if cache["pair_z"] is not None else z,
-            pair_z=cache["pair_z"],
-            p_lm=cache["p_lm/c_l"][0],
-            c_l=cache["p_lm/c_l"][1],
-            N_sample=N_sample,
-            noise_schedule=noise_schedule,
-            inplace_safe=inplace_safe,
-            enable_efficient_fusion=self.enable_efficient_fusion,
-        )
+            pred_dict["coordinate"] = self._normalize_score_coordinates(
+                score_coordinates=score_coordinates,
+                input_feature_dict=input_feature_dict,
+            )
 
         step_diffusion = time.time()
-        time_tracker.update({"diffusion": step_diffusion - step_trunk})
+        diffusion_time = (
+            0.0 if score_coordinates is not None else step_diffusion - step_trunk
+        )
+        time_tracker.update({"diffusion": diffusion_time})
         # Distogram logits: log contact_probs only, to reduce the dimension
         pred_dict["contact_probs"] = autocasting_disable_decorator(True)(
             sample_confidence.compute_contact_prob
@@ -857,6 +894,7 @@ class Protenix(nn.Module):
         symmetric_permutation: SymmetricPermutation = None,
         disable_inplace: bool = False,
         mc_dropout_apply_rate: float = 0.4,
+        score_coordinates: Optional[torch.Tensor] = None,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
         """
         Forward pass of the Alphafold3 model.
@@ -868,6 +906,8 @@ class Protenix(nn.Module):
             mode (str): Mode of operation ('train', 'inference', 'eval'). Defaults to 'inference'.
             current_step (Optional[int]): Current training step. Defaults to None.
             symmetric_permutation (SymmetricPermutation): Symmetric permutation object. Defaults to None.
+            score_coordinates (Optional[torch.Tensor]): Fixed coordinates to score in
+                inference mode, with shape [N_atom, 3] or [N_sample, N_atom, 3].
 
         Returns:
             tuple[dict[str, torch.Tensor], dict[str, Any], dict[str, Any]]:
@@ -875,6 +915,8 @@ class Protenix(nn.Module):
         """
 
         assert mode in ["train", "eval", "inference"]
+        if score_coordinates is not None and mode != "inference":
+            raise ValueError("score_coordinates is only supported in inference mode")
         not_use_gradient = not (self.training or torch.is_grad_enabled())
         inplace_safe = not_use_gradient and (not disable_inplace)
 
@@ -901,17 +943,30 @@ class Protenix(nn.Module):
             )
             log_dict["N_cycle"] = N_cycle
         elif mode == "inference":
-            pred_dict, log_dict, time_tracker = self.main_inference_loop(
-                input_feature_dict=input_feature_dict,
-                label_dict=None,
-                N_cycle=self.N_cycle,
-                mode=mode,
-                inplace_safe=inplace_safe,
-                chunk_size=self.configs.infer_setting.chunk_size,
-                N_model_seed=self.N_model_seed,
-                symmetric_permutation=None,
-                mc_dropout_apply_rate=mc_dropout_apply_rate,
-            )
+            if score_coordinates is None:
+                pred_dict, log_dict, time_tracker = self.main_inference_loop(
+                    input_feature_dict=input_feature_dict,
+                    label_dict=None,
+                    N_cycle=self.N_cycle,
+                    mode=mode,
+                    inplace_safe=inplace_safe,
+                    chunk_size=self.configs.infer_setting.chunk_size,
+                    N_model_seed=self.N_model_seed,
+                    symmetric_permutation=None,
+                    mc_dropout_apply_rate=mc_dropout_apply_rate,
+                )
+            else:
+                pred_dict, log_dict, time_tracker = self._main_inference_loop(
+                    input_feature_dict=input_feature_dict,
+                    label_dict=None,
+                    N_cycle=self.N_cycle,
+                    mode=mode,
+                    inplace_safe=inplace_safe,
+                    chunk_size=self.configs.infer_setting.chunk_size,
+                    symmetric_permutation=None,
+                    mc_dropout=False,
+                    score_coordinates=score_coordinates,
+                )
             log_dict.update({"time": time_tracker})
         elif mode == "eval":
             if label_dict is not None:

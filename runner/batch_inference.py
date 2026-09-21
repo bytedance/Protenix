@@ -959,6 +959,302 @@ def predict(
     "--input",
     type=str,
     required=True,
+    help="Input PDB/CIF file or directory to score.",
+)
+@click.option("-o", "--out_dir", default="./output", type=str, help="Output directory.")
+@click.option(
+    "--recursive",
+    is_flag=True,
+    default=False,
+    help="Recursively search input directories for PDB/CIF files.",
+)
+@click.option(
+    "--glob",
+    type=str,
+    default="*.pdb,*.cif",
+    help="Comma-separated filename globs to include when input is a directory.",
+)
+@click.option(
+    "--sample_name",
+    type=str,
+    default=None,
+    help="Override sample name when scoring a single structure.",
+)
+@click.option(
+    "--missing_atom_policy",
+    type=click.Choice(["error", "reference", "zero"]),
+    default="error",
+    help="How to handle atoms expected by Protenix but absent from the source file.",
+)
+@click.option(
+    "--write_full_confidence",
+    is_flag=True,
+    default=False,
+    help="Write per-atom and per-token confidence JSON.",
+)
+@click.option(
+    "--write_scored_cif",
+    is_flag=True,
+    default=False,
+    help="Write scored.cif with source coordinates and confidence B-factors.",
+)
+@click.option("-c", "--cycle", type=int, default=10, help="Pairformer cycle number.")
+@click.option("-d", "--dtype", type=str, default="bf16", help="Inference dtype.")
+@click.option(
+    "-n",
+    "--model_name",
+    type=str,
+    default="protenix_base_default_v1.0.0",
+    help="Model checkpoint name.",
+)
+@click.option("--use_msa", type=bool, default=True, help="Whether to use protein MSA.")
+@click.option(
+    "--use_template",
+    type=bool,
+    default=False,
+    help="Use templates during input preprocessing.",
+)
+@click.option(
+    "--use_rna_msa",
+    type=bool,
+    default=False,
+    help="Use RNA MSA during input preprocessing.",
+)
+@click.option(
+    "--trimul_kernel",
+    type=str,
+    default="cuequivariance",
+    help="Triangle multiplicative update kernel ('cuequivariance' or 'torch').",
+)
+@click.option(
+    "--triatt_kernel",
+    type=str,
+    default="cuequivariance",
+    help=(
+        "Triangle attention kernel ('triattention', 'cuequivariance', "
+        "'deepspeed', or 'torch')."
+    ),
+)
+@click.option(
+    "--enable_cache",
+    type=bool,
+    default=True,
+    help="Cache shareable variables in the diffusion module.",
+)
+@click.option(
+    "--enable_fusion",
+    type=bool,
+    default=True,
+    help="Enable efficient kernel fusion in the diffusion transformer.",
+)
+@click.option(
+    "--enable_tf32",
+    type=bool,
+    default=True,
+    help="Enable TF32 for FP32 matrix multiplications.",
+)
+@click.option(
+    "--msa_server_mode",
+    type=str,
+    default="protenix",
+    help="MSA search mode ('protenix' or 'colabfold').",
+)
+@click.option(
+    "--altloc",
+    default="first",
+    type=str,
+    help=(
+        "Select the first altloc conformation of each residue, "
+        "or specify the altloc letter ('A', 'B', etc.)."
+    ),
+)
+@click.option(
+    "--assembly_id",
+    default=None,
+    type=str,
+    help="Assembly ID for structure extension (default: no extension).",
+)
+@click.option(
+    "--include_discont_poly_poly_bonds",
+    type=bool,
+    default=True,
+    help="Whether to include discontinuous polymer-polymer bonds.",
+)
+@click.option(
+    "--kalign_binary_path",
+    type=str,
+    default=None,
+    help="Path to kalign (searches in PATH if not provided).",
+)
+@click.option(
+    "--hmmsearch_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmsearch (searches in PATH if not provided).",
+)
+@click.option(
+    "--hmmbuild_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmbuild (searches in PATH if not provided).",
+)
+@click.option(
+    "--seqres_database_path",
+    type=str,
+    default=None,
+    help="Path to the sequence database for template search.",
+)
+@click.option(
+    "--nhmmer_binary_path",
+    type=str,
+    default=None,
+    help="Path to nhmmer for RNA MSA search.",
+)
+@click.option(
+    "--hmmalign_binary_path",
+    type=str,
+    default=None,
+    help="Path to hmmalign for RNA MSA search.",
+)
+@click.option(
+    "--hmmbuild_rna_binary_path",
+    type=str,
+    default=None,
+    help="Path to RNA-specific hmmbuild.",
+)
+@click.option(
+    "--ntrna_database_path",
+    type=str,
+    default=None,
+    help="Path to the NT-RNA database.",
+)
+@click.option(
+    "--rfam_database_path",
+    type=str,
+    default=None,
+    help="Path to the Rfam database.",
+)
+@click.option(
+    "--rna_central_database_path",
+    type=str,
+    default=None,
+    help="Path to the RNAcentral database.",
+)
+@click.option(
+    "--nhmmer_n_cpu",
+    type=int,
+    default=None,
+    help="Number of CPUs for nhmmer.",
+)
+def score(
+    input: str,
+    out_dir: str,
+    recursive: bool,
+    glob: str,
+    sample_name: Optional[str],
+    missing_atom_policy: str,
+    write_full_confidence: bool,
+    write_scored_cif: bool,
+    cycle: int,
+    dtype: str,
+    model_name: str,
+    use_msa: bool,
+    use_template: bool,
+    use_rna_msa: bool,
+    trimul_kernel: str,
+    triatt_kernel: str,
+    enable_cache: bool,
+    enable_fusion: bool,
+    enable_tf32: bool,
+    msa_server_mode: str,
+    altloc: str,
+    assembly_id: Optional[str],
+    include_discont_poly_poly_bonds: bool,
+    kalign_binary_path: Optional[str],
+    hmmsearch_binary_path: Optional[str],
+    hmmbuild_binary_path: Optional[str],
+    seqres_database_path: Optional[str],
+    nhmmer_binary_path: Optional[str],
+    hmmalign_binary_path: Optional[str],
+    hmmbuild_rna_binary_path: Optional[str],
+    ntrna_database_path: Optional[str],
+    rfam_database_path: Optional[str],
+    rna_central_database_path: Optional[str],
+    nhmmer_n_cpu: Optional[int],
+) -> None:
+    """
+    Score existing structures with the Protenix confidence head.
+    """
+    init_logging()
+    logger.info(f"Run score with input={input}, out_dir={out_dir}")
+    if not os.path.exists(input):
+        raise RuntimeError(f"input path {input} does not exist")
+    assert trimul_kernel in [
+        "cuequivariance",
+        "torch",
+    ], "Invalid trimul_kernel. Options: 'cuequivariance', 'torch'."
+    assert triatt_kernel in [
+        "triattention",
+        "cuequivariance",
+        "deepspeed",
+        "torch",
+    ], (
+        "Invalid triatt_kernel. Options: 'triattention', "
+        "'cuequivariance', 'deepspeed', 'torch'."
+    )
+
+    from runner.scoring import score_structures
+
+    result = score_structures(
+        input_path=input,
+        out_dir=out_dir,
+        recursive=recursive,
+        glob=glob,
+        sample_name=sample_name,
+        missing_atom_policy=missing_atom_policy,
+        write_full_confidence=write_full_confidence,
+        write_scored_cif=write_scored_cif,
+        assembly_id=assembly_id,
+        altloc=altloc,
+        include_discont_poly_poly_bonds=include_discont_poly_poly_bonds,
+        use_msa=use_msa,
+        use_template=use_template,
+        use_rna_msa=use_rna_msa,
+        msa_server_mode=msa_server_mode,
+        hmmsearch_binary_path=hmmsearch_binary_path,
+        hmmbuild_binary_path=hmmbuild_binary_path,
+        seqres_database_path=seqres_database_path,
+        nhmmer_binary_path=nhmmer_binary_path,
+        hmmalign_binary_path=hmmalign_binary_path,
+        hmmbuild_rna_binary_path=hmmbuild_rna_binary_path,
+        ntrna_database_path=ntrna_database_path,
+        rfam_database_path=rfam_database_path,
+        rna_central_database_path=rna_central_database_path,
+        nhmmer_n_cpu=nhmmer_n_cpu,
+        cycle=cycle,
+        dtype=dtype,
+        model_name=model_name,
+        trimul_kernel=trimul_kernel,
+        triatt_kernel=triatt_kernel,
+        enable_cache=enable_cache,
+        enable_fusion=enable_fusion,
+        enable_tf32=enable_tf32,
+        kalign_binary_path=kalign_binary_path,
+    )
+    logger.info(
+        "Score-only job completed: %s succeeded, %s failed. Results saved to %s",
+        result["succeeded"],
+        result["failed"],
+        result["out_dir"],
+    )
+
+
+@click.command(context_settings=CONTEXT_SETTINGS)
+@click.option(
+    "-i",
+    "--input",
+    type=str,
+    required=True,
     help="PDB/CIF files or directory to generate inference JSONs.",
 )
 @click.option("-o", "--out_dir", type=str, default="./output", help="Output directory.")
@@ -1350,6 +1646,7 @@ def inputprep(
 
 
 protenix_cli.add_command(predict, name="pred")
+protenix_cli.add_command(score, name="score")
 protenix_cli.add_command(tojson, name="json")
 protenix_cli.add_command(msa, name="msa")
 protenix_cli.add_command(msatemplate, name="mt")

@@ -48,6 +48,7 @@ Protenix provides a unified CLI for structure prediction, data preprocessing, an
 | Command | Alias | Description |
 |---------|-------|-------------|
 | `predict` | `pred` | Perform model inference on JSON input(s). |
+| `score` | `score` | Score existing PDB/CIF coordinates with Protenix confidence heads. |
 | `tojson` | `json` | Convert PDB or CIF files to Protenix-compatible JSON. |
 | `msa` | `msa` | Generate Multiple Sequence Alignments (MSA) for proteins. |
 | `msatemplate` | `mt` | Run sequential MSA and template search. |
@@ -110,6 +111,41 @@ protenix pred --input examples/input.json --use_msa false --enable_cache true
 - `--dtype`: Set data type to `bf16` (default) or `fp32`.
 - `--trimul_kernel` / `--triatt_kernel`: Choose specialized kernels (e.g., `cuequivariance`, `triattention`) for hardware acceleration.
 - `--enable_cache` / `--enable_fusion`: Enable memory/speed optimizations (recommended for GPU).
+
+### 4. Structure Scoring (`score`)
+Score fixed PDB or CIF coordinates without running diffusion sampling.
+```bash
+# Score one structure and write summary confidence files
+protenix score -i examples/7pzb.pdb -o ./score_output -n protenix_base_default_v1.0.0
+
+# Score a directory of structures recursively
+protenix score -i ./structures -o ./score_output --recursive --glob "*.pdb,*.cif"
+
+# Also write per-atom confidence and a scored CIF with pLDDT B-factors
+protenix score -i examples/7pzb.cif -o ./score_output --write_full_confidence --write_scored_cif
+```
+
+`score` parses the source structure, generates a Protenix input JSON, preserves
+source chain IDs when they are unique, reorders source coordinates into the
+featurized atom order, and runs the Pairformer trunk plus confidence heads. It
+does not use `--step`, `--sample`, or random seeds because diffusion sampling is
+skipped.
+
+Default outputs are:
+- `summary.csv`: one row per scored structure.
+- `<sample>/summary_confidence.json`: summary confidence metrics for the source coordinates.
+- `<sample>/chain_id_map.json`: source-to-featurized chain mapping.
+- `failed_records.txt`: only written when one or more structures fail.
+
+Optional outputs are:
+- `<sample>/full_confidence.json` with `--write_full_confidence`.
+- `<sample>/scored.cif` with `--write_scored_cif`.
+- `<sample>/missing_atoms.json` when fallback coordinates are used for missing atoms.
+
+By default, `--missing_atom_policy error` fails if Protenix expects atoms that
+are absent from the source structure. Use `--missing_atom_policy reference` or
+`--missing_atom_policy zero` only when those fallback coordinates are acceptable
+for your analysis.
 
 ### Inference via Bash Script
 Alternatively, use the provided demo script for automated runs:
