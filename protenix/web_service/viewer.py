@@ -600,16 +600,13 @@ class ProtenixInputViewer(widgets.VBox):
             assert len(covalent_bond["left_atom"]) != 0, "left atom is empty"
             assert len(covalent_bond["right_atom"]) != 0, "right_atom atom is empty"
 
-            left_entiy = result["sequences"][covalent_bond["left_entity"] - 1]
-            left_entiy_seq = left_entiy[[item for item in left_entiy.keys()][0]]
-            right_entity = result["sequences"][covalent_bond["right_entity"] - 1]
-            right_entity_seq = right_entity[[item for item in right_entity.keys()][0]]
-            assert (
-                covalent_bond["left_position"] <= len(left_entiy_seq)
-                and covalent_bond["left_position"] >= 1
-            ), "left position out of range"
-            assert (
-                covalent_bond["right_position"] <= len(right_entity_seq)
-                and covalent_bond["right_position"] >= 1
-            ), "right position out of range"
+            for side in ["left", "right"]:
+                entity = result["sequences"][covalent_bond[f"{side}_entity"] - 1]
+                entity_info = next(iter(entity.values()))
+                position = covalent_bond[f"{side}_position"]
+                assert position >= 1, f"{side} position out of range"
+                if "sequence" in entity_info:
+                    assert position <= len(
+                        entity_info["sequence"]
+                    ), f"{side} position out of range"
         return result
