@@ -18,6 +18,7 @@ import logging
 import os
 import pickle
 import random
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple, Union, List
@@ -852,7 +853,197 @@ class TemplateHitFeaturizer:
             for pdb, v in data.items()
             if "release_date" in v
         }
-    
+
+    @staticmethod
+    def _empty_template_result(error: str) -> TemplateSearchResult:
+        return TemplateSearchResult(
+            features=[],
+            hits=[],
+            errors=[error],
+            warnings=[],
+        )
+
+    @staticmethod
+    def _format_parse_errors(errors: Mapping[Tuple[str, str], Any]) -> str:
+        if not errors:
+            return ""
+        return "; ".join(f"{key}: {value}" for key, value in errors.items())
+
+    @staticmethod
+    def _safe_template_name(template_path: str) -> str:
+        stem = os.path.splitext(os.path.basename(template_path))[0]
+        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("._-")
+        if not stem:
+            stem = "custom_template"
+        return stem.lower()
+
+    def _parse_direct_cif(
+        self, cif_str: str, file_id: str
+    ) -> Tuple[Optional[MmcifObject], List[str]]:
+        errors = []
+        parsed = TemplateParser.parse(
+            file_id=file_id,
+            mmcif_string=cif_str,
+            auth_chain_id=None,
+        )
+        if parsed.mmcif_object and parsed.mmcif_object.chain_to_seqres:
+            return parsed.mmcif_object, errors
+
+        formatted = self._format_parse_errors(parsed.errors)
+        if formatted:
+            errors.append(f"standard mmCIF parse failed: {formatted}")
+        else:
+            errors.append("standard mmCIF parse found no protein chains")
+
+        simple = TemplateParser.parse_simple_cif(
+            file_id=file_id,
+            mmcif_string=cif_str,
+        )
+        if simple.mmcif_object and simple.mmcif_object.chain_to_seqres:
+            return simple.mmcif_object, errors
+
+        formatted = self._format_parse_errors(simple.errors)
+        if formatted:
+            errors.append(f"simplified CIF parse failed: {formatted}")
+        else:
+            errors.append("simplified CIF parse found no protein-like chains")
+        return None, errors
+
+    def parse_cif_template(
+        self,
+        template_path: str,
+        query_sequence: str,
+        chain_id: Optional[str] = None,
+        min_align_ratio: float = 0.1,
+    ) -> TemplateSearchResult:
+        """
+        Featurize a directly supplied local CIF/mmCIF template.
+
+        Unlike template-search hits, direct CIF templates are user-specified
+        inference inputs. They are read from the provided path, chain-selected,
+        aligned to the query sequence, and converted to the same raw template
+        feature contract used by `.a3m`, `.hhr`, and embedded JSON templates.
+        """
+        if not os.path.isfile(template_path):
+            raise FileNotFoundError(f"Template CIF not found: {template_path}")
+
+        file_id = os.path.splitext(os.path.basename(template_path))[0] or "template"
+        cif_str = self._hit_processor._read_file(template_path)
+        mmcif_obj, parse_errors = self._parse_direct_cif(
+            cif_str=cif_str,
+            file_id=file_id,
+        )
+        if mmcif_obj is None:
+            return self._empty_template_result(
+                f"Failed to parse template CIF {template_path}: "
+                + "; ".join(parse_errors)
+            )
+
+        if chain_id is not None and not isinstance(chain_id, str):
+            return self._empty_template_result(
+                "proteinChain.templateChainId must be a string when provided."
+            )
+
+        available_chain_ids = list(mmcif_obj.chain_to_seqres)
+        if chain_id:
+            if chain_id not in mmcif_obj.chain_to_seqres:
+                return self._empty_template_result(
+                    f"Template chain '{chain_id}' was not found in {template_path}. "
+                    f"Available chains: {available_chain_ids}"
+                )
+            selected_chain_id = chain_id
+        elif len(available_chain_ids) == 1:
+            selected_chain_id = available_chain_ids[0]
+        else:
+            return self._empty_template_result(
+                f"Template CIF {template_path} contains multiple protein chains "
+                f"{available_chain_ids}. Specify proteinChain.templateChainId."
+            )
+
+        template_seq = mmcif_obj.chain_to_seqres[selected_chain_id]
+        if not template_seq:
+            return self._empty_template_result(
+                f"Template chain '{selected_chain_id}' in {template_path} has no sequence."
+            )
+
+        try:
+            if query_sequence == template_seq:
+                mapping = {i: i for i in range(len(query_sequence))}
+                actual_chain_id = selected_chain_id
+            else:
+                template_seq, mapping, actual_chain_id = (
+                    self._hit_processor._align_query_to_hit_index_mapping(
+                        query_sequence,
+                        selected_chain_id,
+                        mmcif_obj,
+                        0.0,
+                    )
+                )
+        except Exception as e:
+            return self._empty_template_result(
+                f"Failed to align query sequence to template chain "
+                f"'{selected_chain_id}' in {template_path}: {e}"
+            )
+
+        if not mapping:
+            return self._empty_template_result(
+                f"Template chain '{selected_chain_id}' in {template_path} has no "
+                "aligned residues with the query sequence."
+            )
+        align_ratio = len(mapping) / max(1, len(query_sequence))
+        if align_ratio < min_align_ratio:
+            return self._empty_template_result(
+                f"Template chain '{selected_chain_id}' in {template_path} aligned "
+                f"to only {align_ratio:.2%} of query residues."
+            )
+
+        template_name = self._safe_template_name(template_path)
+        try:
+            features, warning = self._hit_processor._extract_template_features(
+                mmcif_obj,
+                template_name,
+                mapping,
+                template_seq,
+                query_sequence,
+                actual_chain_id,
+                self._zero_center_positions,
+            )
+        except Exception as e:
+            return self._empty_template_result(
+                f"Failed to extract template features from {template_path} chain "
+                f"'{actual_chain_id}': {e}"
+            )
+
+        release_date = mmcif_obj.header.get("release_date", "1970-01-01")
+        features["template_sum_probs"] = [1.0]
+        features["template_release_date"] = np.array(
+            release_date.encode(), dtype=object
+        )
+
+        q_indices = list(range(len(query_sequence)))
+        h_indices = [-1] * len(query_sequence)
+        for q_idx, t_idx in mapping.items():
+            if 0 <= q_idx < len(h_indices):
+                h_indices[q_idx] = t_idx
+
+        hit_name = f"{template_name}_{actual_chain_id}"
+        hit = TemplateHit(
+            index=0,
+            name=hit_name,
+            aligned_cols=len(mapping),
+            sum_probs=1.0,
+            query=query_sequence,
+            hit_sequence=template_seq,
+            indices_query=q_indices,
+            indices_hit=h_indices,
+        )
+        warnings = [warning] if warning else []
+        return TemplateSearchResult(
+            features=[features],
+            hits=[hit],
+            errors=[],
+            warnings=warnings,
+        )
 
     def parse_json_templates(self, template_list: List[Dict], query_sequence: str) -> TemplateSearchResult:
         """

@@ -16,6 +16,7 @@ import dataclasses
 import time
 from datetime import datetime, timedelta
 from os.path import exists as opexists, join as opjoin
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -30,6 +31,10 @@ from protenix.data.constants import (
 )
 from protenix.data.msa.msa_utils import map_to_standard
 from protenix.data.template.template_parser import HHRParser, HmmsearchA3MParser
+from protenix.data.template.template_path import (
+    DIRECT_TEMPLATE_SUFFIXES,
+    SUPPORTED_INFERENCE_TEMPLATE_SUFFIXES,
+)
 from protenix.data.template.template_utils import (
     DAYS_BEFORE_QUERY_DATE,
     DistogramFeaturesConfig,
@@ -687,6 +692,7 @@ class InferenceTemplateFeaturizer:
 
         for eid, info in enumerate(bioassembly):
             seq, count, ctype, t_path = "", 0, LIGAND_CHAIN_TYPES, ""
+            template_chain_id = None
 
             if "proteinChain" in info:
                 c = info["proteinChain"]
@@ -696,6 +702,7 @@ class InferenceTemplateFeaturizer:
                     PROTEIN_CHAIN,
                     c.get("templatesPath", ""),
                 )
+                template_chain_id = c.get("templateChainId")
             elif "rnaSequence" in info:
                 c = info["rnaSequence"]
                 seq, count, ctype = c["sequence"], c["count"], RNA_CHAIN
@@ -709,31 +716,70 @@ class InferenceTemplateFeaturizer:
             templates = []
             if t_path and use_template and online_template_featurizer:
                 assert ctype == PROTEIN_CHAIN, "Only protein templates are supported."
-                if t_path.endswith(".json"):
+                template_suffix = Path(t_path).suffix.lower()
+                template_warnings = []
+                if template_suffix == ".json":
                     json_list = load_json_cached(t_path)
-                    results = online_template_featurizer.parse_json_templates(json_list, seq)
-                    templates = results.features
+                    template_result = online_template_featurizer.parse_json_templates(
+                        json_list, seq
+                    )
+                    templates = template_result.features
+                    if template_result.errors and not templates:
+                        raise ValueError(
+                            f"Failed to parse template JSON {t_path}: "
+                            f"{'; '.join(template_result.errors)}"
+                        )
+                    template_warnings = template_result.warnings
+                elif template_suffix in DIRECT_TEMPLATE_SUFFIXES:
+                    template_result = online_template_featurizer.parse_cif_template(
+                        t_path,
+                        seq,
+                        chain_id=template_chain_id,
+                    )
+                    templates = template_result.features
+                    if template_result.errors and not templates:
+                        chain_msg = (
+                            f" chain {template_chain_id}"
+                            if template_chain_id
+                            else ""
+                        )
+                        raise ValueError(
+                            f"Failed to parse template CIF {t_path}{chain_msg}: "
+                            f"{'; '.join(template_result.errors)}"
+                        )
+                    template_warnings = template_result.warnings
                 else:
                     with open(t_path, "r") as f:
                         content = f.read()
 
-                    if t_path.endswith(".hhr"):
+                    if template_suffix == ".hhr":
                         hits = HHRParser.parse(hhr_string=content)
-                    elif t_path.endswith(".a3m"):
+                    elif template_suffix == ".a3m":
                         hits = HmmsearchA3MParser.parse(
                             query_seq=seq, a3m_str=content, skip_first=False
                         )
                     else:
-                        raise ValueError(f"Unsupported template format: {t_path}")
+                        supported = ", ".join(
+                            sorted(SUPPORTED_INFERENCE_TEMPLATE_SUFFIXES)
+                        )
+                        raise ValueError(
+                            f"Unsupported template format for {t_path}. "
+                            f"Supported suffixes: {supported}"
+                        )
 
-                    result, _ = online_template_featurizer.get_templates(
+                    template_result, _ = online_template_featurizer.get_templates(
                         sequence_uid=seq,
                         query_sequence=seq,
                         hits=hits,
                         max_template_date=None,
                     )
-                    templates = result.features
+                    templates = template_result.features
+                    template_warnings = template_result.warnings
 
+                for warning in template_warnings:
+                    logger.warning(
+                        f"Template warning for sequence {seq} from {t_path}: {warning}"
+                    )
                 logger.info(f"Found {len(templates)} templates for sequence {seq}")
 
             for i in range(count):

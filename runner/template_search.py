@@ -181,11 +181,16 @@ def update_template_info(
         for sequence in infer_data["sequences"]:
             if "proteinChain" in sequence:
                 protein_chain = sequence["proteinChain"]
-                # Skip if templatesPath already exists and is valid
-                if "templatesPath" in protein_chain and os.path.exists(
-                    protein_chain["templatesPath"]
-                ):
-                    continue
+                # Respect explicit template paths. Missing explicit files should
+                # fail loudly instead of being silently replaced by search hits.
+                template_path = protein_chain.get("templatesPath")
+                if template_path:
+                    if os.path.exists(template_path):
+                        continue
+                    raise FileNotFoundError(
+                        f"templatesPath for task {task_name} does not exist: "
+                        f"{template_path}"
+                    )
 
                 # Get MSA path to perform template search
                 paired_msa_path = protein_chain.get("pairedMsaPath")

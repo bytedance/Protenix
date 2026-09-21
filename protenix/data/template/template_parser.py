@@ -371,50 +371,83 @@ class TemplateParser:
         *,
         file_id: str,
         mmcif_string: str,
+        auth_chain_id: Optional[str] = None,
         catch_all_errors: bool = True,
     ) -> ParsingResult:
-        """Parses an simplified mmCIF string into an MmcifObject.
-        Since the simplified mmCIF might lack complete polymer metadata, we extract the first available chain
-        and rely on the residues directly."""
+        """Parses a simplified mmCIF string into an MmcifObject.
+        Since the simplified mmCIF might lack complete polymer metadata, we
+        extract available protein-like chains and rely on the residues directly.
+        """
         errors = {}
         try:
             parser = PDB.MMCIFParser(QUIET=True)
             structure = parser.get_structure(file_id, io.StringIO(mmcif_string))
             first_model = TemplateParser._get_first_model(structure)
-            
-            chains = list(first_model.get_chains())
+
+            chains = [
+                chain
+                for chain in first_model.get_chains()
+                if auth_chain_id is None or chain.id == auth_chain_id
+            ]
             if not chains:
-                return ParsingResult(None, {(file_id, ""): "No chains found in simplified mmCIF."})
-            
-            # simplified templates typically contain exactly one chain
-            chain = chains[0]
-            chain_id = chain.id
-            
+                err_chain = auth_chain_id or ""
+                return ParsingResult(
+                    None,
+                    {
+                        (file_id, err_chain): (
+                            "No matching chains found in simplified mmCIF."
+                        )
+                    },
+                )
+
             seq_to_structure_mappings = collections.defaultdict(dict)
             auth_chain_to_seq = {}
-            
-            residues = list(chain.get_residues())
-            template_seq_list = []
-            
-            for idx, res in enumerate(residues):
-                resname = res.get_resname()
-                template_seq_list.append(PDBData.protein_letters_3to1.get(resname, "X"))
-                
-                hetflag, resseq, icode = res.get_id()
-                pos = ResiduePosition(
-                    chain_id=chain_id,
-                    residue_number=resseq,
-                    insertion_code=icode,
+
+            for chain in chains:
+                chain_id = chain.id
+                template_seq_list = []
+
+                for res in chain.get_residues():
+                    resname = res.get_resname()
+                    hetflag, resseq, icode = res.get_id()
+
+                    # Keep polymer-like ATOM residues plus known modified amino
+                    # acids, but ignore waters and unrelated hetero ligands.
+                    if hetflag.strip() and resname not in PDBData.protein_letters_3to1:
+                        continue
+
+                    template_seq_list.append(
+                        PDBData.protein_letters_3to1.get(resname, "X")
+                    )
+
+                    pos = ResiduePosition(
+                        chain_id=chain_id,
+                        residue_number=resseq,
+                        insertion_code=icode,
+                    )
+                    seq_to_structure_mappings[chain_id][
+                        len(template_seq_list) - 1
+                    ] = ResidueAtPosition(
+                        position=pos,
+                        name=resname,
+                        is_missing=False,
+                        hetflag=hetflag,
+                    )
+
+                if template_seq_list:
+                    auth_chain_to_seq[chain_id] = "".join(template_seq_list)
+
+            if not auth_chain_to_seq:
+                err_chain = auth_chain_id or ""
+                return ParsingResult(
+                    None,
+                    {
+                        (file_id, err_chain): (
+                            "No protein-like residues found in simplified mmCIF."
+                        )
+                    },
                 )
-                seq_to_structure_mappings[chain_id][idx] = ResidueAtPosition(
-                    position=pos,
-                    name=resname,
-                    is_missing=False,
-                    hetflag=hetflag,
-                )
-                
-            auth_chain_to_seq[chain_id] = "".join(template_seq_list)
-            
+
             mmcif_obj = MmcifObject(
                 file_id=file_id,
                 header={},

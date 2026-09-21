@@ -126,7 +126,7 @@ Key arguments in `inference_demo.sh`:
 * `sample_diffusion.N_sample`: Number of samples to generate for each structure.
 * `sample_diffusion.N_step`: Number of steps for the diffusion process (e.g., 200).
 * `model.N_cycle`: Number of recycling steps.
-* `use_template`: Whether to use structural templates (requires `templatesPath` in the input JSON).
+* `use_template`: Whether to use structural templates. Templates can come from `templatesPath` in the input JSON (`.a3m`, `.hhr`, `.json`, `.cif`, or `.mmcif`) or from automatic template search when no template path is provided.
 
 > **Performance Tip**: By default, specialized CUDA kernels are enabled. For significant speedups on NVIDIA GPUs, follow the [**Kernels Setup Guide**](./kernels.md).
 

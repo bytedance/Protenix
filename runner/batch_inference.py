@@ -668,7 +668,10 @@ def protenix_cli() -> None:
     "--use_template",
     type=bool,
     default=False,
-    help="Use templates (requires templatesPath in input JSON).",
+    help=(
+        "Use templates (requires templatesPath in input JSON, or automatic "
+        "template search inputs)."
+    ),
 )
 @click.option(
     "--use_rna_msa",
@@ -883,8 +886,10 @@ def predict(
         logger.info("=" * 50)
         logger.info(
             "Using templates for inference. Template files should have "
-            ".hrr or .a3m extensions and be specified in the JSON file.\n"
-            "Example: /path/to/template.hrr or /path/to/template.a3m\n"
+            ".hhr, .a3m, .cif, .mmcif, or .json extensions and be specified "
+            "in the JSON file.\n"
+            "Example: /path/to/template.hhr, /path/to/template.a3m, or "
+            "/path/to/template.cif\n"
             "Note: Inference will proceed with automatic template search "
             "if none are provided and use_template is True."
         )
