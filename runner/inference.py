@@ -27,7 +27,6 @@ import torch
 import torch.distributed as dist
 from biotite.structure import AtomArray
 
-
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
@@ -121,8 +120,9 @@ class InferenceRunner(object):
                 "is first called."
             )
 
-        use_fastlayernorm = os.getenv("LAYERNORM_TYPE", "fast_layernorm")
-        if use_fastlayernorm == "fast_layernorm":
+        from protenix.model.triangular.layers import fastln_is_installed
+
+        if fastln_is_installed:
             logging.info(
                 "Kernels will be compiled when fast_layernorm is first called."
             )
@@ -591,7 +591,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 new_configs = update_inference_configs(configs, data["N_token"].item())
                 runner.update_model_configs(new_configs)
                 prediction = runner.predict(data)
-                
+
                 # Regularize the C-terminal carboxyl oxygens (O / OXT) of each
                 # polymer chain: the O<->OXT substructure-permutation symmetry can
                 # leave one oxygen under-constrained and drift far away. Rebuild
@@ -600,7 +600,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 prediction["coordinate"] = fix_cterminal_carboxyl_oxygens(
                     prediction["coordinate"], atom_array
                 )
-                
+
                 runner.dumper.dump(
                     dataset_name="",
                     pdb_id=sample_name,
