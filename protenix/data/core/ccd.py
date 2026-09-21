@@ -17,7 +17,7 @@ import functools
 import pickle
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import biotite
 import biotite.structure as struc
@@ -310,7 +310,9 @@ def get_ccd_ref_info(
 
 # Modified from biotite to use consistent ccd components file
 def _connect_inter_residue(
-    atoms: AtomArray, residue_starts: np.ndarray
+    atoms: AtomArray,
+    residue_starts: np.ndarray,
+    get_mol_type_fn: Callable[[str], str] = get_mol_type,
 ) -> struc.BondList:
     """
     Create a :class:`BondList` containing the bonds between adjacent
@@ -355,8 +357,8 @@ def _connect_inter_residue(
             continue
 
         # Get link type for this residue from RCSB components.cif
-        curr_link = get_mol_type(res_names[curr_start_i])
-        next_link = get_mol_type(res_names[next_start_i])
+        curr_link = get_mol_type_fn(res_names[curr_start_i])
+        next_link = get_mol_type_fn(res_names[next_start_i])
 
         if curr_link == "protein" and next_link in "protein":
             curr_connect_atom_name = "C"

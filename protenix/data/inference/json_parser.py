@@ -16,6 +16,7 @@ import copy
 import random
 import warnings
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import biotite.structure as struc
@@ -25,6 +26,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from protenix.data.core import ccd
+from protenix.data.core.custom_ccd import CCDProvider, DEFAULT_CCD_PROVIDER
 from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -75,7 +77,9 @@ PROTEIN_1to3 = {
 }
 
 
-def add_reference_features(atom_array: AtomArray) -> AtomArray:
+def add_reference_features(
+    atom_array: AtomArray, ccd_provider: CCDProvider = DEFAULT_CCD_PROVIDER
+) -> AtomArray:
     """
     Add reference features of each resiude to atom_array
 
@@ -103,11 +107,23 @@ def add_reference_features(atom_array: AtomArray) -> AtomArray:
             ref_mask[start:stop] = 1
             continue
 
-        ref_info = ccd.get_ccd_ref_info(res_name)
+        ref_info = ccd_provider.get_ccd_ref_info(res_name)
         if ref_info:
             atom_sub_idx = [
                 *map(ref_info["atom_map"].get, atom_array.atom_name[start:stop])
             ]
+            if any(idx is None for idx in atom_sub_idx):
+                missing_atoms = [
+                    atom_name
+                    for atom_name, idx in zip(
+                        atom_array.atom_name[start:stop], atom_sub_idx
+                    )
+                    if idx is None
+                ]
+                raise ValueError(
+                    f"Reference info for CCD {res_name} is missing atoms: "
+                    f"{missing_atoms}"
+                )
             ref_pos[start:stop] = ref_info["coord"][atom_sub_idx]
             ref_charge[start:stop] = ref_info["charge"][atom_sub_idx]
             ref_mask[start:stop] = ref_info["mask"][atom_sub_idx]
@@ -120,7 +136,9 @@ def add_reference_features(atom_array: AtomArray) -> AtomArray:
     return atom_array
 
 
-def _remove_non_std_ccd_leaving_atoms(atom_array: AtomArray) -> AtomArray:
+def _remove_non_std_ccd_leaving_atoms(
+    atom_array: AtomArray, ccd_provider: CCDProvider = DEFAULT_CCD_PROVIDER
+) -> AtomArray:
     """
     Check polymer connections and remove non-standard leaving atoms
 
@@ -148,12 +166,18 @@ def _remove_non_std_ccd_leaving_atoms(atom_array: AtomArray) -> AtomArray:
             f"all leaving atoms will be removed for both residues."
         )
         for idx, res_name in zip([res_id, res_id + 1], [res_name_i, res_name_j]):
-            staying_atoms = ccd.get_component_atom_array(
+            component = ccd_provider.get_component_atom_array(
                 res_name, keep_leaving_atoms=False, keep_hydrogens=False
-            ).atom_name
-            if idx == 1 and ccd.get_mol_type(res_name) in ("dna", "rna"):
+            )
+            if component is None:
+                raise ValueError(f"Can not parse CCD component {res_name}.")
+            staying_atoms = component.atom_name
+            if idx == 1 and ccd_provider.get_mol_type(res_name) in ("dna", "rna"):
                 staying_atoms = np.append(staying_atoms, ["OP3"])
-            if idx == atom_array.res_id[-1] and ccd.get_mol_type(res_name) == "protein":
+            if (
+                idx == atom_array.res_id[-1]
+                and ccd_provider.get_mol_type(res_name) == "protein"
+            ):
                 staying_atoms = np.append(staying_atoms, ["OXT"])
             leaving_atoms |= (atom_array.res_id == idx) & (
                 ~np.isin(atom_array.atom_name, staying_atoms)
@@ -178,7 +202,11 @@ def find_range_by_index(starts: np.ndarray, atom_index: int) -> tuple[int, int]:
     raise ValueError(f"atom_index {atom_index} not found in starts {starts}")
 
 
-def remove_leaving_atoms(atom_array: AtomArray, bond_count: dict) -> AtomArray:
+def remove_leaving_atoms(
+    atom_array: AtomArray,
+    bond_count: dict,
+    ccd_provider: CCDProvider = DEFAULT_CCD_PROVIDER,
+) -> AtomArray:
     """
     Remove leaving atoms based on ccd info
 
@@ -195,7 +223,7 @@ def remove_leaving_atoms(atom_array: AtomArray, bond_count: dict) -> AtomArray:
         res_name = atom_array.res_name[centre_idx]
         centre_name = atom_array.atom_name[centre_idx]
 
-        comp = ccd.get_component_atom_array(
+        comp = ccd_provider.get_component_atom_array(
             res_name, keep_leaving_atoms=True, keep_hydrogens=False
         )
         if comp is None:
@@ -272,7 +300,9 @@ def _add_bonds_to_terminal_residues(atom_array: AtomArray) -> AtomArray:
     return atom_array
 
 
-def _build_polymer_atom_array(ccd_seqs: list[str]) -> tuple[AtomArray, struc.BondList]:
+def _build_polymer_atom_array(
+    ccd_seqs: list[str], ccd_provider: CCDProvider = DEFAULT_CCD_PROVIDER
+) -> tuple[AtomArray, struc.BondList]:
     """
     Build polymer atom_array from ccd codes, but not remove leaving atoms
 
@@ -286,13 +316,20 @@ def _build_polymer_atom_array(ccd_seqs: list[str]) -> tuple[AtomArray, struc.Bon
     chain = struc.AtomArray(0)
     for res_id, res_name in enumerate(ccd_seqs):
         # Keep all leaving atoms, will remove leaving atoms later
-        residue = ccd.get_component_atom_array(
+        residue = ccd_provider.get_component_atom_array(
             res_name, keep_leaving_atoms=True, keep_hydrogens=False
         )
+        if residue is None:
+            raise ValueError(
+                f"Can not parse CCD component {res_name}. If this is a custom "
+                "component, provide it with userCCD or userCCDPath."
+            )
         residue.res_id[:] = res_id + 1
         chain += residue
     res_starts = struc.get_residue_starts(chain, add_exclusive_stop=True)
-    polymer_bonds = ccd._connect_inter_residue(chain, res_starts)
+    polymer_bonds = ccd._connect_inter_residue(
+        chain, res_starts, get_mol_type_fn=ccd_provider.get_mol_type
+    )
 
     if chain.bonds is None:
         chain.bonds = polymer_bonds
@@ -306,14 +343,39 @@ def _build_polymer_atom_array(ccd_seqs: list[str]) -> tuple[AtomArray, struc.Bon
         bond_count[i] = bond_count.get(i, 0) + 1
         bond_count[j] = bond_count.get(j, 0) + 1
 
-    chain = remove_leaving_atoms(chain, bond_count)
+    chain = remove_leaving_atoms(chain, bond_count, ccd_provider=ccd_provider)
 
-    chain = _remove_non_std_ccd_leaving_atoms(chain)
+    chain = _remove_non_std_ccd_leaving_atoms(chain, ccd_provider=ccd_provider)
 
     return chain
 
 
-def build_polymer(entity_info: dict) -> dict:
+def _validate_modification_position(
+    position: int, seq_len: int, code: str, position_key: str
+) -> int:
+    index = int(position) - 1
+    if index < 0 or index >= seq_len:
+        raise ValueError(
+            f"{position_key} for {code} must be in [1, {seq_len}], got {position}."
+        )
+    return index
+
+
+def _normalize_modification_code(code: str) -> str:
+    if not isinstance(code, str):
+        raise ValueError(
+            f"Modification code must be a string, got {type(code).__name__}."
+        )
+    if code.startswith("CCD_"):
+        code = code[4:]
+    if not code:
+        raise ValueError("Modification code can not be empty.")
+    return code
+
+
+def build_polymer(
+    entity_info: dict, ccd_provider: CCDProvider = DEFAULT_CCD_PROVIDER
+) -> dict:
     """
     Build a polymer from a polymer info dict
     example: {
@@ -333,34 +395,32 @@ def build_polymer(entity_info: dict) -> dict:
         ccd_seqs = [PROTEIN_1to3[x] for x in info["sequence"]]
         if modifications := info.get("modifications"):
             for m in modifications:
-                index = m["ptmPosition"] - 1
-                mtype = m["ptmType"]
-                if mtype.startswith("CCD_"):
-                    ccd_seqs[index] = mtype[4:]
-                else:
-                    raise ValueError(f"unknown modification type: {mtype}")
+                mtype = _normalize_modification_code(m["ptmType"])
+                index = _validate_modification_position(
+                    m["ptmPosition"], len(ccd_seqs), mtype, "ptmPosition"
+                )
+                ccd_seqs[index] = mtype
         if glycans := info.get("glycans"):
             logger.warning(f"glycans not supported: {glycans}")
-        chain_array = _build_polymer_atom_array(ccd_seqs)
+        chain_array = _build_polymer_atom_array(ccd_seqs, ccd_provider=ccd_provider)
 
     elif poly_type in ("dnaSequence", "rnaSequence"):
         map_1to3 = DNA_1to3 if poly_type == "dnaSequence" else RNA_1to3
         ccd_seqs = [map_1to3[x] for x in info["sequence"]]
         if modifications := info.get("modifications"):
             for m in modifications:
-                index = m["basePosition"] - 1
-                mtype = m["modificationType"]
-                if mtype.startswith("CCD_"):
-                    ccd_seqs[index] = mtype[4:]
-                else:
-                    raise ValueError(f"unknown modification type: {mtype}")
-        chain_array = _build_polymer_atom_array(ccd_seqs)
+                mtype = _normalize_modification_code(m["modificationType"])
+                index = _validate_modification_position(
+                    m["basePosition"], len(ccd_seqs), mtype, "basePosition"
+                )
+                ccd_seqs[index] = mtype
+        chain_array = _build_polymer_atom_array(ccd_seqs, ccd_provider=ccd_provider)
 
     else:
         raise ValueError(
             "polymer type must be proteinChain, dnaSequence or rnaSequence"
         )
-    chain_array = add_reference_features(chain_array)
+    chain_array = add_reference_features(chain_array, ccd_provider=ccd_provider)
     return {"atom_array": chain_array}
 
 
@@ -539,7 +599,9 @@ def smiles_to_atom_info(smiles: str) -> dict:
     return atom_info
 
 
-def build_ligand(entity_info: dict) -> dict:
+def build_ligand(
+    entity_info: dict, ccd_provider: CCDProvider = DEFAULT_CCD_PROVIDER
+) -> dict:
     """
     Build a ligand from a ligand entity info dict
     example1: {
@@ -585,9 +647,14 @@ def build_ligand(entity_info: dict) -> dict:
         atom_array = AtomArray(0)
         res_ids = []
         for idx, code in enumerate(ccd_code):
-            ccd_atom_array = ccd.get_component_atom_array(
+            ccd_atom_array = ccd_provider.get_component_atom_array(
                 code, keep_leaving_atoms=True, keep_hydrogens=False
             )
+            if ccd_atom_array is None:
+                raise ValueError(
+                    f"Can not parse CCD component {code}. If this is a custom "
+                    "component, provide it with userCCD or userCCDPath."
+                )
             atom_array += ccd_atom_array
             res_id = idx + 1
             res_ids += [res_id] * len(ccd_atom_array)
@@ -600,13 +667,17 @@ def build_ligand(entity_info: dict) -> dict:
         else:
             atom_info = smiles_to_atom_info(ligand_str)
         atom_info["atom_array"].res_id[:] = 1
-    atom_info["atom_array"] = add_reference_features(atom_info["atom_array"])
+    atom_info["atom_array"] = add_reference_features(
+        atom_info["atom_array"], ccd_provider=ccd_provider
+    )
     # add a fake sequence for ligand, which is used for msa featurizer
     atom_info["sequence"] = "-" * len(atom_info["atom_array"])
     return atom_info
 
 
-def add_entity_atom_array(single_job_dict: dict) -> dict:
+def add_entity_atom_array(
+    single_job_dict: dict, input_json_dir: str | Path | None = None
+) -> dict:
     """
     Add atom_array to each entity in single_job_dict
 
@@ -617,18 +688,20 @@ def add_entity_atom_array(single_job_dict: dict) -> dict:
         dict: deepcopy and updated job dict with atom_array
     """
     single_job_dict = copy.deepcopy(single_job_dict)
+    ccd_provider = CCDProvider.from_job(single_job_dict, base_dir=input_json_dir)
     sequences = single_job_dict["sequences"]
     single_job_dict["ccd_mols"] = {}
+    single_job_dict["_ccd_provider"] = ccd_provider
     smiles_ligand_count = 0
     for entity_info in sequences:
         if info := entity_info.get("proteinChain"):
-            atom_info = build_polymer(entity_info)
+            atom_info = build_polymer(entity_info, ccd_provider=ccd_provider)
         elif info := entity_info.get("dnaSequence"):
-            atom_info = build_polymer(entity_info)
+            atom_info = build_polymer(entity_info, ccd_provider=ccd_provider)
         elif info := entity_info.get("rnaSequence"):
-            atom_info = build_polymer(entity_info)
+            atom_info = build_polymer(entity_info, ccd_provider=ccd_provider)
         elif info := entity_info.get("ligand"):
-            atom_info = build_ligand(entity_info)
+            atom_info = build_ligand(entity_info, ccd_provider=ccd_provider)
             if not info["ligand"].startswith("CCD_"):
                 smiles_ligand_count += 1
                 assert smiles_ligand_count <= 99, "too many smiles ligands"
@@ -639,10 +712,11 @@ def add_entity_atom_array(single_job_dict: dict) -> dict:
                     "mol"
                 ]
         elif info := entity_info.get("ion"):
-            atom_info = build_ligand(entity_info)
+            atom_info = build_ligand(entity_info, ccd_provider=ccd_provider)
         else:
             raise ValueError(
                 "entity type must be proteinChain, dnaSequence, rnaSequence, ligand or ion"
             )
         info.update(atom_info)
+    single_job_dict["ccd_mols"].update(ccd_provider.get_custom_mols())
     return single_job_dict

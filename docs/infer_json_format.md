@@ -20,10 +20,16 @@ Here is an overview of the JSON file format:
 The JSON file consists of a list of dictionaries, where each dictionary represents a set of sequences you want to model. 
 Even if you are modeling only one set of sequences, the top-level structure should still be a list.
 
-Each dictionary contains the following three keys:
+Each dictionary contains the following keys:
 * `name`: A string representing the name of the inference job.
 * `sequences`: A list of dictionaries that describe the entities (e.g., proteins, DNA, RNA, small molecules, and ions) involved in the inference.
 * `covalent_bonds`: An optional list of dictionaries that define the covalent bonds between atoms from different entities.
+* `userCCD`: Optional inline CCD mmCIF text that defines additional chemical components for this job.
+* `userCCDPath`: Optional path to a CCD mmCIF file that defines additional chemical components for this job. Relative paths are resolved from the input JSON file location.
+
+`userCCD` and `userCCDPath` are mutually exclusive. They can be used when a modification or CCD ligand is not present in the default Protenix CCD cache. For example, a custom protein PTM can be provided in a user CCD file and referenced from `proteinChain.modifications` via `ptmType: "CCD_<your_code>"`.
+
+The user CCD component must contain the atom names used by the PTM or covalent-bond fields. Protein PTM components should be peptide-like CCD entries with standard backbone atom names such as `N`, `CA`, `C`, and `O`, and correct leaving-atom flags for atoms such as `OXT` when present.
 
 Details of `sequences` and `covalent_bonds` are provided below.
 

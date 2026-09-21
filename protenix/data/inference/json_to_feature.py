@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import copy
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -36,11 +37,17 @@ logger = get_logger(__name__)
 
 class SampleDictToFeatures:
     def __init__(
-        self, single_sample_dict: dict[str, Any], extract_features_for_tfg: bool = False
+        self,
+        single_sample_dict: dict[str, Any],
+        extract_features_for_tfg: bool = False,
+        input_json_dir: str | Path | None = None,
     ) -> None:
         self.extract_features_for_tfg = extract_features_for_tfg
         self.single_sample_dict = single_sample_dict
-        self.input_dict = add_entity_atom_array(single_sample_dict)
+        self.input_dict = add_entity_atom_array(
+            single_sample_dict, input_json_dir=input_json_dir
+        )
+        self.ccd_provider = self.input_dict["_ccd_provider"]
         self.entity_poly_type_and_seqs = self.get_entity_poly_type_and_seqs()
         self.entity_poly_type = self.entity_poly_type_and_seqs["entity_poly_type"]
         self.entity_to_sequences = self.entity_poly_type_and_seqs["entity_to_sequences"]
@@ -279,13 +286,14 @@ class SampleDictToFeatures:
                 bond_count[atom_idx1] = bond_count.get(atom_idx1, 0) + 1
                 bond_count[atom_idx2] = bond_count.get(atom_idx2, 0) + 1
 
-        atom_array = remove_leaving_atoms(atom_array, bond_count)
+        atom_array = remove_leaving_atoms(
+            atom_array, bond_count, ccd_provider=self.ccd_provider
+        )
 
         return atom_array
 
-    @staticmethod
     def add_atom_array_attributes(
-        atom_array: AtomArray, entity_poly_type: dict[str, str]
+        self, atom_array: AtomArray, entity_poly_type: dict[str, str]
     ) -> AtomArray:
         """
         Add attributes to the Biotite AtomArray.
@@ -297,12 +305,19 @@ class SampleDictToFeatures:
         Returns:
             AtomArray: Biotite Atom array with attributes added.
         """
-        atom_array = AddAtomArrayAnnot.add_token_mol_type(atom_array, entity_poly_type)
+        atom_array = AddAtomArrayAnnot.add_token_mol_type(
+            atom_array,
+            entity_poly_type,
+            get_mol_type_fn=self.ccd_provider.get_mol_type,
+        )
         atom_array = AddAtomArrayAnnot.add_centre_atom_mask(atom_array)
         atom_array = AddAtomArrayAnnot.add_atom_mol_type_mask(atom_array)
         atom_array = AddAtomArrayAnnot.add_distogram_rep_atom_mask(atom_array)
         atom_array = AddAtomArrayAnnot.add_plddt_m_rep_atom_mask(atom_array)
-        atom_array = AddAtomArrayAnnot.add_cano_seq_resname(atom_array)
+        atom_array = AddAtomArrayAnnot.add_cano_seq_resname(
+            atom_array,
+            get_one_letter_code_fn=self.ccd_provider.get_one_letter_code,
+        )
         atom_array = AddAtomArrayAnnot.add_tokatom_idx(atom_array)
         atom_array = AddAtomArrayAnnot.add_modified_res_mask(atom_array)
         atom_array = AddAtomArrayAnnot.unique_chain_and_add_ids(atom_array)

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "custom_ptm_userccd",
+    "userCCDPath": "custom_ptm_components.cif",
+    "sequences": [
+      {
+        "proteinChain": {
+          "sequence": "AKT",
+          "count": 1,
+          "modifications": [
+            {
+              "ptmType": "CCD_UAA",
+              "ptmPosition": 2
+            }
+          ]
+        }
+      }
+    ]
+  }
+]
