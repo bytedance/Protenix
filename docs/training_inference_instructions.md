@@ -112,21 +112,9 @@ protenix pred --input examples/input.json --use_msa false --enable_cache true
 - `--enable_cache` / `--enable_fusion`: Enable memory/speed optimizations (recommended for GPU).
 
 ### Inference via Bash Script
-Alternatively, use the provided demo script for automated runs:
-```bash
-bash inference_demo.sh <model_name> <input_json> <output_dir> <dtype> <use_msa>
-```
+`inference_demo.sh` is a collection of runnable examples for different models and configurations. It does not accept positional arguments. Running the script executes every active example in sequence, which can launch multiple GPU-intensive predictions and write their results under `./test_outputs`.
 
-Key arguments in `inference_demo.sh`:
-* `model_name`: Name of the model to use for inference.
-* `input_json_path`: Path to a JSON file that fully specifies the input structure.
-* `dump_dir`: Directory where inference results will be saved.
-* `dtype`: Data type used during inference. Supported options: `bf16` and `fp32`.
-* `use_msa`: Whether to enable MSA features (default: true).
-* `sample_diffusion.N_sample`: Number of samples to generate for each structure.
-* `sample_diffusion.N_step`: Number of steps for the diffusion process (e.g., 200).
-* `model.N_cycle`: Number of recycling steps.
-* `use_template`: Whether to use structural templates (requires `templatesPath` in the input JSON).
+For a single customized prediction, use the `protenix pred` command and flags described above. To adapt one of the script examples, copy its command and adjust the input, output, model, and feature flags before running it.
 
 > **Performance Tip**: By default, specialized CUDA kernels are enabled. For significant speedups on NVIDIA GPUs, follow the [**Kernels Setup Guide**](./kernels.md).
 
