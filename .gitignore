@@ -138,3 +138,4 @@ output/
 release_data/
 debug/
 .trae/
+docs/architecture
