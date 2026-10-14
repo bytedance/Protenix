@@ -20,6 +20,8 @@ import torch
 from esm import FastaBatchedDataset, pretrained
 from tqdm.auto import tqdm
 
+from protenix.utils.device import get_default_device
+
 ESM_CONFIG = {
     "esm2-3b": {
         "type": "esm2",
@@ -60,8 +62,9 @@ def load_esm_model(model_name, local_esm_dir="release_data/checkpoint"):
     if model_name.startswith("esm2"):
         model, alphabet = _load_esm2_model(local_model_path)
     model.eval()
-    if torch.cuda.is_available():
-        model = model.cuda()
+    device = get_default_device()
+    if device.type != "cpu":
+        model = model.to(device)
 
     return model, alphabet
 
@@ -106,6 +109,7 @@ def compute_esm2_embeddings(
     toks_per_batch=4096,
     truncation_seq_length=1022,
 ):
+    device = next(model.parameters()).device
     dataset = FastaBatchedDataset(labels, sequences)
     batches = dataset.get_batch_indices(toks_per_batch, extra_toks_per_seq=1)
     data_loader = torch.utils.data.DataLoader(
@@ -122,8 +126,8 @@ def compute_esm2_embeddings(
             )
             if _check_files_exist(save_dir, labels):
                 continue
-            if torch.cuda.is_available():
-                toks = toks.to(device="cuda", non_blocking=True)
+            if device.type != "cpu":
+                toks = toks.to(device=device, non_blocking=True)
             out = model(toks, repr_layers=[repr_layer], return_contacts=False)
             representation = out["representations"][repr_layer].to(device="cpu")
             for i, label in enumerate(labels):

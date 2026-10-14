@@ -28,6 +28,7 @@ from protenix.model.utils import (
     pad_at_dim,
     reshape_at_dim,
 )
+from protenix.utils.device import disable_autocast
 
 
 class Linear(nn.Linear):
@@ -83,7 +84,7 @@ class Linear(nn.Linear):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         if self.precision is not None:
             input_dtype = input.dtype
-            with torch.amp.autocast("cuda", enabled=False):
+            with disable_autocast(input.device):
                 bias = (
                     self.bias.to(dtype=self.precision)
                     if self.bias is not None
@@ -269,7 +270,7 @@ def _attention(
         )
         return attn_output
 
-    with torch.amp.autocast("cuda", enabled=False):
+    with disable_autocast(q.device):
         # [..., n_kv, d] -> [..., d, n_kv]
         k = k.transpose(-1, -2)
 

@@ -20,8 +20,12 @@ memory traffic and intermediate allocations.
 """
 
 import os
+import warnings
+from functools import lru_cache
 
 import torch
+
+from protenix.utils.device import synchronize
 
 try:
     import triton
@@ -213,7 +217,7 @@ def dropout_add_rowwise(
     if not training or p_drop == 0.0:
         return residual + x
 
-    if TRITON_FUSED_OPS_AVAILABLE and x.is_cuda:
+    if triton_fused_ops_available_for_device(x):
         return _DropoutAddRowwise.apply(residual, x, p_drop)
 
     # Fallback: standard PyTorch path
@@ -222,3 +226,47 @@ def dropout_add_rowwise(
     mask = x.new_ones(shape)
     mask = torch.nn.functional.dropout(mask, p=p_drop, training=True)
     return residual + x * mask
+
+
+@lru_cache(maxsize=None)
+def _triton_fused_ops_runtime_available(device_type: str, device_index: int) -> bool:
+    if not TRITON_FUSED_OPS_AVAILABLE or device_type != "xpu":
+        return False
+    device = (
+        torch.device(device_type, device_index)
+        if device_index >= 0
+        else torch.device(device_type)
+    )
+    try:
+        residual = torch.ones((1, 2, 2, 4), device=device, requires_grad=True)
+        x = torch.ones_like(residual, requires_grad=True)
+        _DropoutAddRowwise.apply(residual, x, 0.25).sum().backward()
+        if (
+            residual.grad is None
+            or x.grad is None
+            or not torch.equal(residual.grad, torch.ones_like(residual.grad))
+            or not torch.isfinite(x.grad).all().item()
+        ):
+            raise RuntimeError("Triton fused dropout forward/backward check failed")
+        synchronize(device)
+        return True
+    except Exception as exc:
+        warnings.warn(
+            f"Disabling Triton fused dropout+residual kernel on {device}: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return False
+
+
+def triton_fused_ops_available_for_device(x: torch.Tensor | torch.device | str) -> bool:
+    if not TRITON_FUSED_OPS_AVAILABLE:
+        return False
+    if isinstance(x, torch.Tensor):
+        device = x.device
+    else:
+        device = torch.device(x)
+    if device.type == "cuda":
+        return True
+    device_index = -1 if device.index is None else device.index
+    return _triton_fused_ops_runtime_available(device.type, device_index)

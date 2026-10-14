@@ -21,6 +21,7 @@ from protenix.model.modules.pairformer import PairformerStack
 from protenix.model.modules.primitives import LinearNoBias
 from protenix.model.triangular.layers import LayerNorm
 from protenix.model.utils import broadcast_token_to_atom, one_hot
+from protenix.utils.device import disable_autocast, empty_cache
 
 
 class ConfidenceHead(nn.Module):
@@ -201,7 +202,7 @@ class ConfidenceHead(nn.Module):
         z_trunk = z_init + z_trunk
         if not self.training:
             del z_init
-            torch.cuda.empty_cache()
+            empty_cache(z_trunk.device)
 
         plddt_preds, pae_preds, pde_preds, resolved_preds = (
             [],
@@ -230,7 +231,7 @@ class ConfidenceHead(nn.Module):
                 # cpu offload pae_preds/pde_preds
                 pae_pred = pae_pred.cpu()
                 pde_pred = pde_pred.cpu()
-                torch.cuda.empty_cache()
+                empty_cache(z_trunk.device)
             plddt_preds.append(plddt_pred)
             pae_preds.append(pae_pred)
             pde_preds.append(pde_pred)
@@ -274,7 +275,7 @@ class ConfidenceHead(nn.Module):
                 [..., N_atoms, 3] # Note: N_sample = 1 for avoiding CUDA OOM
         """
         # Embed pair distances of representative atoms:
-        with torch.amp.autocast("cuda", enabled=False):
+        with disable_autocast(x_pred_rep_coords.device):
             x_pred_rep_coords = x_pred_rep_coords.to(torch.float32)
             distance_pred = torch.cdist(
                 x_pred_rep_coords, x_pred_rep_coords
@@ -324,7 +325,7 @@ class ConfidenceHead(nn.Module):
             "atom_to_tokatom_idx"
         ]  # in range [0, max_atoms_per_token-1] shape: [N_atom] # influenced by crop
 
-        with torch.amp.autocast("cuda", enabled=False):
+        with disable_autocast(z_pair.device):
             pae_pred = self.linear_no_bias_pae(self.pae_ln(z_pair))
             pde_pred = self.linear_no_bias_pde(
                 self.pde_ln(z_pair + z_pair.transpose(-2, -3))
@@ -344,5 +345,5 @@ class ConfidenceHead(nn.Module):
                 self.resolved_weight[atom_to_tokatom_idx],
             )
         if not self.training and z_pair.shape[-2] > 2000:
-            torch.cuda.empty_cache()
+            empty_cache(z_pair.device)
         return plddt_pred, pae_pred, pde_pred, resolved_pred

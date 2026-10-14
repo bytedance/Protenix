@@ -23,6 +23,7 @@ import torch.nn as nn
 
 from protenix.model.triangular.layers import Attention, LayerNorm, OpenfoldLinear
 from protenix.model.utils import chunk_layer, is_fp16_enabled, permute_final_dims
+from protenix.utils.device import disable_autocast
 
 
 def kernel_triangular_mult(
@@ -551,7 +552,7 @@ class TriangleMultiplicativeUpdate(BaseTriangleMultiplicativeUpdate):
                 b = b / b.std()
 
             if is_fp16_enabled():
-                with torch.amp.autocast("cuda", enabled=False):
+                with disable_autocast(a.device):
                     x = self._combine_projections(a.float(), b.float())
             else:
                 x = self._combine_projections(a, b)

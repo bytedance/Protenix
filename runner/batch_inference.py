@@ -26,24 +26,22 @@ from typing import List, Optional, Union
 import click
 import tqdm
 from Bio import SeqIO
+from ml_collections.config_dict import ConfigDict
+from rdkit import Chem
 
-from configs.configs_base import configs as configs_base
-from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
 from configs.configs_model_type import model_configs
-from ml_collections.config_dict import ConfigDict
 from protenix.config.config import parse_configs
 from protenix.data.inference.json_maker import cif_to_input_json
 from protenix.data.inference.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.logger import get_logger
 from protenix.version import __version__
-from rdkit import Chem
-
 from runner.inference import (
-    download_inference_cache,
-    infer_predict,
     InferenceRunner,
+    download_inference_cache,
+    get_inference_config_defaults,
+    infer_predict,
     update_gpu_compatible_configs,
 )
 from runner.msa_search import msa_search, update_infer_json
@@ -292,8 +290,8 @@ def get_default_runner(
     dtype: str = "bf16",
     model_name: str = "protenix_base_default_v1.0.0",
     use_msa: bool = True,
-    trimul_kernel="cuequivariance",
-    triatt_kernel="cuequivariance",
+    trimul_kernel: Optional[str] = None,
+    triatt_kernel: Optional[str] = None,
     enable_cache=True,
     enable_fusion=True,
     enable_tf32=True,
@@ -315,8 +313,8 @@ def get_default_runner(
         dtype (str): Inference data type (e.g., 'bf16').
         model_name (str): Name of the model checkpoint.
         use_msa (bool): Whether to use MSA.
-        trimul_kernel (str): Kernel for triangle multiplicative update.
-        triatt_kernel (str): Kernel for triangle attention.
+        trimul_kernel (Optional[str]): Triangle multiplicative kernel override.
+        triatt_kernel (Optional[str]): Triangle attention kernel override.
         enable_cache (bool): Whether to enable diffusion shared variables cache.
         enable_fusion (bool): Whether to enable diffusion transformer fusion.
         enable_tf32 (bool): Whether to enable TF32.
@@ -330,7 +328,7 @@ def get_default_runner(
         InferenceRunner: An instance of InferenceRunner.
     """
     inference_configs["model_name"] = model_name
-    configs = {**configs_base, **{"data": data_configs}, **inference_configs}
+    configs = get_inference_config_defaults()
     configs = parse_configs(
         configs=configs,
         fill_required_with_null=True,
@@ -416,8 +414,8 @@ def get_default_runner(
         f"model_version: {model_version}, dtype: {configs.dtype}"
     )
     logger.info(
-        f"Triangle_multiplicative kernel: {trimul_kernel}, "
-        f"Triangle_attention kernel: {triatt_kernel}"
+        f"Triangle_multiplicative kernel: {configs.triangle_multiplicative}, "
+        f"Triangle_attention kernel: {configs.triangle_attention}"
     )
     logger.info(
         f"enable_diffusion_shared_vars_cache: {configs.enable_diffusion_shared_vars_cache}, "
@@ -438,8 +436,8 @@ def inference_jsons(
     n_sample: int = 5,
     dtype: str = "bf16",
     model_name: str = "protenix_base_default_v1.0.0",
-    trimul_kernel: str = "cuequivariance",
-    triatt_kernel: str = "cuequivariance",
+    trimul_kernel: Optional[str] = None,
+    triatt_kernel: Optional[str] = None,
     enable_cache: bool = True,
     enable_fusion: bool = True,
     enable_tf32: bool = True,
@@ -474,8 +472,8 @@ def inference_jsons(
         n_sample (int): Number of samples.
         dtype (str): Data type.
         model_name (str): Model name.
-        trimul_kernel (str): Kernel for triangle multiplicative.
-        triatt_kernel (str): Kernel for triangle attention.
+        trimul_kernel (Optional[str]): Triangle multiplicative kernel override.
+        triatt_kernel (Optional[str]): Triangle attention kernel override.
         enable_cache (bool): Enable shared variables cache.
         enable_fusion (bool): Enable efficient fusion.
         enable_tf32 (bool): Enable TF32.
@@ -628,16 +626,19 @@ def protenix_cli() -> None:
 @click.option(
     "--trimul_kernel",
     type=str,
-    default="cuequivariance",
-    help="Triangle multiplicative update kernel ('cuequivariance' or 'torch').",
+    default=None,
+    help=(
+        "Triangle multiplicative kernel ('torch' on XPU, 'cuequivariance' otherwise "
+        "by default)."
+    ),
 )
 @click.option(
     "--triatt_kernel",
     type=str,
-    default="cuequivariance",
+    default=None,
     help=(
-        "Triangle attention kernel ('triattention', 'cuequivariance', "
-        "'deepspeed', or 'torch')."
+        "Triangle attention kernel ('torch' on XPU, 'cuequivariance' otherwise "
+        "by default)."
     ),
 )
 @click.option(
@@ -771,8 +772,8 @@ def predict(
     model_name: str,
     use_msa: bool,
     use_default_params: bool,
-    trimul_kernel: str,
-    triatt_kernel: str,
+    trimul_kernel: Optional[str],
+    triatt_kernel: Optional[str],
     enable_cache: bool,
     enable_fusion: bool,
     enable_tf32: bool,
@@ -864,11 +865,16 @@ def predict(
         f"Using default params for model {model_name}: "
         f"cycle={cycle}, step={step}, use_msa={use_msa}"
     )
-    assert trimul_kernel in [
+    assert trimul_kernel is None or trimul_kernel in [
         "cuequivariance",
         "torch",
     ], "Invalid trimul_kernel. Options: 'cuequivariance', 'torch'."
-    assert triatt_kernel in ["triattention", "cuequivariance", "deepspeed", "torch",], (
+    assert triatt_kernel is None or triatt_kernel in [
+        "triattention",
+        "cuequivariance",
+        "deepspeed",
+        "torch",
+    ], (
         "Invalid triatt_kernel. Options: 'triattention', "
         "'cuequivariance', 'deepspeed', 'torch'."
     )

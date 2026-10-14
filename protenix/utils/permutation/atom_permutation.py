@@ -16,6 +16,7 @@ import torch
 
 from protenix.metrics.rmsd import rmsd, self_aligned_rmsd
 from protenix.model.utils import expand_at_dim, pad_at_dim
+from protenix.utils.device import disable_autocast
 from protenix.utils.logger import get_logger
 from protenix.utils.permutation.utils import Checker, save_permutation_error
 
@@ -341,7 +342,7 @@ class AtomPermutation(object):
         else:
             expand_func = lambda x: x
 
-        with torch.amp.autocast("cuda", enabled=False):
+        with disable_autocast(pred_coord.device):
             aligned_rmsd, transformed_pred_coord, _, _ = self_aligned_rmsd(
                 pred_pose=pred_coord.to(torch.float32),
                 true_pose=expand_func(true_coord.to(torch.float32)),
@@ -455,7 +456,7 @@ class AtomPermutation(object):
             permuted_coord_mask = expand_at_dim(permuted_coord_mask, dim=0, n=Batch)
 
         # Compute per-residue rmsd
-        with torch.amp.autocast("cuda", enabled=False):
+        with disable_autocast(pred_coord.device):
             per_res_rmsd = rmsd(
                 pred_pose=pred_coord.to(torch.float32),
                 true_pose=permuted_coord.to(torch.float32),

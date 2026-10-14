@@ -19,7 +19,9 @@ import traceback
 import urllib.request
 from argparse import Namespace
 from contextlib import nullcontext
-from os.path import exists as opexists, join as opjoin
+from copy import deepcopy
+from os.path import exists as opexists
+from os.path import join as opjoin
 from typing import Any, Mapping
 
 import numpy as np
@@ -27,19 +29,26 @@ import torch
 import torch.distributed as dist
 from biotite.structure import AtomArray
 
-
 from configs.configs_base import configs as configs_base
 from configs.configs_data import data_configs
 from configs.configs_inference import inference_configs
 from configs.configs_model_type import model_configs
 from protenix.config.config import parse_configs, parse_sys_args
+from protenix.config.extend_types import DefaultNoneWithType
 from protenix.data.inference.infer_dataloader import get_inference_dataloader
 from protenix.model.protenix import Protenix
+from protenix.utils.device import (
+    autocast_context,
+    empty_cache,
+    get_available_device_type,
+    get_default_device,
+    get_device_count,
+    set_device,
+)
 from protenix.utils.distributed import DIST_WRAPPER
 from protenix.utils.seed import seed_everything
 from protenix.utils.torch_utils import to_device
 from protenix.web_service.dependency_url import URL
-
 from runner.dumper import DataDumper
 
 logger = logging.getLogger(__name__)
@@ -64,6 +73,15 @@ by manually adding argparse.Namespace to PyTorch's safe globals list.
 torch.serialization.add_safe_globals([Namespace])
 
 
+def get_inference_config_defaults() -> dict:
+    configs = deepcopy(
+        {**configs_base, "data": data_configs, **inference_configs}
+    )
+    configs["triangle_attention"] = DefaultNoneWithType(str)
+    configs["triangle_multiplicative"] = DefaultNoneWithType(str)
+    return configs
+
+
 class InferenceRunner(object):
     """
     Runner class for AlphaFold3 model inference.
@@ -74,7 +92,7 @@ class InferenceRunner(object):
     """
 
     def __init__(self, configs: Any) -> None:
-        self.configs = configs
+        self.configs = update_gpu_compatible_configs(configs)
         self.init_env()
         self.init_basics()
         self.init_model()
@@ -86,24 +104,29 @@ class InferenceRunner(object):
 
     def init_env(self) -> None:
         """
-        Initialize the execution environment, including CUDA and distributed setup.
+        Initialize the execution environment, including accelerator and distributed setup.
         """
         self.print(
             f"Distributed environment: world size: {DIST_WRAPPER.world_size}, "
             f"global rank: {DIST_WRAPPER.rank}, local rank: {DIST_WRAPPER.local_rank}"
         )
-        self.use_cuda = torch.cuda.device_count() > 0
-        if self.use_cuda:
-            self.device = torch.device(f"cuda:{DIST_WRAPPER.local_rank}")
+        self.device = get_default_device(DIST_WRAPPER.local_rank)
+        self.use_cuda = self.device.type == "cuda"
+        if self.device.type == "cuda":
             os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-            all_gpu_ids = ",".join(str(x) for x in range(torch.cuda.device_count()))
-            devices = os.getenv("CUDA_VISIBLE_DEVICES", all_gpu_ids)
+            all_device_ids = ",".join(str(x) for x in range(get_device_count("cuda")))
+            devices = os.getenv("CUDA_VISIBLE_DEVICES", all_device_ids)
             logging.info(
                 f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - CUDA_VISIBLE_DEVICES: [{devices}]"
             )
-            torch.cuda.set_device(self.device)
-        else:
-            self.device = torch.device("cpu")
+            set_device(self.device)
+        elif self.device.type == "xpu":
+            all_device_ids = ",".join(str(x) for x in range(get_device_count("xpu")))
+            devices = os.getenv("ZE_AFFINITY_MASK", all_device_ids)
+            logging.info(
+                f"LOCAL_RANK: {DIST_WRAPPER.local_rank} - ZE_AFFINITY_MASK: [{devices}]"
+            )
+            set_device(self.device)
 
         if DIST_WRAPPER.world_size > 1:
             dist.init_process_group(backend="nccl")
@@ -122,7 +145,7 @@ class InferenceRunner(object):
             )
 
         use_fastlayernorm = os.getenv("LAYERNORM_TYPE", "fast_layernorm")
-        if use_fastlayernorm == "fast_layernorm":
+        if use_fastlayernorm == "fast_layernorm" and self.device.type == "cuda":
             logging.info(
                 "Kernels will be compiled when fast_layernorm is first called."
             )
@@ -221,8 +244,8 @@ class InferenceRunner(object):
         }[self.configs.dtype]
 
         enable_amp = (
-            torch.autocast(device_type="cuda", dtype=eval_precision)
-            if torch.cuda.is_available()
+            autocast_context(device_type=self.device.type, dtype=eval_precision)
+            if self.device.type != "cpu"
             else nullcontext()
         )
 
@@ -619,7 +642,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                     f"Model forward time: {t2_end - t2_start:.2f}s. "
                     f"Results saved to {configs.dump_dir}"
                 )
-                torch.cuda.empty_cache()
+                empty_cache(runner.device)
             except Exception as e:
                 error_message = (
                     f"[Rank {DIST_WRAPPER.rank}] {sample_name} failed: {e}\n"
@@ -632,7 +655,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                     encoding="utf-8",
                 ) as f:
                     f.write(error_message)
-                torch.cuda.empty_cache()
+                empty_cache(runner.device)
         t1_end = time.time()
         logger.info(
             f"[Rank {DIST_WRAPPER.rank}] Seed {seed} completed in {t1_end - t1_start:.2f}s."
@@ -664,7 +687,7 @@ def main(configs: Any) -> None:
 
 def update_gpu_compatible_configs(configs: Any) -> Any:
     """
-    Update configurations to ensure compatibility with specific GPU architectures (e.g., V100).
+    Update configurations to ensure compatibility with the active accelerator.
 
     Args:
         configs (Any): Original configurations.
@@ -672,6 +695,28 @@ def update_gpu_compatible_configs(configs: Any) -> Any:
     Returns:
         Any: Updated configurations.
     """
+
+    if get_available_device_type() == "xpu":
+        if DIST_WRAPPER.world_size > 1:
+            raise RuntimeError(
+                "Intel XPU supports single-device inference only; "
+                "distributed XPU inference is not supported."
+            )
+        for name in ("triangle_attention", "triangle_multiplicative"):
+            backend = getattr(configs, name)
+            if backend is None:
+                setattr(configs, name, "torch")
+            elif backend != "torch":
+                raise ValueError(
+                    f"{name}={backend!r} is not supported for Intel XPU inference; "
+                    "use 'torch'."
+                )
+        logger.info("Using PyTorch triangle kernels for Intel XPU inference.")
+        return configs
+
+    for name in ("triangle_attention", "triangle_multiplicative"):
+        if getattr(configs, name) is None:
+            setattr(configs, name, "cuequivariance")
 
     def is_gpu_capability_between_7_and_8() -> bool:
         # Check if 7.0 <= device_capability < 8.0
@@ -710,7 +755,7 @@ def run() -> None:
     )
 
     arg_str = parse_sys_args()
-    configs = {**configs_base, **{"data": data_configs}, **inference_configs}
+    configs = get_inference_config_defaults()
     # 1. First pass to get model_name
     configs = parse_configs(
         configs=configs,
@@ -720,7 +765,7 @@ def run() -> None:
     model_name = configs.model_name
 
     # 2. Get model specifics and merge into base defaults
-    base_configs = {**configs_base, **{"data": data_configs}, **inference_configs}
+    base_configs = get_inference_config_defaults()
     model_specfics_configs = model_configs[model_name]
 
     def deep_update(d, u):
