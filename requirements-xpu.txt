@@ -1,0 +1,38 @@
+# Install PyTorch XPU wheels first:
+#   pip install --index-url https://download.pytorch.org/whl/xpu \
+#       torch==2.7.1+xpu torchvision==0.22.1+xpu torchaudio==2.7.1+xpu
+#
+# Then install the portable Python dependencies in this file and finish with:
+#   pip install --no-deps -e .
+#
+# CUDA-only packages from requirements.txt are intentionally omitted here:
+# - cuequivariance-ops-torch-cu12
+# - cuequivariance-torch
+# - deepspeed
+# - triton (the matching XPU Triton package is pulled in by the torch XPU wheel)
+
+scipy>=1.9.0
+ml_collections==1.1.0
+tqdm==4.67.1
+pandas==2.3.1
+PyYAML==6.0.2
+matplotlib==3.10.5
+ipywidgets==8.1.7
+py3Dmol==2.5.2
+rdkit==2025.9.3
+biopython==1.85
+biotite==1.4.0
+modelcif==1.4
+gemmi==0.6.7
+pdbeccdutils==1.0.0
+fair-esm==2.0.0
+scikit-learn==1.7.1
+scikit-learn-extra==0.3.0
+pydantic>=2.0.0
+optree==0.17.0
+protobuf==6.31.1
+icecream==2.1.7
+ipdb==0.13.13
+wandb==0.21.1
+numpy==2.4.1
+networkx>=3.4.2
