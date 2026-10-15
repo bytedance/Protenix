@@ -1,6 +1,6 @@
 # Install PyTorch XPU wheels first:
 #   pip install --index-url https://download.pytorch.org/whl/xpu \
-#       torch==2.7.1+xpu torchvision==0.22.1+xpu torchaudio==2.7.1+xpu
+#       torch==2.7.1+xpu
 #
 # Then install the portable Python dependencies in this file and finish with:
 #   pip install --no-deps -e .

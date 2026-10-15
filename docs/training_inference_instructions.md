@@ -27,17 +27,12 @@ Use the PyTorch XPU wheel plus the portable dependency set:
 ```bash
 python3 -m venv .venv-xpu
 source .venv-xpu/bin/activate
-TORCH_VERSION=2.7.1+xpu  # Change torch version here if needed; keep torchvision compatible.
-TORCHVISION_VERSION=0.22.1+xpu
-pip install --index-url https://download.pytorch.org/whl/xpu \
-  "torch==${TORCH_VERSION}" \
-  "torchvision==${TORCHVISION_VERSION}" \
-  "torchaudio==${TORCH_VERSION}"
+pip install --index-url https://download.pytorch.org/whl/xpu torch==2.7.1+xpu
 pip install -r requirements-xpu.txt
 pip install --no-deps -e .
 ```
 
-This path is for **single-device inference only**; XPU training and distributed execution are not supported. Omitted triangle-kernel options use `torch` on XPU; explicit non-`torch` selections raise an error. CUDA keeps its original kernel defaults and fast-layernorm behavior (set `LAYERNORM_TYPE=torch` if the CUDA extension is unavailable).
+XPU training and distributed execution are not supported. Omitted triangle-kernel options use `torch` on XPU; explicit non-`torch` selections raise an error. CUDA keeps its original kernel defaults and fast-layernorm behavior (set `LAYERNORM_TYPE=torch` if the CUDA extension is unavailable).
 
 ### Docker (Recommended for Training)
 Check the detailed guide: [<u> Docker Installation</u>](./docker_installation.md).
