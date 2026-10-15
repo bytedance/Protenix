@@ -17,7 +17,6 @@ import random
 import torch
 
 from protenix.metrics.rmsd import rmsd, self_aligned_rmsd
-from protenix.utils.device import disable_autocast
 from protenix.utils.logger import get_logger
 from protenix.utils.permutation.chain_permutation.utils import (
     apply_transform,
@@ -818,7 +817,7 @@ class MultiChainPermutation(object):
             float: The aligned RMSD value.
         """
 
-        with disable_autocast(pred_dict["coordinate"].device):
+        with torch.amp.autocast("cuda", enabled=False):
             aligned_rmsd, _, _, _ = self_aligned_rmsd(
                 pred_pose=pred_dict["coordinate"].to(torch.float32),
                 true_pose=label_full_dict["coordinate"][indices, :].to(torch.float32),

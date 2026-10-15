@@ -56,4 +56,3 @@
 - **Intel XPU note**
   - Install the portable dependency set from [requirements-xpu.txt](../requirements-xpu.txt) together with the PyTorch XPU wheel.
   - For single-device XPU inference, omitted triangle-kernel options default to `torch`. Explicit non-`torch` selections are rejected; CUDA retains its existing `cuequivariance` defaults.
-  - On XPU, the optional fused Triton dropout+residual path requires `FUSED_DROPOUT_RESIDUAL=True` *and* a successful runtime probe; otherwise Protenix uses the standard PyTorch fallback. CUDA retains its previous opt-in fused-kernel behavior.

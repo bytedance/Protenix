@@ -186,17 +186,6 @@ class TestXPUDispatch(TestCase):
             get_default_runner(triatt_kernel="cuequivariance")
         download.assert_not_called()
 
-    def test_xpu_training_is_rejected(self):
-        from runner.train import AF3Trainer
-
-        trainer = AF3Trainer.__new__(AF3Trainer)
-        trainer.configs = SimpleNamespace()
-        with (
-            patch("runner.train.is_xpu_available", return_value=True),
-            self.assertRaisesRegex(RuntimeError, "single-device inference only"),
-        ):
-            trainer.init_env()
-
     def test_device_inference_prefers_accelerator_over_cpu_metadata(self):
         metadata = {"mask": torch.zeros(1), "features": [torch.device("xpu")]}
         self.assertEqual(infer_device_type(metadata), "xpu")

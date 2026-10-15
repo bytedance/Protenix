@@ -11,8 +11,6 @@ import unittest
 import torch
 import torch.nn.functional as F
 
-from protenix.utils.device import get_available_device_type
-
 
 class TestAttentionPrecision(unittest.TestCase):
     """Verify attention cast ordering produces better precision."""
@@ -150,15 +148,12 @@ class TestOffDiagonalMaskCache(unittest.TestCase):
         self.assertEqual(m5.shape, (5, 5))
         self.assertEqual(m6.shape, (6, 6))
 
-    def test_accelerator_device(self):
-        device_type = get_available_device_type()
-        if device_type == "cpu":
-            self.skipTest("Accelerator required")
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
+    def test_cuda_device(self):
         from protenix.model.loss import _get_off_diagonal_mask
-        device = torch.device(device_type)
-        mask = _get_off_diagonal_mask(4, device, torch.float32)
-        self.assertEqual(mask.device.type, device_type)
-        expected = 1 - torch.eye(4, device=device, dtype=torch.float32)
+        mask = _get_off_diagonal_mask(4, torch.device("cuda"), torch.float32)
+        self.assertTrue(mask.is_cuda)
+        expected = 1 - torch.eye(4, device="cuda", dtype=torch.float32)
         self.assertTrue(torch.equal(mask, expected))
 
 

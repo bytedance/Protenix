@@ -8,50 +8,13 @@ Verifies:
 """
 
 import unittest
-from unittest.mock import patch
 
 import torch
 
-from protenix.model.modules import fused_ops
 from protenix.model.modules.fused_ops import (
     TRITON_FUSED_OPS_AVAILABLE,
     dropout_add_rowwise,
-    triton_fused_ops_available_for_device,
 )
-from protenix.utils.device import get_available_device_type
-
-
-ACCELERATOR_DEVICE_TYPE = get_available_device_type()
-ACCELERATOR_AVAILABLE = ACCELERATOR_DEVICE_TYPE != "cpu"
-
-
-class TestFusedKernelDispatch(unittest.TestCase):
-    def test_cuda_keeps_existing_fused_path(self):
-        with (
-            patch.object(fused_ops, "TRITON_FUSED_OPS_AVAILABLE", True),
-            patch.object(
-                fused_ops,
-                "_triton_fused_ops_runtime_available",
-                side_effect=AssertionError("CUDA should not probe"),
-            ),
-        ):
-            self.assertTrue(triton_fused_ops_available_for_device("cuda"))
-
-    def test_xpu_probe_failure_uses_fallback(self):
-        fused_ops._triton_fused_ops_runtime_available.cache_clear()
-        try:
-            with (
-                patch.object(fused_ops, "TRITON_FUSED_OPS_AVAILABLE", True),
-                patch.object(
-                    fused_ops.torch,
-                    "ones",
-                    side_effect=RuntimeError("XPU kernel unavailable"),
-                ),
-                self.assertWarnsRegex(RuntimeWarning, "Disabling Triton"),
-            ):
-                self.assertFalse(triton_fused_ops_available_for_device("xpu"))
-        finally:
-            fused_ops._triton_fused_ops_runtime_available.cache_clear()
 
 
 class TestDropoutAddRowwiseNoDrop(unittest.TestCase):
@@ -73,11 +36,11 @@ class TestDropoutAddRowwiseNoDrop(unittest.TestCase):
         expected = residual + x
         self.assertTrue(torch.allclose(result, expected, atol=1e-6))
 
-    @unittest.skipUnless(ACCELERATOR_AVAILABLE, "Accelerator required")
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA required")
     def test_no_dropout_cuda(self):
         torch.manual_seed(42)
-        residual = torch.randn(2, 4, 8, 16, device=ACCELERATOR_DEVICE_TYPE)
-        x = torch.randn(2, 4, 8, 16, device=ACCELERATOR_DEVICE_TYPE)
+        residual = torch.randn(2, 4, 8, 16, device="cuda")
+        x = torch.randn(2, 4, 8, 16, device="cuda")
         result = dropout_add_rowwise(residual, x, p_drop=0.0, training=True)
         expected = residual + x
         self.assertTrue(torch.allclose(result, expected, atol=1e-6))
@@ -86,20 +49,18 @@ class TestDropoutAddRowwiseNoDrop(unittest.TestCase):
 class TestDropoutAddRowwiseMaskSharing(unittest.TestCase):
     """Verify dropout mask is shared across dim -3 (row dimension)."""
 
+    @unittest.skipUnless(
+        torch.cuda.is_available() and TRITON_FUSED_OPS_AVAILABLE,
+        "CUDA + Triton required",
+    )
     def test_row_sharing_pattern(self):
         """Run with high dropout, check that mask pattern repeats along R dim."""
-        if not (
-            TRITON_FUSED_OPS_AVAILABLE
-            and ACCELERATOR_AVAILABLE
-            and triton_fused_ops_available_for_device(ACCELERATOR_DEVICE_TYPE)
-        ):
-            self.skipTest("Accelerator Triton fused ops required")
         # Shape: [B, R, C, D] = [1, 4, 2, 8]
         # Mask should be [1, 1, 2, 8] broadcast over R=4
         torch.manual_seed(42)
         R, C, D = 4, 2, 8
-        residual = torch.zeros(1, R, C, D, device=ACCELERATOR_DEVICE_TYPE)
-        x = torch.ones(1, R, C, D, device=ACCELERATOR_DEVICE_TYPE)
+        residual = torch.zeros(1, R, C, D, device="cuda")
+        x = torch.ones(1, R, C, D, device="cuda")
         p_drop = 0.5
 
         result = dropout_add_rowwise(residual, x, p_drop=p_drop, training=True)
@@ -126,18 +87,14 @@ class TestDropoutAddRowwiseGradient(unittest.TestCase):
         self.assertTrue(torch.allclose(residual.grad, torch.ones_like(residual)))
         self.assertTrue(torch.allclose(x.grad, torch.ones_like(x)))
 
+    @unittest.skipUnless(
+        torch.cuda.is_available() and TRITON_FUSED_OPS_AVAILABLE,
+        "CUDA + Triton required",
+    )
     def test_gradient_with_dropout_cuda(self):
         """With dropout, gradients should still flow (non-zero)."""
-        if not (
-            TRITON_FUSED_OPS_AVAILABLE
-            and ACCELERATOR_AVAILABLE
-            and triton_fused_ops_available_for_device(ACCELERATOR_DEVICE_TYPE)
-        ):
-            self.skipTest("Accelerator Triton fused ops required")
-        residual = torch.randn(
-            2, 3, 4, 8, device=ACCELERATOR_DEVICE_TYPE, requires_grad=True
-        )
-        x = torch.randn(2, 3, 4, 8, device=ACCELERATOR_DEVICE_TYPE, requires_grad=True)
+        residual = torch.randn(2, 3, 4, 8, device="cuda", requires_grad=True)
+        x = torch.randn(2, 3, 4, 8, device="cuda", requires_grad=True)
         result = dropout_add_rowwise(residual, x, p_drop=0.3, training=True)
         loss = result.sum()
         loss.backward()

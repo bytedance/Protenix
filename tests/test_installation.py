@@ -24,8 +24,6 @@ import importlib.util
 import sys
 import unittest
 
-from protenix.utils.device import get_available_device_type
-
 
 class TestInstallation(unittest.TestCase):
     """Test that package dependencies are compatible"""
@@ -99,6 +97,8 @@ class TestInstallation(unittest.TestCase):
     def test_accelerator_availability(self):
         """Document accelerator availability for GPU/XPU execution."""
         try:
+            from protenix.utils.device import get_available_device_type
+
             device_type = get_available_device_type()
             if device_type != "cpu":
                 self.assertTrue(True, f"{device_type.upper()} is available")

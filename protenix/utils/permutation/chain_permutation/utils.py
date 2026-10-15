@@ -14,7 +14,6 @@
 
 import torch
 
-from protenix.utils.device import disable_autocast
 from protenix.metrics.rmsd import align_pred_to_true
 
 
@@ -46,7 +45,7 @@ def get_optimal_transform(
         src_atoms = src_atoms[mask, :]
         tgt_atoms = tgt_atoms[mask, :]
 
-    with disable_autocast(src_atoms.device):
+    with torch.amp.autocast("cuda", enabled=False):
         _, rot, trans = align_pred_to_true(
             pred_pose=src_atoms.to(dtype=torch.float32),
             true_pose=tgt_atoms.to(dtype=torch.float32),

@@ -33,7 +33,6 @@ from protenix.data.pipeline.dataloader import get_dataloaders
 from protenix.metrics.lddt_metrics import LDDTMetrics
 from protenix.model.loss import ProtenixLoss
 from protenix.model.protenix import Protenix
-from protenix.utils.device import is_xpu_available
 from protenix.utils.distributed import DIST_WRAPPER
 from protenix.utils.lr_scheduler import FinetuneLRScheduler, get_lr_scheduler
 from protenix.utils.metrics import SimpleMetricAggregator
@@ -132,11 +131,6 @@ class AF3Trainer(object):
         Initialize the PyTorch and CUDA environment for training.
         Sets up distributed training if world_size > 1 and sets random seeds.
         """
-        if is_xpu_available():
-            raise RuntimeError(
-                "Training on Intel XPU is not supported; this port covers "
-                "single-device inference only. Use CUDA or CPU for training."
-            )
         logging.info(
             f"Distributed environment: world size: {DIST_WRAPPER.world_size}, "
             f"global rank: {DIST_WRAPPER.rank}, local rank: {DIST_WRAPPER.local_rank}"

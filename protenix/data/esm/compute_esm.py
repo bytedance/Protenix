@@ -20,7 +20,7 @@ import torch
 from esm import FastaBatchedDataset, pretrained
 from tqdm.auto import tqdm
 
-from protenix.utils.device import get_default_device
+from protenix.utils.device import is_xpu_available
 
 ESM_CONFIG = {
     "esm2-3b": {
@@ -65,9 +65,10 @@ def load_esm_model(model_name, local_esm_dir="release_data/checkpoint"):
     if model_name.startswith("esm2"):
         model, alphabet = _load_esm2_model(local_model_path)
     model.eval()
-    device = get_default_device()
-    if device.type != "cpu":
-        model = model.to(device)
+    if torch.cuda.is_available():
+        model = model.cuda()
+    elif is_xpu_available():
+        model = model.to("xpu")
 
     return model, alphabet
 
