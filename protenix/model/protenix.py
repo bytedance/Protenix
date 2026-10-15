@@ -96,8 +96,7 @@ class Protenix(nn.Module):
     def __init__(self, configs: Any) -> None:
         super(Protenix, self).__init__()
         self.configs = configs
-        if torch.cuda.is_available():
-            torch.backends.cuda.matmul.allow_tf32 = self.configs.enable_tf32
+        torch.backends.cuda.matmul.allow_tf32 = self.configs.enable_tf32
         # Some constants
         self.enable_diffusion_shared_vars_cache = (
             self.configs.enable_diffusion_shared_vars_cache

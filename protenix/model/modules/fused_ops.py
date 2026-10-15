@@ -217,7 +217,7 @@ def dropout_add_rowwise(
     if not training or p_drop == 0.0:
         return residual + x
 
-    if triton_fused_ops_available_for_device(x):
+    if triton_fused_ops_available_for_device(x.device):
         return _DropoutAddRowwise.apply(residual, x, p_drop)
 
     # Fallback: standard PyTorch path
@@ -229,14 +229,9 @@ def dropout_add_rowwise(
 
 
 @lru_cache(maxsize=None)
-def _triton_fused_ops_runtime_available(device_type: str, device_index: int) -> bool:
-    if not TRITON_FUSED_OPS_AVAILABLE or device_type != "xpu":
+def _triton_fused_ops_runtime_available(device: torch.device) -> bool:
+    if not TRITON_FUSED_OPS_AVAILABLE or device.type != "xpu":
         return False
-    device = (
-        torch.device(device_type, device_index)
-        if device_index >= 0
-        else torch.device(device_type)
-    )
     try:
         residual = torch.ones((1, 2, 2, 4), device=device, requires_grad=True)
         x = torch.ones_like(residual, requires_grad=True)
@@ -259,14 +254,10 @@ def _triton_fused_ops_runtime_available(device_type: str, device_index: int) -> 
         return False
 
 
-def triton_fused_ops_available_for_device(x: torch.Tensor | torch.device | str) -> bool:
+def triton_fused_ops_available_for_device(device: torch.device | str) -> bool:
     if not TRITON_FUSED_OPS_AVAILABLE:
         return False
-    if isinstance(x, torch.Tensor):
-        device = x.device
-    else:
-        device = torch.device(x)
+    device = device if isinstance(device, torch.device) else torch.device(device)
     if device.type == "cuda":
         return True
-    device_index = -1 if device.index is None else device.index
-    return _triton_fused_ops_runtime_available(device.type, device_index)
+    return _triton_fused_ops_runtime_available(device)
