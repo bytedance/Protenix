@@ -39,12 +39,15 @@ ESM_CONFIG = {
 
 
 def _load_esm2_model(model_path):
-    if os.path.exists(model_path):
-        model, alphabet = pretrained.load_model_and_alphabet_local(model_path)
-    else:
-        model, alphabet = pretrained.load_model_and_alphabet(
-            os.path.splitext(os.path.basename(model_path))[0]
-        )
+    # PyTorch >=2.6 defaults torch.load to weights_only=True; ESM2 checkpoints
+    # pickle an argparse.Namespace, so it must be explicitly allow-listed.
+    with torch.serialization.safe_globals([argparse.Namespace]):
+        if os.path.exists(model_path):
+            model, alphabet = pretrained.load_model_and_alphabet_local(model_path)
+        else:
+            model, alphabet = pretrained.load_model_and_alphabet(
+                os.path.splitext(os.path.basename(model_path))[0]
+            )
     return model, alphabet
 
 

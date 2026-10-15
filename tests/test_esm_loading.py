@@ -31,12 +31,6 @@ import torch
 class TestESMLoading(unittest.TestCase):
     """Test ESM model loading with different PyTorch versions"""
 
-    @staticmethod
-    def _local_esm_checkpoint(model_name: str = "esm2-3b") -> Path:
-        from protenix.data.esm.compute_esm import ESM_CONFIG
-
-        return Path("release_data/checkpoint") / ESM_CONFIG[model_name]["model_path"]
-
     def test_pytorch_version(self):
         """Check PyTorch version and document compatibility"""
         try:
@@ -98,6 +92,7 @@ class TestESMLoading(unittest.TestCase):
             major, minor = version.split(".")[:2]
             major, minor = int(major), int(minor.split("+")[0])
 
+            # Try to load ESM model (this is where issue #176 occurs)
             from protenix.data.esm.compute_esm import get_esm_embedding  # noqa: F401
 
             # If we're on PyTorch 2.6+ and this works, the bug is fixed
@@ -132,29 +127,13 @@ class TestESMLoading(unittest.TestCase):
     def test_esm_embedding_generation(self):
         """Test that ESM embeddings can be generated for a sequence"""
         try:
-            import torch
-
-            checkpoint_path = self._local_esm_checkpoint()
-            if not checkpoint_path.exists():
-                self.skipTest(
-                    f"Local ESM checkpoint not available at {checkpoint_path}; "
-                    "skipping to avoid downloading weights during tests"
-                )
-
-            from protenix.data.esm.compute_esm import load_esm_model
+            from protenix.data.esm.compute_esm import get_esm_embedding
 
             # Test with a small protein sequence
             test_sequence = "MKTAYDELAAEAFLEENTPILH"
-            model, alphabet = load_esm_model("esm2-3b")
-            batch_converter = alphabet.get_batch_converter(truncation_seq_length=1022)
-            _, _, toks = batch_converter([("test", test_sequence)])
-            device = next(model.parameters()).device
-            if device.type != "cpu":
-                toks = toks.to(device)
 
-            with torch.no_grad():
-                out = model(toks, repr_layers=[model.num_layers], return_contacts=False)
-            embedding = out["representations"][model.num_layers][0, 1:-1].cpu()
+            # This should work if ESM is properly loaded
+            embedding = get_esm_embedding(test_sequence)
 
             # Check that we got a reasonable embedding
             self.assertIsNotNone(embedding)
@@ -162,8 +141,6 @@ class TestESMLoading(unittest.TestCase):
 
         except ImportError:
             self.skipTest("Protenix or ESM not installed")
-        except unittest.SkipTest:
-            raise
         except Exception as e:
             # Check if this is the PyTorch 2.6+ issue
             import torch
