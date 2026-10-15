@@ -19,7 +19,13 @@ Test suite for ESM model loading compatibility.
 Related to GitHub issue #176 (ESM weights loading error with PyTorch 2.6+)
 """
 
+import argparse
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import Mock, patch
+
+import torch
 
 
 class TestESMLoading(unittest.TestCase):
@@ -54,6 +60,67 @@ class TestESMLoading(unittest.TestCase):
             self.assertTrue(True, "ESM package imported successfully")
         except ImportError:
             self.skipTest("ESM (fair-esm) not installed")
+
+    def test_checkpoint_namespace_loads_with_pytorch_27(self):
+        from protenix.data.esm.compute_esm import _load_esm2_model
+
+        with TemporaryDirectory() as temp_dir:
+            checkpoint_path = Path(temp_dir) / "esm2_checkpoint.pt"
+            torch.save(argparse.Namespace(model_name="esm2"), checkpoint_path)
+
+            def load_model(path):
+                return torch.load(path, map_location="cpu"), None
+
+            with patch(
+                "protenix.data.esm.compute_esm.pretrained.load_model_and_alphabet_local",
+                side_effect=load_model,
+            ):
+                model, alphabet = _load_esm2_model(checkpoint_path)
+
+        self.assertEqual(model.model_name, "esm2")
+        self.assertIsNone(alphabet)
+
+    def test_cuda_esm_uses_current_device(self):
+        from protenix.data.esm.compute_esm import load_esm_model
+
+        model = Mock()
+        model.cuda.return_value = model
+        with (
+            patch(
+                "protenix.data.esm.compute_esm._load_esm2_model",
+                return_value=(model, None),
+            ),
+            patch(
+                "protenix.data.esm.compute_esm.torch.cuda.is_available",
+                return_value=True,
+            ),
+            patch("protenix.data.esm.compute_esm.is_xpu_available", return_value=True),
+        ):
+            loaded, _ = load_esm_model("esm2-3b")
+        self.assertIs(loaded, model)
+        model.cuda.assert_called_once_with()
+        model.to.assert_not_called()
+
+    def test_xpu_esm_uses_xpu_when_cuda_unavailable(self):
+        from protenix.data.esm.compute_esm import load_esm_model
+
+        model = Mock()
+        model.to.return_value = model
+        with (
+            patch(
+                "protenix.data.esm.compute_esm._load_esm2_model",
+                return_value=(model, None),
+            ),
+            patch(
+                "protenix.data.esm.compute_esm.torch.cuda.is_available",
+                return_value=False,
+            ),
+            patch("protenix.data.esm.compute_esm.is_xpu_available", return_value=True),
+        ):
+            loaded, _ = load_esm_model("esm2-3b")
+        self.assertIs(loaded, model)
+        model.to.assert_called_once_with("xpu")
+        model.cuda.assert_not_called()
 
     def test_esm_model_loading(self):
         """

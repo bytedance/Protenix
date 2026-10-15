@@ -94,16 +94,17 @@ class TestInstallation(unittest.TestCase):
                 "Protenix not installed - this documents the need for installation"
             )
 
-    def test_cuda_availability(self):
-        """Document CUDA availability for GPU acceleration"""
+    def test_accelerator_availability(self):
+        """Document accelerator availability for GPU/XPU execution."""
         try:
-            import torch
+            from protenix.utils.device import get_available_device_type
 
-            if torch.cuda.is_available():
-                self.assertTrue(True, "CUDA is available")
+            device_type = get_available_device_type()
+            if device_type != "cpu":
+                self.assertTrue(True, f"{device_type.upper()} is available")
             else:
                 # Not a failure, just documentation
-                print("Note: CUDA not available, will use CPU")
+                print("Note: no accelerator available, will use CPU")
         except ImportError:
             self.skipTest("PyTorch not installed")
 

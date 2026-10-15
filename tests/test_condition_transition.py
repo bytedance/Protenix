@@ -20,12 +20,13 @@ import torch
 
 os.environ["LAYERNORM_TYPE"] = "torch"
 from protenix.model.modules.transformer import ConditionedTransitionBlock
+from protenix.utils.device import get_available_device_type
 
 
 class TestConditionedTransitionBlock(unittest.TestCase):
     def setUp(self) -> None:
         self._start_time = time.time()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = get_available_device_type()
         super().setUp()
 
     def get_model(self, c_a: int = 768, c_s: int = 384, n: int = 2):

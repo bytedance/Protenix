@@ -22,6 +22,7 @@ import torch
 import torch.nn as nn
 from scipy.spatial.transform import Rotation
 
+from protenix.utils.device import get_autocast_dtype, is_autocast_enabled
 from protenix.utils.scatter_utils import scatter
 
 
@@ -513,14 +514,11 @@ tensor_tree_map = partial(tree_map, leaf_type=torch.Tensor)
 
 
 def is_fp16_enabled() -> bool:
-    # Autocast world
-    if hasattr(torch, "get_autocast_dtype"):
-        fp16_enabled = torch.get_autocast_dtype("cuda") == torch.float16
-    else:
-        fp16_enabled = torch.get_autocast_gpu_dtype() == torch.float16
-    fp16_enabled = fp16_enabled and torch.is_autocast_enabled()
-
-    return fp16_enabled
+    for device_type in ("cuda", "xpu"):
+        if not is_autocast_enabled(device_type):
+            continue
+        return get_autocast_dtype(device_type) == torch.float16
+    return False
 
 
 def _fetch_dims(tree):

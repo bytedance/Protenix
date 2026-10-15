@@ -29,8 +29,12 @@ from protenix.model.utils import (
     is_fp16_enabled,
     permute_final_dims,
 )
+from protenix.utils.device import disable_autocast
 
-fastln_is_installed = os.getenv("LAYERNORM_TYPE", "fast_layernorm") == "fast_layernorm"
+fastln_is_installed = (
+    os.getenv("LAYERNORM_TYPE", "fast_layernorm") == "fast_layernorm"
+    and torch.cuda.is_available()
+)
 if fastln_is_installed:
     from protenix.model.layer_norm.layer_norm import FusedLayerNorm
 
@@ -177,7 +181,7 @@ class OpenfoldLinear(nn.Linear):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         d = input.dtype
         if self.precision is not None:
-            with torch.amp.autocast("cuda", enabled=False):
+            with disable_autocast(input.device):
                 bias = (
                     self.bias.to(dtype=self.precision)
                     if self.bias is not None
@@ -190,7 +194,7 @@ class OpenfoldLinear(nn.Linear):
                 ).to(dtype=d)
 
         if d is torch.bfloat16:
-            with torch.amp.autocast("cuda", enabled=False):
+            with disable_autocast(input.device):
                 bias = self.bias.to(dtype=d) if self.bias is not None else None
                 return nn.functional.linear(input, self.weight.to(dtype=d), bias)
 
@@ -224,7 +228,7 @@ class OpenFoldLayerNorm(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         d = x.dtype
         if d is torch.bfloat16:
-            with torch.amp.autocast("cuda", enabled=False):
+            with disable_autocast(x.device):
                 out = nn.functional.layer_norm(
                     x,
                     self.c_in,
@@ -264,7 +268,7 @@ def softmax_no_cast(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
     """
     d = t.dtype
     if d is torch.bfloat16:
-        with torch.amp.autocast("cuda", enabled=False):
+        with disable_autocast(t.device):
             s = torch.nn.functional.softmax(t, dim=dim)
     else:
         s = torch.nn.functional.softmax(t, dim=dim)
@@ -781,7 +785,7 @@ class OuterProductMean(nn.Module):
         inplace_safe: bool = False,
     ) -> torch.Tensor:
         if is_fp16_enabled():
-            with torch.amp.autocast("cuda", enabled=False):
+            with disable_autocast(m.device):
                 return self._forward(m.float(), mask, chunk_size, inplace_safe)
         else:
             return self._forward(m, mask, chunk_size, inplace_safe)
