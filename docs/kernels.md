@@ -19,7 +19,7 @@
 
       Custom kernel implementation from [protenix/model/tri_attention/](../protenix/model/tri_attention/)
 
-  2. **cuEquivariance Kernel (Default in `configs_base.py`)**
+  2. **cuEquivariance Kernel**
       Optimized implementation using NVIDIA's [cuEquivariance](https://github.com/NVIDIA/cuEquivariance) library.
   
   3. **[DeepSpeed DS4Sci_EvoformerAttention kernel](https://www.deepspeed.ai/tutorials/ds4sci_evoformerattention/)** is a memory-efficient attention kernel developed as part of a collaboration between OpenFold and the DeepSpeed4Science initiative.

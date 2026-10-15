@@ -32,7 +32,7 @@ pip install -r requirements-xpu.txt
 pip install --no-deps -e .
 ```
 
-XPU training and distributed execution are not supported. Omitted triangle-kernel options use `torch` on XPU; explicit non-`torch` selections raise an error. CUDA keeps its original kernel defaults and fast-layernorm behavior (set `LAYERNORM_TYPE=torch` if the CUDA extension is unavailable).
+XPU training is not supported yet. Omitted triangle-kernel options use `torch` on XPU; explicit non-`torch` selections raise an error. CUDA keeps its original kernel defaults and fast-layernorm behavior (set `LAYERNORM_TYPE=torch` if the CUDA extension is unavailable).
 
 ### Docker (Recommended for Training)
 Check the detailed guide: [<u> Docker Installation</u>](./docker_installation.md).
