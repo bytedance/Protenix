@@ -51,7 +51,7 @@ class SimpleMetricAggregator(object):
             else:
                 value = value.detach().cpu().numpy()
         elif isinstance(value, np.ndarray):
-            pass
+            value = np.atleast_1d(value)
         else:
             raise ValueError(f"Unsupported type for metric data: {type(value)}")
         value_dict[key].append(value)
