@@ -13,6 +13,7 @@
 # limitations under the License.
 # Copyright 2021 AlQuraishi Laboratory
 
+import logging
 import math
 import os
 from functools import partial, partialmethod
@@ -32,7 +33,19 @@ from protenix.model.utils import (
 
 fastln_is_installed = os.getenv("LAYERNORM_TYPE", "fast_layernorm") == "fast_layernorm"
 if fastln_is_installed:
-    from protenix.model.layer_norm.layer_norm import FusedLayerNorm
+    try:
+        from protenix.model.layer_norm.layer_norm import FusedLayerNorm
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Using the native LayerNorm: the fused CUDA kernel could not be loaded or "
+            "built (%s: %s). Building it needs a full build toolchain: ninja plus a CUDA "
+            "toolkit (nvcc and the CUDA development headers), none of which a CUDA runtime "
+            "image ships even when a GPU is visible. Set LAYERNORM_TYPE to any other value "
+            "to skip this attempt.",
+            type(exc).__name__,
+            exc,
+        )
+        fastln_is_installed = False
 
 
 def _prod(nums: Union[List[int], Tuple[int, ...], torch.Size]) -> int:
