@@ -67,6 +67,11 @@ setup(
         "protenix": ["model/layer_norm/kernel/*"],
     },
     install_requires=install_requires,
+    extras_require={
+        # Only needed for triangle_attention='deepspeed' (DS4Sci_EvoformerAttention).
+        # Its setup.py requires a CUDA toolkit, so it cannot be a hard dependency.
+        "ds4sci": ["deepspeed==0.17.5"],
+    },
     license="Apache 2.0 License",
     platforms="manylinux1",
     entry_points={

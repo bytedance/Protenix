@@ -493,7 +493,13 @@ def _deepspeed_evo_attn(
         biases:
             List of biases that broadcast to [*, H, Q, K]
     """
-    from deepspeed.ops.deepspeed4science import DS4Sci_EvoformerAttention
+    try:
+        from deepspeed.ops.deepspeed4science import DS4Sci_EvoformerAttention
+    except ImportError as exc:
+        raise ImportError(
+            "triangle_attention='deepspeed' needs DeepSpeed, which is an optional "
+            "dependency: pip install 'protenix[ds4sci]'."
+        ) from exc
 
     def reshape_dims(x):
         no_batch_dims = len(x.shape[:-3])
