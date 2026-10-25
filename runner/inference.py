@@ -453,7 +453,7 @@ def download_inference_cache(configs: Any) -> None:
         )
         download_from_url(tos_url, checkpoint_path)
 
-    if "esm" in configs.model_name:  # currently esm only support 3b model
+    if configs.esm.enable:  # currently esm only supports the 3b model
         esm_3b_ckpt_path = f"{checkpoint_dir}/esm2_t36_3B_UR50D.pt"
         if not opexists(esm_3b_ckpt_path):
             tos_url = URL["esm2_t36_3B_UR50D"]
