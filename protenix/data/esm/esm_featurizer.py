@@ -76,6 +76,8 @@ class ESMFeaturizer:
 
     def __call__(self, token_array, atom_array, bioassembly_dict, inference_mode=False):
 
+        id_key = "name" if inference_mode else "pdb_id"
+
         # init as zeros
         N_token = len(token_array)
         x = torch.zeros([N_token, self.embedding_dim])
@@ -125,10 +127,9 @@ class ESMFeaturizer:
                     }
                 )
                 logger.warning(
-                    f"[{bioassembly_dict['pdb_id']}] ESM error: {error_message}"
+                    f"[{bioassembly_dict[id_key]}] ESM error: {error_message}"
                 )
 
-        id_key = "name" if inference_mode else "pdb_id"
         self.save_error(error_sequences, pdb_id=bioassembly_dict[id_key])
 
         return x
