@@ -30,6 +30,7 @@ from torch.utils.data import Dataset
 from protenix.data.constants import EvaluationChainInterface
 from protenix.data.constraint.constraint_featurizer import ConstraintFeatureGenerator
 from protenix.data.core.featurizer import Featurizer
+from protenix.data.esm.esm_featurizer import ESMFeaturizer
 from protenix.data.msa.msa_featurizer import MSAFeaturizer
 from protenix.data.pipeline.data_pipeline import DataPipeline
 from protenix.data.template.template_featurizer import TemplateFeaturizer
@@ -62,6 +63,7 @@ class BaseSingleDataset(Dataset):
         cropping_configs: dict[str, Any],
         msa_featurizer: Optional[MSAFeaturizer] = None,
         template_featurizer: Optional[TemplateFeaturizer] = None,
+        esm_featurizer: Optional[ESMFeaturizer] = None,
         name: str = None,
         **kwargs,
     ) -> None:
@@ -121,6 +123,7 @@ class BaseSingleDataset(Dataset):
 
         self.msa_featurizer = msa_featurizer
         self.template_featurizer = template_featurizer
+        self.esm_featurizer = esm_featurizer
 
         # Read data
         self.indices_list = self.read_indices_list(indices_fpath)
@@ -546,6 +549,7 @@ class BaseSingleDataset(Dataset):
             msa_features=cropped_msa_features,
             template_features=cropped_template_features,
             full_atom_array=bioassembly_dict["atom_array"],
+            bioassembly_dict=bioassembly_dict,
             is_spatial_crop="spatial" in crop_method.lower(),
             max_entity_mol_id=max_entity_mol_id,
         )
@@ -749,6 +753,7 @@ class BaseSingleDataset(Dataset):
         msa_features: dict[str, Any],
         template_features: dict[str, Any],
         full_atom_array: AtomArray,
+        bioassembly_dict: dict[str, Any],
         is_spatial_crop: bool = True,
         max_entity_mol_id: int = None,
     ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
@@ -765,6 +770,7 @@ class BaseSingleDataset(Dataset):
             msa_features: Dictionary of MSA features.
             template_features: Dictionary of template features.
             full_atom_array: Full atom array containing all atoms.
+            bioassembly_dict: Parsed structure metadata, including canonical sequences.
             is_spatial_crop: Flag indicating whether spatial cropping is applied, by default True.
             max_entity_mol_id: Maximum entity mol ID in the full atom array.
         Returns:
@@ -788,6 +794,14 @@ class BaseSingleDataset(Dataset):
                 msa_features,
                 max_entity_mol_id,
                 full_atom_array,
+            )
+
+        if self.esm_featurizer is not None:
+            features_dict["esm_token_embedding"] = self.esm_featurizer(
+                token_array=token_array,
+                atom_array=atom_array,
+                bioassembly_dict=bioassembly_dict,
+                inference_mode=False,
             )
 
         # Get feature and labels from Featurizer
@@ -892,6 +906,22 @@ class BaseSingleDataset(Dataset):
         if self.is_distillation is True:
             features_dict["resolution"] = torch.tensor([-1.0])
         return features_dict, labels_dict, label_full_dict
+
+
+def get_esm_featurizer(configs, error_dir: Optional[str]) -> Optional[ESMFeaturizer]:
+    esm_info = configs.get("esm", {})
+    if not esm_info.get("enable", False):
+        return None
+
+    model_name = esm_info.get("model_name", "esm2-3b")
+    return ESMFeaturizer(
+        embedding_dir=esm_info.get("embedding_dir") or f"./esm_embeddings/{model_name}",
+        sequence_fpath=esm_info.get(
+            "sequence_fpath", "./scripts/msa/data/pdb_seqs/pdb_labels_seqs.csv"
+        ),
+        embedding_dim=esm_info.get("embedding_dim", 2560),
+        error_dir=error_dir,
+    )
 
 
 def get_msa_featurizer(configs, dataset_name: str, stage: str) -> Optional[Callable]:
@@ -1186,6 +1216,7 @@ def get_datasets(
             "template_featurizer": get_template_featurizer(
                 configs, dataset_name, stage
             ),
+            "esm_featurizer": get_esm_featurizer(configs, error_dir),
             "lig_atom_rename": config_dict.get("lig_atom_rename", False),
             "shuffle_mols": config_dict.get("shuffle_mols", False),
             "shuffle_sym_ids": config_dict.get("shuffle_sym_ids", False),

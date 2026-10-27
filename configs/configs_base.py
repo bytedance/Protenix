@@ -67,6 +67,8 @@ data_configs = {
         "enable": False,
         "model_name": "esm2-3b",
         "embedding_dim": 2560,
+        "embedding_dir": "",
+        "sequence_fpath": "./scripts/msa/data/pdb_seqs/pdb_labels_seqs.csv",
     },
 }
 optim_configs = {

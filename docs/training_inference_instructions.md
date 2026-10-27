@@ -183,6 +183,15 @@ Data hierarchy after extraction should be as follows:
 Data processing scripts have also been released. you can refer to [prepare_training_data.md](./prepare_training_data.md) for generating `{dataset}_bioassembly` and `indices`. And you can refer to [msa_template_pipeline.md](./msa_template_pipeline.md) for pipelines to get `mmcif_msa_template` and `seq_to_pdb_index.json`.
 
 ### Training demo
+
+For models configured with `esm.enable: true`, precompute the training-set ESM embeddings before starting training. With the prepared PDB sequence index and ESM checkpoint available, run:
+
+```bash
+python3 protenix/data/esm/compute_esm.py --model_name esm2-3b
+```
+
+The training data pipeline loads per-token embeddings from `./esm_embeddings/<model_name>` using the sequence index at `scripts/msa/data/pdb_seqs/pdb_labels_seqs.csv`. These defaults can be overridden with `esm.embedding_dir` and `esm.sequence_fpath` in the configuration. The `esm.model_name` must match the cache directory and the ESM checkpoint used to generate the embeddings.
+
 After installation and data preparation, you can run the following command to train the model from scratch:
 
 ```bash
