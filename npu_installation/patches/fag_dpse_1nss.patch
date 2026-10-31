@@ -1,0 +1,171 @@
+diff --git a/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_block_vec.h b/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_block_vec.h
+index 13bf13e55..a7b7e185b 100644
+--- a/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_block_vec.h
++++ b/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_block_vec.h
+@@ -262,7 +262,9 @@ __aicore__ inline void FAGBlockVec<TEMPLATE_ARGS>::InitGlobalBuffer(
+     dkGm.SetGlobalBuffer((__gm__ OUTDTYPE *)dk);
+     dvGm.SetGlobalBuffer((__gm__ OUTDTYPE *)dv);
+     if constexpr (IS_PSE) {
+-        if (tilingData->s1s2BNGS1S2BaseParams.pseShapeType == PSE_SHAPE_TYPE_BNSS) {
++        // BNSS: one PSE element per score element, direct write. 1NSS: PSE is broadcast over batch,
++        if (tilingData->s1s2BNGS1S2BaseParams.pseShapeType == PSE_SHAPE_TYPE_BNSS ||
++            tilingData->s1s2BNGS1S2BaseParams.pseShapeType == PSE_SHAPE_TYPE_1NSS) {
+             dpseGm.SetGlobalBuffer((__gm__ OUTDTYPE *)dpse);
+             dpseGm.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);
+         }
+@@ -552,12 +554,15 @@ __aicore__ inline void FAGBlockVec<TEMPLATE_ARGS>::CopyDsToDpse(LocalTensor<CALC
+                                                                 FagConstInfo &constInfo, FagRunInfo &runInfo)
+ {
+     if constexpr (IS_PSE) {
+-        // dpse currently supports BNSS only. Broadcast and compressed PSE shapes require reduction and must not
+-        // write the raw dS block into their output.
+-        if (tilingData->s1s2BNGS1S2BaseParams.pseShapeType != PSE_SHAPE_TYPE_BNSS ||
++        // BNSS: one PSE element per score element, direct write.
++        // 1NSS: PSE is broadcast over batch, so dPSE is reduced over batch with GM atomic add
++        // (dpse is cleared at the start of the main kernel). BN1S/BNHS/1NHS are not supported yet.
++        uint32_t pseShapeType = tilingData->s1s2BNGS1S2BaseParams.pseShapeType;
++        if ((pseShapeType != PSE_SHAPE_TYPE_BNSS && pseShapeType != PSE_SHAPE_TYPE_1NSS) ||
+             runInfo.commonRunInfo.halfS1RealSize == 0 || runInfo.commonRunInfo.s2RealSize == 0) {
+             return;
+         }
++        bool needAtomicAdd = (pseShapeType == PSE_SHAPE_TYPE_1NSS);
+ 
+         LocalTensor<OUTDTYPE> dpseOutTensor = dSOutQue.AllocTensor<OUTDTYPE>();
+         bool needPseScale = pseInfoPtr.pseType == static_cast<uint32_t>(PseTypeEnum::PSE_OUTER_ADD_MUL_TYPE);
+@@ -586,7 +591,13 @@ __aicore__ inline void FAGBlockVec<TEMPLATE_ARGS>::CopyDsToDpse(LocalTensor<CALC
+             CeilDiv(VECTOR_BASEN * sizeof(OUTDTYPE), blockBytes) - CeilDiv(copyOutParams.blockLen, blockBytes);
+         copyOutParams.dstStride =
+             (runInfo.commonRunInfo.actualS2Size - runInfo.commonRunInfo.s2RealSize) * sizeof(OUTDTYPE);
++        if (needAtomicAdd) {
++            SetAtomicAdd<OUTDTYPE>();
++        }
+         DataCopyPad(dpseGm[dpseOffset], dpseOutTensor, copyOutParams);
++        if (needAtomicAdd) {
++            SetAtomicNone();
++        }
+         dSOutQue.FreeTensor(dpseOutTensor);
+     }
+ }
+diff --git a/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel.h b/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel.h
+index ecb55ca35..705c9ca84 100644
+--- a/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel.h
++++ b/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel.h
+@@ -497,6 +497,9 @@ __aicore__ inline void FlashAttentionScoreGradKernel<CubeBlockType, VecBlockType
+ template <typename CubeBlockType, typename VecBlockType>
+ __aicore__ inline void FlashAttentionScoreGradKernel<CubeBlockType, VecBlockType>::Process()
+ {
++    // 1NSS: dPSE is accumulated over batch with atomics, clear it first and sync all cores
++    this->ZeroDpseForBroadcastPse();
++    SyncAll<false>();
+     if constexpr (BaseClass::IS_PRELOAD_TWO_TIMES) {
+         ProcessPreloadTwoTimes(); // for small headDim(<=128)
+     } else {
+diff --git a/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel_base.h b/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel_base.h
+index 569abae26..04402cf14 100644
+--- a/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel_base.h
++++ b/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel_base.h
+@@ -71,6 +71,7 @@ public:
+     __aicore__ inline void GetNextDxAndQueryOffset(FagRunInfo &runInfo, FagRunInfo &nextRunInfo, int64_t nextIndex,
+                                                    PreloadArgs<IS_ROPE> &preloadArgs);
+     __aicore__ inline void SyncALLCores();
++    __aicore__ inline void ZeroDpseForBroadcastPse();
+     __aicore__ inline void GetSeqQlenKvlenByBidx(int64_t bIdx, int64_t &actualSeqQlen, int64_t &actualSeqKvlen);
+     __aicore__ inline void CheckS1RangeInBn2(int64_t taskId);
+     __aicore__ inline void UpdateMNPQ(int64_t &m, int64_t &n, int64_t &p, int64_t &q, int64_t &mGap, int64_t &nGap);
+@@ -119,9 +120,10 @@ protected:
+ 
+     // output global mmemory
+     GlobalTensor<OUTDTYPE> dqGm, dkGm, dvGm;
++    GlobalTensor<OUTDTYPE> dpseZeroGm; // only used by 1NSS (broadcast pse) to clear dpse before atomic accumulation
+     GlobalTensor<float> dqWorkSpaceGm, dkWorkSpaceGm, dvWorkSpaceGm;
+ 
+-    // CV核间共享Buffer
++    // CV shared buffer
+     TBuf<> mm1ResBuf[2];
+     TBuf<> mm2ResBuf[2];
+     MutexBufferManager<BufferType::L1> l1BufferManager;
+@@ -131,6 +133,7 @@ protected:
+                               MutexBuffersPolicySingleBuffer<BufferType::L1, SyncType::NO_SYNC>>::type dSL1Buf;
+ 
+     GM_ADDR prefixNAddr;
++    GM_ADDR dpseAddr = nullptr;
+     GM_ADDR actualSeqQlenAddr;
+     GM_ADDR actualSeqKvlenAddr;
+ 
+@@ -210,6 +213,7 @@ __aicore__ inline void FlashAttentionScoreGradKernelBase<ChildClass, CubeBlockTy
+     actualCalcS2Token = constInfo.s2Token;
+ 
+     prefixNAddr = prefixN;
++    dpseAddr = dpse;
+     actualSeqQlenAddr = actualSeqQlen;
+     actualSeqKvlenAddr = actualSeqKvlen;
+     constInfo.seqS1_addr = actualSeqQlen;
+@@ -2310,6 +2314,54 @@ __aicore__ inline void FlashAttentionScoreGradKernelBase<ChildClass, CubeBlockTy
+     SyncAll<false>();
+ }
+ 
++// For 1NSS (pse broadcast over batch) dPSE is accumulated over batch by the vector core with GM
++// atomics, so dpse must be cleared before the main kernel work starts (each AIV core clears one slice,
++template <typename ChildClass, typename CubeBlockType, typename VecBlockType>
++__aicore__ inline void
++FlashAttentionScoreGradKernelBase<ChildClass, CubeBlockType, VecBlockType>::ZeroDpseForBroadcastPse()
++{
++    if (g_coreType != AIV) {
++        return;
++    }
++    if (tilingData->s1s2BNGS1S2BaseParams.pseShapeType != PSE_SHAPE_TYPE_1NSS ||
++        tilingData->s1s2BNGS1S2BaseParams.b <= 1) {
++        return;
++    }
++    uint64_t total = static_cast<uint64_t>(tilingData->s1s2BNGS1S2BaseParams.n2) *
++                     static_cast<uint64_t>(tilingData->s1s2BNGS1S2BaseParams.g) *
++                     static_cast<uint64_t>(tilingData->s1s2BNGS1S2BaseParams.s1) *
++                     static_cast<uint64_t>(tilingData->s1s2BNGS1S2BaseParams.s2);
++    if (total == 0) {
++        return;
++    }
++    dpseZeroGm.SetGlobalBuffer((__gm__ OUTDTYPE *)dpseAddr);
++    uint64_t blockNum = static_cast<uint64_t>(GetBlockNum());
++    if (blockNum == 0) {
++        blockNum = 1;
++    }
++    uint64_t idx = static_cast<uint64_t>(GetBlockIdx());
++    // Defensive: in a mix(1:2) kernel GetBlockIdx() and GetBlockNum() may not share the same semantics;
++    // if idx >= blockNum the offset would exceed total and write GM out of bounds. Folding it back
++    // keeps every write inside [0, total); clearing the same slice twice is harmless.
++    if (idx >= blockNum) {
++        idx = idx % blockNum;
++    }
++    uint64_t baseNum = total / blockNum;
++    uint64_t remNum = total % blockNum;
++    uint64_t cnt = baseNum + (idx < remNum ? 1UL : 0UL);
++    uint64_t off = idx * baseNum + (idx < remNum ? idx : remNum);
++    // Second guard: never step past total
++    if (off >= total) {
++        return;
++    }
++    if (off + cnt > total) {
++        cnt = total - off;
++    }
++    if (cnt > 0) {
++        InitOutput<OUTDTYPE>(dpseZeroGm[off], cnt, 0);
++    }
++}
++
+ template <typename ChildClass, typename CubeBlockType, typename VecBlockType>
+ __aicore__ inline void FlashAttentionScoreGradKernelBase<ChildClass, CubeBlockType, VecBlockType>::CheckS1RangeInBn2(
+     int64_t taskId)
+diff --git a/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel_deter.h b/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel_deter.h
+index 9cdd9920a..fc431130c 100644
+--- a/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel_deter.h
++++ b/experimental/attention/flash_attention_score_grad/op_kernel/arch35/flash_attention_score_grad_kernel_deter.h
+@@ -1113,6 +1113,9 @@ __aicore__ inline void FlashAttentionScoreGradKernelDeter<CubeBlockType, VecBloc
+ template <typename CubeBlockType, typename VecBlockType>
+ __aicore__ inline void FlashAttentionScoreGradKernelDeter<CubeBlockType, VecBlockType>::Process()
+ {
++    // 1NSS: dPSE is accumulated over batch with atomics, clear it first and sync all cores
++    this->ZeroDpseForBroadcastPse();
++    SyncAll<false>();
+     if constexpr (IS_DETER_NEW(DETER_SPARSE_TYPE)) {
+         Process_NEW_DETER();
+     } else {
