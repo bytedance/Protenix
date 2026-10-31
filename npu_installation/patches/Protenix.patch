@@ -1,0 +1,3247 @@
+diff --git a/migrate_to_npu/README.md b/migrate_to_npu/README.md
+new file mode 100644
+index 0000000..6fbe33b
+--- /dev/null
++++ b/migrate_to_npu/README.md
+@@ -0,0 +1,25 @@
++# migrate_to_npu
++
++NPU (Ascend) specific deployment & configuration assets for Protenix.
++Business logic lives in `protenix/`; everything here is setup-time only.
++
++```
++migrate_to_npu/
++├── env_npu.sh                 # one-shot NPU env (CANN / toggles)
++├── requirements_npu.txt       # NPU dependencies (torch/torch_npu + common deps)
++├── docs/
++│   └── npu_installation.md    # install & runtime notes
++└── test/
++    ├── inference_demo.sh      # NPU inference demo
++    └── train_demo.sh          # NPU training demo
++```
++
++Quick start:
++
++
++```bash
++source migrate_to_npu/env_npu.sh          # set CANN / data path
++pip install -r migrate_to_npu/requirements_npu.txt
++bash migrate_to_npu/test/inference_demo.sh
++bash migrate_to_npu/test/train_demo.sh
++```
+diff --git a/migrate_to_npu/env_npu.sh b/migrate_to_npu/env_npu.sh
+new file mode 100644
+index 0000000..1a693f6
+--- /dev/null
++++ b/migrate_to_npu/env_npu.sh
+@@ -0,0 +1,13 @@
++#!/bin/bash
++# NPU (Ascend) environment for Protenix.
++# Usage: source migrate_to_npu/env_npu.sh
++# Customize the *ROOT variables for your host.
++set -a
++ASCEND_HOME_PATH=${ASCEND_HOME_PATH:-/usr/local/Ascend/ascend-toolkit/}
++PROTENIX_ROOT_DIR=${PROTENIX_ROOT_DIR:-/modify/to/your/data_root_dir}
++PYTHONPATH=${PYTHONPATH}:$(pwd)
++set +a
++source "$ASCEND_HOME_PATH/set_env.sh"
++echo "[env_npu] ASCEND_HOME_PATH=$ASCEND_HOME_PATH"
++echo "[env_npu] PROTENIX_ROOT_DIR=$PROTENIX_ROOT_DIR"
++echo "[env_npu] PYTHONPATH=$PYTHONPATH"
+\ No newline at end of file
+diff --git a/migrate_to_npu/requirements_npu.txt b/migrate_to_npu/requirements_npu.txt
+new file mode 100644
+index 0000000..3309d3a
+--- /dev/null
++++ b/migrate_to_npu/requirements_npu.txt
+@@ -0,0 +1,28 @@
++# NPU (Ascend) runtime dependencies for Protenix.
++torch==2.7.1
++torch_npu==2.7.1.post6
++scipy==1.17.1
++ml_collections==1.1.0
++tqdm==4.67.1
++pandas==2.3.1
++PyYAML==6.0.2
++matplotlib==3.10.5
++ipywidgets==8.1.7
++py3Dmol==2.5.2
++rdkit==2025.9.3
++biopython==1.85
++biotite==1.4.0
++modelcif==1.4
++gemmi==0.6.7
++pdbeccdutils==1.0.0
++fair-esm==2.0.0
++scikit-learn==1.7.1
++attrs==26.1.0
++pydantic==2.0
++optree==0.17.0
++protobuf==6.31.1
++icecream==2.1.7
++ipdb==0.13.13
++wandb==0.21.1
++numpy==2.4.1
++networkx==3.6.1
+diff --git a/migrate_to_npu/test/inference_demo.sh b/migrate_to_npu/test/inference_demo.sh
+new file mode 100644
+index 0000000..1436092
+--- /dev/null
++++ b/migrate_to_npu/test/inference_demo.sh
+@@ -0,0 +1,243 @@
++# Copyright 2024 ByteDance and/or its affiliates.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++# ==============================================================================
++# Protenix Model Inference Test Script
++#
++# Purpose:
++#   This script provides usage examples for running inference with various
++#   Protenix model versions and configurations.
++#
++# Arguments Summary (for 'protenix pred' or 'runner/inference.py'):
++#   -i, --input (str):       [Required] Input JSON file or directory.
++#   -o, --out_dir (str):     [Default: ./output] Output directory for results.
++#   -s, --seeds (str):       [Default: 101] Inference seeds (e.g., "101,102").
++#   -c, --cycle (int):       [Default: 10] Number of Pairformer cycles.
++#   -p, --step (int):        [Default: 200] Number of diffusion steps.
++#   -e, --sample (int):      [Default: 5] Samples per seed.
++#   -d, --dtype (str):       [Default: bf16] Inference data type (bf16, fp32).
++#   -n, --model_name (str):  [Default: protenix_base_default_v1.0.0] Model name.
++#                            NOTE: protenix_base_default_v1.0.0 is the RECOMMENDED default.
++#   --use_msa (bool):        Whether to use protein MSA features.
++#   --use_default_params:    Auto-load recommended defaults for the model.
++#   --trimul_kernel (str):   Triangle multiplicative kernel ('cuequivariance', 'torch').
++#   --triatt_kernel (str):   Triangle attention kernel ('triattention', 'cuequivariance', etc.).
++#   --use_template (bool):   Enable template features (v1.0.0+ only).
++#   --use_rna_msa (bool):    Enable RNA MSA features (v1.0.0+ only).
++#   --use_seeds_in_json:     Prioritize seeds defined in the input JSON.
++#   --use_tfg_guidance (bool): Use Training-Free Guidance (TFG) for inference.
++#
++# Available Models (Ref: configs/configs_model_type.py, docs/supported_models.md):
++#   * protenix_base_default_v1.0.0:    [DEFAULT] Advanced model supporting Template & RNA MSA (Training Data Cutoff: 2021-09-30).
++#   1. protenix_base_20250630_v1.0.0:  Latest model for practical scenarios (Training Data Cutoff: 2025-06-30).
++#   2. protenix_base_default_v0.5.0:   Standard base model (Training Data Cutoff: 2021-09-30).
++#   3. protenix_base_constraint_v0.5.0: Base model with constraint support (Training Data Cutoff: 2021-09-30).
++#   4. protenix_mini_esm_v0.5.0:       Lightweight ESM-only model (no MSA) (Training Data Cutoff: 2021-09-30).
++#   5. protenix_mini_ism_v0.5.0:       Lightweight ISM-only model (no MSA) (Training Data Cutoff: 2021-09-30).
++#   6. protenix_mini_default_v0.5.0:   Standard lightweight model (Training Data Cutoff: 2021-09-30).
++#   7. protenix_tiny_default_v0.5.0:   Ultra-lightweight model (Training Data Cutoff: 2021-09-30).
++# ==============================================================================
++
++##############################################################################
++# !!! IMPORTANT: ENVIRONMENT SETUP !!!
++# make sure CANN and data path are correctly set. If not, use "source migrate_to_npu/env_npu.sh".
++
++# ------------------------------------------------------------------------------
++# Running via Runner Script (runner/inference.py)
++#
++# IMPORTANT:
++#   Direct script execution requires features (MSA, templates, RNA MSA, etc.)
++#   to be pre-prepared in the input JSON. This mode is optimized for GPU-only
++#   computation.
++#   If features are NOT ready, please use the preprocessing command first:
++#   Example: protenix prep --input examples/input.json --out_dir ./output
++# ------------------------------------------------------------------------------
++
++# Kernel options for NPU:
++# - LAYERNORM_TYPE: supports 'torch'
++# - triangle_attention: supports 'torch'
++# - triangle_multiplicative: supports 'torch'
++
++export PROTENIX_ROOT_DIR=${PROTENIX_ROOT_DIR:-/data/Protenix/}
++export LAYERNORM_TYPE=torch
++
++# # Test 2.1: Base v1.0.0 with Template support
++# # Features: Template enabled, cuequivariance attention
++# N_sample=5
++# N_step=200
++# N_cycle=10
++# seed=103
++# input_json_path="./examples/examples_with_template/example_9fm7.json"
++
++# dump_dir="./test_outputs/sh/output_m_9fm7"
++# model_name="protenix_base_default_v1.0.0"
++
++# python3 runner/inference.py \
++#     --model_name ${model_name} \
++#     --seeds ${seed} \
++#     --dump_dir ${dump_dir} \
++#     --input_json_path ${input_json_path} \
++#     --model.N_cycle ${N_cycle} \
++#     --sample_diffusion.N_sample ${N_sample} \
++#     --sample_diffusion.N_step ${N_step} \
++#     --triangle_attention "torch" \
++#     --use_seeds_in_json true \
++#     --triangle_multiplicative "torch" \
++#     --use_template true
++
++# Test 2.2: Latest model v1.0.0 with 2025-06-30 cutoff
++N_sample=1
++N_step=200
++N_cycle=10
++seed=101
++input_json_path="./examples/input.json"
++dump_dir="./test_outputs/sh/output_base_20250630"
++model_name="protenix_base_default_v1.0.0"
++
++python3 runner/inference.py \
++    --model_name ${model_name} \
++    --seeds ${seed} \
++    --dump_dir ${dump_dir} \
++    --input_json_path ${input_json_path} \
++    --model.N_cycle ${N_cycle} \
++    --sample_diffusion.N_sample ${N_sample} \
++    --sample_diffusion.N_step ${N_step} \
++    --triangle_attention "torch" \
++    --triangle_multiplicative "torch" \
++    --use_template true
++
++# # Test 2.3: Base v0.5.0
++# N_sample=1
++# N_step=200
++# N_cycle=10
++# seed=101
++# input_json_path="./examples/example.json"
++# dump_dir="./test_outputs/sh/output_base"
++# model_name="protenix_base_default_v0.5.0"
++
++# python3 runner/inference.py \
++#     --model_name ${model_name} \
++#     --seeds ${seed} \
++#     --dump_dir ${dump_dir} \
++#     --input_json_path ${input_json_path} \
++#     --model.N_cycle ${N_cycle} \
++#     --sample_diffusion.N_sample ${N_sample} \
++#     --sample_diffusion.N_step ${N_step} \
++#     --triangle_attention "torch" \
++#     --triangle_multiplicative "torch"
++
++# # Test 2.4: Mini ESM v0.5.0
++# N_sample=1
++# N_step=5
++# N_cycle=4
++# seed=101
++# input_json_path="./examples/example.json"
++# dump_dir="./test_outputs/sh/output_mini_esm"
++# model_name="protenix_mini_esm_v0.5.0"
++
++# python3 runner/inference.py \
++#     --model_name ${model_name} \
++#     --seeds ${seed} \
++#     --dump_dir ${dump_dir} \
++#     --input_json_path ${input_json_path} \
++#     --model.N_cycle ${N_cycle} \
++#     --sample_diffusion.N_sample ${N_sample} \
++#     --sample_diffusion.N_step ${N_step} \
++#     --triangle_attention "torch" \
++#     --triangle_multiplicative "torch"
++
++# # Test 2.5: Mini ISM v0.5.0
++# N_sample=1
++# N_step=5
++# N_cycle=4
++# seed=101
++# input_json_path="./examples/example.json"
++# dump_dir="./test_outputs/sh/output_mini_ism"
++# model_name="protenix_mini_ism_v0.5.0"
++
++# python3 runner/inference.py \
++#     --model_name ${model_name} \
++#     --seeds ${seed} \
++#     --dump_dir ${dump_dir} \
++#     --input_json_path ${input_json_path} \
++#     --model.N_cycle ${N_cycle} \
++#     --sample_diffusion.N_sample ${N_sample} \
++#     --sample_diffusion.N_step ${N_step} \
++#     --triangle_attention "torch" \
++#     --triangle_multiplicative "torch"
++
++# # Test 2.6: Mini Default v0.5.0
++# N_sample=1
++# N_step=5
++# N_cycle=4
++# seed=101
++# input_json_path="./examples/example.json"
++# dump_dir="./test_outputs/sh/output_mini"
++# model_name="protenix_mini_default_v0.5.0"
++
++# python3 runner/inference.py \
++#     --model_name ${model_name} \
++#     --seeds ${seed} \
++#     --dump_dir ${dump_dir} \
++#     --input_json_path ${input_json_path} \
++#     --model.N_cycle ${N_cycle} \
++#     --sample_diffusion.N_sample ${N_sample} \
++#     --sample_diffusion.N_step ${N_step} \
++#     --triangle_attention "torch" \
++#     --triangle_multiplicative "torch"
++
++# # Test 2.7: Tiny Default v0.5.0
++# N_sample=1
++# N_step=5
++# N_cycle=4
++# seed=101
++# input_json_path="./examples/example.json"
++# dump_dir="./test_outputs/sh/output_tiny"
++# model_name="protenix_tiny_default_v0.5.0"
++
++# python3 runner/inference.py \
++#     --model_name ${model_name} \
++#     --seeds ${seed} \
++#     --dump_dir ${dump_dir} \
++#     --input_json_path ${input_json_path} \
++#     --model.N_cycle ${N_cycle} \
++#     --sample_diffusion.N_sample ${N_sample} \
++#     --sample_diffusion.N_step ${N_step} \
++#     --triangle_attention "torch" \
++#     --triangle_multiplicative "torch"
++
++# # Test 2.8: Inference with Training-Free Guidance (TFG) enabled protenix_inputs.json
++# N_sample=1
++# N_step=200
++# N_cycle=10
++# seed=101
++# input_json_path="./examples/input.json"
++
++# dump_dir="./test_outputs/sh/output_tfg"
++# # model_name="protenix_base_default_v1.0.0"
++# model_name="protenix-v2"
++
++# python3 runner/inference.py \
++#     --model_name ${model_name} \
++#     --seeds ${seed} \
++#     --dump_dir ${dump_dir} \
++#     --input_json_path ${input_json_path} \
++#     --model.N_cycle ${N_cycle} \
++#     --sample_diffusion.N_sample ${N_sample} \
++#     --sample_diffusion.N_step ${N_step} \
++#     --triangle_attention "torch" \
++#     --triangle_multiplicative "torch" \
++#     --sample_diffusion.guidance.enable true
++
++echo "All inference tests completed."
+diff --git a/migrate_to_npu/test/train_demo.sh b/migrate_to_npu/test/train_demo.sh
+new file mode 100644
+index 0000000..a3b96ea
+--- /dev/null
++++ b/migrate_to_npu/test/train_demo.sh
+@@ -0,0 +1,51 @@
++# Copyright 2024 ByteDance and/or its affiliates.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++# NPU environment set
++export LAYERNORM_TYPE=torch
++export CPU_AFFINITY_CONF=1
++export TASK_QUEUE_ENABLE=2
++export COMBINED_ENABLE=1
++export OMP_NUM_THREADS=1
++export PYTHONUNBUFFERED=1             
++export PROTENIX_DENOISE_GRAPH=0
++
++# # Specify your data root directory by uncommenting the following line.
++export PROTENIX_ROOT_DIR=${PROTENIX_ROOT_DIR:-/data/Protenix/}
++python3 ./runner/train.py \
++--run_name protenix_train \
++--model_name "protenix_base_default_v1.0.0" \
++--seed 42 \
++--base_dir ./output \
++--dtype bf16 \
++--project protenix \
++--use_wandb false \
++--diffusion_batch_size 48 \
++--diffusion_chunk_size 24 \
++--eval_interval 400 \
++--log_interval 1 \
++--checkpoint_interval 400 \
++--ema_decay 0.999 \
++--train_crop_size 593 \
++--max_steps 100000 \
++--warmup_steps 2000 \
++--lr 0.001 \
++--model.N_cycle 4 \
++--sample_diffusion.N_step 20 \
++--triangle_attention "torch" \
++--triangle_multiplicative "torch" \
++--data.train_sets weightedPDB_before2109_wopb_nometalc_0925 \
++--data.test_sets recentPDB_1536_sample384_0925,posebusters_0925 \
++--data.posebusters_0925.base_info.max_n_token 768
++
+diff --git a/protenix/data/constraint/constraint_featurizer.py b/protenix/data/constraint/constraint_featurizer.py
+index 762a029..c4f7a3a 100644
+--- a/protenix/data/constraint/constraint_featurizer.py
++++ b/protenix/data/constraint/constraint_featurizer.py
+@@ -1408,7 +1408,7 @@ class ConstraintFeaturizer(object):
+             centre_atoms.is_resolved, dtype=torch.bool
+         )
+         self.token_resolved_maskmat = (
+-            self.token_resolved_mask[:, None] * self.token_resolved_mask[None, :]
++            self.token_resolved_mask.unsqueeze(1) * self.token_resolved_mask.unsqueeze(0)
+         )
+ 
+         # distance matrix
+@@ -1482,7 +1482,7 @@ class ContactFeaturizer(ConstraintFeaturizer):
+             # intra chain contact
+             assert query_type == "P", "only support intra-protein contact for now"
+ 
+-            valid_chain_mask = self.asymid[:, None] == self.asymid[None, :]
++            valid_chain_mask = self.asymid.unsqueeze(1) == self.asymid.unsqueeze(0)
+ 
+             # skip closest squence pairs
+             n_neighbor = 20
+@@ -1497,15 +1497,15 @@ class ContactFeaturizer(ConstraintFeaturizer):
+             ), f"[Error]contact type not support: {valid_contact_type}"
+ 
+             valid_type_mask = (
+-                self.entity_type_dict[query_type][None, :]
+-                & self.entity_type_dict[key_type][:, None]
++                self.entity_type_dict[query_type].unsqueeze(0)
++                & self.entity_type_dict[key_type].unsqueeze(1)
+             )
+             valid_type_mask |= (
+-                self.entity_type_dict[key_type][None, :]
+-                & self.entity_type_dict[query_type][:, None]
++                self.entity_type_dict[key_type].unsqueeze(0)
++                & self.entity_type_dict[query_type].unsqueeze(1)
+             )
+             # get different chain mask
+-            valid_chain_mask = self.asymid[:, None] != self.asymid[None, :]
++            valid_chain_mask = self.asymid.unqueeze(1) != self.asymid.unsqueeze(0)
+             valid_chain_mask &= valid_type_mask
+ 
+         # get min & max distance threshold
+@@ -1613,10 +1613,11 @@ class ContactFeaturizer(ConstraintFeaturizer):
+             for asym1, asym2 in chain_pairs:
+                 asym1_mask, asym2_mask = self.asymid == asym1, self.asymid == asym2
+ 
+-                cur_interface_mask = asym1_mask[..., None, :] & asym2_mask[..., :, None]
++                cur_interface_mask = asym1_mask.unsqueeze(-2) & asym2_mask.unsqueeze(-1)
+                 cur_interface_mask |= (
+-                    asym1_mask[..., :, None] & asym2_mask[..., None, :]
++                    asym1_mask.unsqueeze(-1) & asym2_mask.unsqueeze(-2)
+                 )
++
+                 valid_contacts_interface = contact_valid_mask & cur_interface_mask
+                 _sample(valid_contacts_interface, size[idx])
+                 idx += 1
+@@ -1760,12 +1761,12 @@ class PocketFeaturizer(ConstraintFeaturizer):
+         # get valid binder-pocket type, not symmetry
+         query_type, key_type = binder_pocket_type
+         valid_type_mask = (
+-            self.entity_type_dict[query_type][:, None]
+-            & self.entity_type_dict[key_type][None, :]
++            self.entity_type_dict[query_type].unsqueeze(1)
++            & self.entity_type_dict[key_type].unsqueeze(0)
+         )
+ 
+         # get different chain mask
+-        diff_chain_mask = self.asymid[:, None] != self.asymid[None, :]
++        diff_chain_mask = self.asymid.unsqueeze(1) != self.asymid.unsqueeze(0)
+ 
+         # get distance mask
+         # Note: To simplify the implementation, we only consider token-token distance, instead of any heavy atom distance for each residue for now.
+@@ -1783,7 +1784,7 @@ class PocketFeaturizer(ConstraintFeaturizer):
+ 
+         for idx, asym_id in enumerate(asym_list):
+             cur_chain_dist_mask = (
+-                self.asymid[:, None].expand(-1, self.asymid.shape[0]) == asym_id
++                self.asymid.unsqueeze(1).expand(-1, self.asymid.shape[0]) == asym_id
+             )
+             if cur_chain_dist_mask[:, 0].sum() > 1:  # ensure num of binder tokens > 1
+                 cur_chain_dist_mask = cur_chain_dist_mask & dist_mask
+@@ -1838,7 +1839,7 @@ class PocketFeaturizer(ConstraintFeaturizer):
+ 
+         binder_pocket_mask_mat = (self.asymid == binder_asym_id)[
+             :, None
+-        ] * selected_pocket_res_mask[None, :]
++        ] * selected_pocket_res_mask.unsqueeze(0)
+ 
+         # set distance threshold to selected pocket
+         # [binder_mask, pocket_mask]
+@@ -1936,7 +1937,7 @@ class PocketFeaturizer(ConstraintFeaturizer):
+                 ).item()
+             ]
+ 
+-            binder_token_idx = torch.tensor(binder_token_list)[:, None]
++            binder_token_idx = torch.tensor(binder_token_list).unsqueeze(1)
+             pocket_dist_mat[binder_token_idx, pocket_token_id, 0] = max_distance
+ 
+         pocket_dist_feature = self.encode(
+@@ -1989,7 +1990,7 @@ class ContactAtomFeaturizer(ContactFeaturizer):
+             self.atom_array.is_resolved, dtype=torch.bool
+         )
+         self.token_resolved_maskmat = (
+-            self.token_resolved_mask[:, None] * self.token_resolved_mask[None, :]
++            self.token_resolved_mask.unsqueeze(1) * self.token_resolved_mask.unsqueeze(0)
+         )
+ 
+         # distance matrix
+@@ -2151,12 +2152,12 @@ class SubStructureFeaturizer(ConstraintFeaturizer):
+ 
+             # Get type masks
+             valid_type_mask = (
+-                self.entity_type_dict[query_type][:, None]
+-                & self.entity_type_dict[key_type][None, :]
++                self.entity_type_dict[query_type].unsqueeze(1)
++                & self.entity_type_dict[key_type].unsqueeze(0)
+             )
+ 
+             # Get different chain mask
+-            diff_chain_mask = self.asymid[:, None] != self.asymid[None, :]
++            diff_chain_mask = self.asymid.unsqueeze(1) != self.asymid.unsqueeze(0)
+ 
+             # Get distance mask
+             dist_mask = (
+@@ -2433,7 +2434,7 @@ class SubStructureFeaturizer(ConstraintFeaturizer):
+ 
+             distance_mat = torch.cdist(coords, coords)
+             distance_feature_mat[
+-                token_indices[:, None], token_indices[None, :]
++                token_indices.unsqueeze(1), token_indices.unsqueeze(0)
+             ] = distance_mat
+ 
+         distance_feature_mat = self.encode(
+diff --git a/protenix/data/core/featurizer.py b/protenix/data/core/featurizer.py
+index 0e3ae81..f5beeb7 100644
+--- a/protenix/data/core/featurizer.py
++++ b/protenix/data/core/featurizer.py
+@@ -642,10 +642,16 @@ class Featurizer(object):
+         )
+         return ligand_mask_by_pockets, pocket_mask_by_pockets
+ 
+-    def get_mask_features(self) -> dict[str, torch.Tensor]:
++    def get_mask_features(self, build_bond_mask: bool = True) -> dict[str, torch.Tensor]:
+         """
+         Generate mask features for the cropped atom array.
+ 
++        Args:
++            build_bond_mask (bool): Whether to build the [N_atom, N_atom] bond
++                mask. Only the training loss reads this feature; the model
++                forward never touches it, so inference callers may skip it
++                (saves a Python loop plus a large all-zero tensor).
++
+         Returns:
+             Dict[str, torch.Tensor]: A dictionary containing various mask features.
+         """
+@@ -667,23 +673,29 @@ class Featurizer(object):
+             self.cropped_atom_array.modified_res_mask.astype(np.int64)
+         )
+ 
+-        lig_polymer_bonds = get_ligand_polymer_bond_mask(self.cropped_atom_array)
+-        num_atoms = len(self.cropped_atom_array)
+-        bond_mask_mat = np.zeros((num_atoms, num_atoms))
+-        for i, j, _ in lig_polymer_bonds:
+-            bond_mask_mat[i, j] = 1
+-            bond_mask_mat[j, i] = 1
+-        mask_features["bond_mask"] = torch.Tensor(
+-            bond_mask_mat
+-        ).long()  # [N_atom, N_atom]
++        if build_bond_mask:
++            lig_polymer_bonds = get_ligand_polymer_bond_mask(self.cropped_atom_array)
++            num_atoms = len(self.cropped_atom_array)
++            bond_mask_mat = np.zeros((num_atoms, num_atoms))
++            for i, j, _ in lig_polymer_bonds:
++                bond_mask_mat[i, j] = 1
++                bond_mask_mat[j, i] = 1
++            mask_features["bond_mask"] = torch.Tensor(
++                bond_mask_mat
++            ).long()  # [N_atom, N_atom]
+         return mask_features
+ 
+-    def get_all_input_features(self):
++    def get_all_input_features(self, build_bond_mask: bool = True):
+         """
+         Get input features from cropped data.
+ 
++        Args:
++            build_bond_mask (bool): Passed through to get_mask_features; set
++                False to skip the [N_atom, N_atom] bond mask (unread by the
++                model forward, only consumed by the training loss).
++
+         Returns:
+-            Dict[str, torch.Tensor]: a dict of features.
++            Dict[str, torch.Tensor]: input features
+         """
+         features = {}
+         token_features = self.get_token_features()
+@@ -701,7 +713,7 @@ class Featurizer(object):
+         chain_perm_features = self.get_chain_perm_features()
+         features.update(chain_perm_features)
+ 
+-        mask_features = self.get_mask_features()
++        mask_features = self.get_mask_features(build_bond_mask=build_bond_mask)
+         features.update(mask_features)
+         return features
+ 
+diff --git a/protenix/data/inference/json_to_feature.py b/protenix/data/inference/json_to_feature.py
+index 57208e2..ba8c4fd 100644
+--- a/protenix/data/inference/json_to_feature.py
++++ b/protenix/data/inference/json_to_feature.py
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ 
+ import copy
++import os
+ from typing import Any
+ 
+ import numpy as np
+@@ -374,7 +375,13 @@ class SampleDictToFeatures:
+         featurizer = Featurizer(
+             token_array, atom_array, include_discont_poly_poly_bonds=True
+         )
+-        feature_dict = featurizer.get_all_input_features()
++        # [drop_bond_mask] The [N_atom, N_atom] int64 bond mask is only read by
++        # the training loss; the model forward never touches it. Skip building
++        # it during inference (PROTENIX_DROP_BOND_MASK=0 to restore).
++        build_bond_mask = os.getenv("PROTENIX_DROP_BOND_MASK", "1") != "1"
++        feature_dict = featurizer.get_all_input_features(
++            build_bond_mask=build_bond_mask
++        )
+         feature_dict["constraint_feature"] = constraint_feature
+ 
+         token_array_with_frame = featurizer.get_token_frame(
+diff --git a/protenix/data/pipeline/dataset.py b/protenix/data/pipeline/dataset.py
+index aab3be0..1305573 100644
+--- a/protenix/data/pipeline/dataset.py
++++ b/protenix/data/pipeline/dataset.py
+@@ -214,7 +214,7 @@ class BaseSingleDataset(Dataset):
+             self.check_indices_list(
+                 indices_list, f"exclusion_dict ({col_name}) filtering"
+             )
+-        self.print_data_stats(indices_list)
++        # self.print_data_stats(indices_list)
+ 
+         # Group by pdb_id
+         # A list of dataframe. Each contains one pdb with multiple rows.
+diff --git a/protenix/metrics/clash.py b/protenix/metrics/clash.py
+index 2465096..28b875b 100644
+--- a/protenix/metrics/clash.py
++++ b/protenix/metrics/clash.py
+@@ -157,7 +157,7 @@ class Clash(nn.Module):
+                 elements_one_hot[chain_1_mask, :]
+             ), get_vdw_radii(elements_one_hot[chain_2_mask, :])
+             vdw_sum_pair = (
+-                vdw_radii_i[:, None] + vdw_radii_j[None, :]
++                vdw_radii_i.unsqueeze(1) + vdw_radii_j.unsqueeze(0)
+             )  # [N_atom_chain_1, N_atom_chain_2]
+             relative_vdw_distance = pred_dist / vdw_sum_pair
+             clash_per_atom_pair = (
+diff --git a/protenix/metrics/lddt_metrics.py b/protenix/metrics/lddt_metrics.py
+index 8049a5a..4dff9be 100644
+--- a/protenix/metrics/lddt_metrics.py
++++ b/protenix/metrics/lddt_metrics.py
+@@ -252,7 +252,7 @@ class LDDT(nn.Module):
+     ):
+         # Distance mask
+         distance_mask = (
+-            true_coordinate_mask[..., None] * true_coordinate_mask[..., None, :]
++            true_coordinate_mask.unsqueeze(-1) * true_coordinate_mask.unsqueeze(-2)
+         )
+         # Distances for all atom pairs
+         # Note: we convert to bf16 for saving cuda memory, if performance drops, do not convert it
+@@ -264,7 +264,7 @@ class LDDT(nn.Module):
+         c_lm = distance < threshold  # [..., N_atom, N_atom]
+         if is_nucleotide is not None:
+             # Use a different radius for nucleotide
+-            is_nucleotide_mask = is_nucleotide.bool()[..., None]
++            is_nucleotide_mask = is_nucleotide.bool().unsqueeze(-1)
+             c_lm = (distance < is_nucleotide_threshold) * is_nucleotide_mask + c_lm * (
+                 ~is_nucleotide_mask
+             )
+diff --git a/protenix/metrics/rmsd.py b/protenix/metrics/rmsd.py
+index bdebbfc..a8c1fb0 100644
+--- a/protenix/metrics/rmsd.py
++++ b/protenix/metrics/rmsd.py
+@@ -15,7 +15,7 @@
+ from typing import Optional
+ 
+ import torch
+-
++from protenix.utils.platform import HAS_NPU
+ 
+ def rmsd(
+     pred_pose: torch.Tensor,
+@@ -51,7 +51,6 @@ def rmsd(
+         rmsd = rmsd.mean()
+     return rmsd
+ 
+-
+ def align_pred_to_true(
+     pred_pose: torch.Tensor,
+     true_pose: torch.Tensor,
+@@ -97,31 +96,102 @@ def align_pred_to_true(
+         (pred_pose_centered * weight.unsqueeze(-1)).transpose(-2, -1),
+         true_pose_centered * atom_mask.unsqueeze(-1),
+     )
+-    u, s, vh = torch.linalg.svd(H_mat)
+-    u = u.transpose(-1, -2)
+-    v = vh.transpose(-1, -2)
+ 
+-    if not allowing_reflection:
++    if HAS_NPU:
++        H_mat = H_mat.float()
++        HtH = torch.matmul(H_mat.transpose(-1, -2), H_mat)
++        if not torch.isfinite(HtH).all():
++            # NaN/Inf in H^T H (e.g. unstable bf16 rollout / degenerate input):
++            # the NPU eigh kernel raises "error code 2" for these instead of
++            # returning garbage, so bail out with NaN placeholders and let the
++            # downstream loss NaN-skip path handle this sample.
++            nan = torch.full((), float("nan"), device=HtH.device, dtype=torch.float32)
++            return (
++                torch.full_like(pred_pose, float("nan")),
++                torch.eye(3, device=HtH.device, dtype=torch.float32) * nan,
++                torch.eye(3, device=HtH.device, dtype=torch.float32) * nan,
++            )
++        try:
++            eigvals, eigvecs = torch.linalg.eigh(HtH)
++        except RuntimeError:
++            # NPU eigh refuses degenerate / ill-conditioned inputs (error code 2).
++            # Stage 2: jitter the diagonal so repeated eigenvalues stay well-posed.
++            _eye = torch.eye(3, device=HtH.device, dtype=torch.float32)
++            _jit = HtH.diagonal(dim1=-2, dim2=-1).norm(dim=-1, keepdim=True).unsqueeze(-1) * 1e-6
++            try:
++                eigvals, eigvecs = torch.linalg.eigh(HtH + _eye * _jit.clamp_min(1e-8))
++            except RuntimeError:
++                # Stage 3: CPU eigh is numerically tolerant; compute there and move back.
++                eigvals, eigvecs = torch.linalg.eigh(HtH.double().cpu())
++                eigvals, eigvecs = eigvals.to(HtH.device), eigvecs.to(HtH.device)
++        V = torch.flip(eigvecs, dims=[-1])  # descending, matches svd convention
++        s = torch.sqrt(torch.clamp(torch.flip(eigvals, dims=[-1]), min=1e-12))
++        U = torch.matmul(H_mat, V / s.unsqueeze(-2))  # H V S^{-1}
+ 
+-        det = torch.linalg.det(torch.matmul(v, u))
++        Vt = V.transpose(-1, -2)
++        if not allowing_reflection:
++            det = torch.linalg.det(torch.matmul(U, Vt).float())
+ 
+-        diagonal = torch.stack(
+-            [torch.ones_like(det), torch.ones_like(det), det], dim=-1
++            diagonal = torch.stack(
++                [torch.ones_like(det), torch.ones_like(det), det], dim=-1
++            )
++            rot = torch.matmul(
++                torch.matmul(U, torch.diag_embed(diagonal).to(U.device)),
++                Vt,
++            )
++        else:
++            rot = torch.matmul(U, Vt)
++
++        _eye3 = torch.eye(3, device=rot.device, dtype=rot.dtype)
++        _orth = (torch.matmul(rot.transpose(-1, -2), rot) - _eye3).abs().amax(dim=(-1, -2))
++        if (not torch.isfinite(rot).all()) or bool((_orth > 1e-2).any().item()):
++            _Hc = H_mat.detach().double().cpu()
++            _HtH = torch.matmul(_Hc.transpose(-1, -2), _Hc)
++            _ev, _evec = torch.linalg.eigh(_HtH)
++            _V = torch.flip(_evec, dims=[-1])
++            _s = torch.sqrt(torch.clamp(torch.flip(_ev, dims=[-1]), min=1e-12))
++            _smax = _s[..., :1].clone()
++            _s = torch.where(_s > 1e-6 * _smax.clamp_min(1e-30), _s, _smax.clamp_min(1e-6))
++            _U = torch.matmul(_Hc, _V / _s.unsqueeze(-2))
++            _Vt = _V.transpose(-1, -2)
++            _det = torch.linalg.det(torch.matmul(_U, _Vt))
++            _diag = torch.stack([torch.ones_like(_det), torch.ones_like(_det), _det], dim=-1)
++            _rot = torch.matmul(torch.matmul(_U, torch.diag_embed(_diag)), _Vt)
++            rot = _rot.to(rot.device).to(rot.dtype)
++
++        translate = true_pose_centroid - torch.matmul(
++            pred_pose_centroid, rot
+         )
+-        rot = torch.matmul(
+-            torch.diag_embed(diagonal).to(u.device),
+-            u,
++
++        pred_pose_translated = (
++            torch.matmul(pred_pose_centered, rot) + true_pose_centroid
+         )
+-        rot = torch.matmul(v, rot)
+     else:
+-        rot = torch.matmul(v, u)
+-    translate = true_pose_centroid - torch.matmul(
+-        pred_pose_centroid, rot.transpose(-1, -2)
+-    )
++        u, s, vh = torch.linalg.svd(H_mat)
++        u = u.transpose(-1, -2)
++        v = vh.transpose(-1, -2)
+ 
+-    pred_pose_translated = (
+-        torch.matmul(pred_pose_centered, rot.transpose(-1, -2)) + true_pose_centroid
+-    )
++        if not allowing_reflection:
++
++            det = torch.linalg.det(torch.matmul(v, u))
++
++            diagonal = torch.stack(
++                [torch.ones_like(det), torch.ones_like(det), det], dim=-1
++            )
++            rot = torch.matmul(
++                torch.diag_embed(diagonal).to(u.device),
++                u,
++            )
++            rot = torch.matmul(v, rot)
++        else:
++            rot = torch.matmul(v, u)
++        translate = true_pose_centroid - torch.matmul(
++            pred_pose_centroid, rot.transpose(-1, -2)
++        )
++
++        pred_pose_translated = (
++            torch.matmul(pred_pose_centered, rot.transpose(-1, -2)) + true_pose_centroid
++        )
+ 
+     return pred_pose_translated, rot, translate
+ 
+@@ -160,7 +230,7 @@ def partially_aligned_rmsd(
+         weight=weight,
+         allowing_reflection=allowing_reflection,
+     )
+-    transformed_pose = torch.matmul(pred_pose, rot.transpose(-1, -2)) + translate
++    transformed_pose = torch.matmul(pred_pose, rot) + translate
+     err_atom = torch.square(transformed_pose - true_pose).sum(dim=-1) * atom_mask
+     aligned_mask, unaligned_mask = atom_mask * align_mask.float(), atom_mask * (
+         1 - align_mask.float()
+diff --git a/protenix/model/generator.py b/protenix/model/generator.py
+index 187897d..95aa27b 100644
+--- a/protenix/model/generator.py
++++ b/protenix/model/generator.py
+@@ -14,7 +14,11 @@
+ 
+ from typing import Any, Callable, Optional
+ 
++import math
++import os
++
+ import torch
++from protenix.utils.platform import HAS_NPU
+ 
+ from protenix.model.utils import centre_random_augmentation
+ from protenix.tfg import parse_tfg_config, TFGEngine
+@@ -22,6 +26,13 @@ from protenix.utils.logger import get_logger
+ 
+ logger = get_logger(__name__)
+ 
++# NPUGraph mode for the diffusion denoise loop: capture one denoise step as a graph
++# and replay it for all steps. Eliminates per-op launch/host overhead (~22% step time
++# at 693 tokens in standalone tests). Requires PROTENIX_DENOISE_GRAPH=1.
++# Set PROTENIX_DENOISE_GRAPH=0 to force it off; TFG configs keep it off as well
++# (their `use_graph` decision additionally requires `not tfg_cfg.enable`).
++_DENOISE_GRAPH = os.getenv("PROTENIX_DENOISE_GRAPH", "1" if HAS_NPU else "0") == "1"
++
+ 
+ class TrainingNoiseSampler:
+     """
+@@ -140,6 +151,7 @@ def sample_diffusion(
+     attn_chunk_size: Optional[int] = None,
+     enable_efficient_fusion: bool = False,
+     guidance_configs: Optional[dict[str, Any]] = None,
++    training: bool = False,
+ ) -> torch.Tensor:
+     """Implements Algorithm 18 in AF3.
+     It performances denoising steps from time 0 to time T.
+@@ -193,8 +205,43 @@ def sample_diffusion(
+             size=(*batch_shape, chunk_n_sample, N_atom, 3), device=device, dtype=dtype
+         )  # NOTE: set seed in distributed training
+ 
++        # NPUGraph mode: capture the denoise step once and replay. Not compatible
++        # with TFG guidance (its step logic interleaves eager computation).
++        # NPU graph replay is forward-only: never capture during training
++        # (no autograd through a replayed graph); inference-only by design.
++        use_graph = _DENOISE_GRAPH and HAS_NPU and not tfg_cfg.enable and not training
++        if use_graph:
++            # Host-side schedule values: avoids a per-step D2H sync when comparing
++            # c_tau > gamma_min on device tensors.
++            sched = [float(v) for v in noise_schedule.detach().cpu()]
++            logger.info(
++                f"[denoise-graph] NPUGraph denoise mode on: {len(sched) - 1} steps, "
++                f"capture on first step"
++            )
++        else:
++            sched = noise_schedule
++
++        graph = None
++        static_x = static_t = static_out = None
++
++        def _denoise_call(x_in, t_in):
++            return denoise_net(
++                x_noisy=x_in,
++                t_hat_noise_level=t_in,
++                input_feature_dict=input_feature_dict,
++                s_inputs=s_inputs,
++                s_trunk=s_trunk,
++                z_trunk=z_trunk,
++                pair_z=pair_z,
++                p_lm=p_lm,
++                c_l=c_l,
++                chunk_size=attn_chunk_size,
++                inplace_safe=inplace_safe,
++                enable_efficient_fusion=enable_efficient_fusion,
++            )
++
+         for step_i, (c_tau_last, c_tau) in enumerate(
+-            zip(noise_schedule[:-1], noise_schedule[1:])
++            zip(sched[:-1], sched[1:])
+         ):
+             # [..., N_sample, N_atom, 3]
+             x_l = (
+@@ -203,10 +250,76 @@ def sample_diffusion(
+                 .to(dtype)
+             )
+ 
++            if use_graph:
++                # 1. Add noise to move x_{c_tau_last} to x_{t_hat} (host scalars)
++                gamma = gamma0 if c_tau > gamma_min else 0.0
++                t_hat_val = c_tau_last * (gamma + 1.0)
++                delta_noise_level = math.sqrt(
++                    max(t_hat_val * t_hat_val - c_tau_last * c_tau_last, 0.0)
++                )
++                x_noisy = x_l + noise_scale_lambda * delta_noise_level * torch.randn(
++                    size=x_l.shape, device=device, dtype=dtype
++                )
++
++                # 2. Denoise from x_{t_hat} to x_{c_tau} via graph capture/replay
++                if graph is None:
++                    # Static input/output buffers; every replay reads their current
++                    # contents, so copy_ the per-step values in.
++                    static_x = x_noisy.clone()
++                    static_t = torch.full(
++                        (*batch_shape, chunk_n_sample),
++                        t_hat_val,
++                        dtype=dtype,
++                        device=device,
++                    )
++                    try:
++                        with torch.no_grad():
++                            # Side-stream warmup (2 runs) then capture.
++                            s_stream = torch.npu.Stream()
++                            s_stream.wait_stream(torch.npu.current_stream())
++                            with torch.npu.stream(s_stream):
++                                for _ in range(2):
++                                    _denoise_call(static_x, static_t)
++                            torch.npu.current_stream().wait_stream(s_stream)
++                            graph = torch.npu.NPUGraph()
++                            with torch.npu.graph(graph):
++                                static_out = _denoise_call(static_x, static_t)
++                        logger.info(f"[denoise-graph] captured at step {step_i}")
++                    except Exception as e:
++                        # Capture unsupported on this path (op with hidden host
++                        # sync, OOM, ...): fall back to the eager path for good.
++                        logger.warning(
++                            f"[denoise-graph] capture failed ({type(e).__name__}: "
++                            f"{str(e).splitlines()[0][:120]}), falling back to eager"
++                        )
++                        graph = None
++                        use_graph = False
++
++                if graph is not None:
++                    if static_out is not None and step_i > 0:
++                        static_x.copy_(x_noisy)
++                        static_t.fill_(t_hat_val)
++                    graph.replay()
++                    # Sync after each replay: without it, the async queue of
++                    # interleaved (replay + eager H2D/augmentation ops) deadlocks
++                    # the CANN task scheduler ("model stream unbind failed").
++                    torch.npu.current_stream().synchronize()
++                    x_denoised = static_out
++                    t_hat = static_t
++                    dt_val = c_tau - t_hat_val
++                    delta = (x_noisy - x_denoised) / t_hat.unsqueeze(-1).unsqueeze(-1)
++                    x_l = x_noisy + (step_scale_eta * dt_val) * delta
++                    continue
++                # capture failed -> fall through to the eager path below (this
++                # step's x_noisy/t_hat recomputed the original way)
++
+             # Denoise with a predictor-corrector sampler
+             # 1. Add noise to move x_{c_tau_last} to x_{t_hat}
+             gamma = float(gamma0) if c_tau > gamma_min else 0
+             t_hat = c_tau_last * (gamma + 1)
++            if not torch.is_tensor(t_hat):
++                # graph-mode fallback: sched values are host floats here
++                t_hat = torch.tensor(t_hat, dtype=dtype, device=device)
+ 
+             delta_noise_level = torch.sqrt(t_hat**2 - c_tau_last**2)
+             x_noisy = x_l + noise_scale_lambda * delta_noise_level * torch.randn(
+@@ -242,26 +355,11 @@ def sample_diffusion(
+                     step_scale_eta=step_scale_eta,
+                 )
+             else:
+-                x_denoised = denoise_net(
+-                    x_noisy=x_noisy,
+-                    t_hat_noise_level=t_hat,
+-                    input_feature_dict=input_feature_dict,
+-                    s_inputs=s_inputs,
+-                    s_trunk=s_trunk,
+-                    z_trunk=z_trunk,
+-                    pair_z=pair_z,
+-                    p_lm=p_lm,
+-                    c_l=c_l,
+-                    chunk_size=attn_chunk_size,
+-                    inplace_safe=inplace_safe,
+-                    enable_efficient_fusion=enable_efficient_fusion,
+-                )
+-
+-                delta = (x_noisy - x_denoised) / t_hat[
+-                    ..., None, None
+-                ]  # Line 9 of AF3 uses 'x_l_hat' instead, which we believe  is a typo.
++                x_denoised = _denoise_call(x_noisy, t_hat)
++                delta = (x_noisy - x_denoised) / t_hat.unsqueeze(-1).unsqueeze(-1)
++                # Line 9 of AF3 uses 'x_l_hat' instead, which we believe  is a typo.
+                 dt = c_tau - t_hat
+-                x_l = x_noisy + step_scale_eta * dt[..., None, None] * delta
++                x_l = x_noisy + step_scale_eta * dt.unsqueeze(-1).unsqueeze(-1) * delta
+ 
+         return x_l
+ 
+@@ -354,7 +452,8 @@ def sample_diffusion_training(
+     # sigma: independent noise-level [..., N_sample]
+     sigma = noise_sampler(size=(*batch_size_shape, N_sample), device=device).to(dtype)
+     # noise: [..., N_sample, N_atom, 3]
+-    noise = torch.randn_like(x_gt_augment, dtype=dtype) * sigma[..., None, None]
++
++    noise = torch.randn_like(x_gt_augment, dtype=dtype) * sigma.unsqueeze(-1).unsqueeze(-1)
+ 
+     # Get denoising outputs [..., N_sample, N_atom, 3]
+     if diffusion_chunk_size is None:
+diff --git a/protenix/model/loss.py b/protenix/model/loss.py
+index 6ab95fc..a8bb128 100644
+--- a/protenix/model/loss.py
++++ b/protenix/model/loss.py
+@@ -18,7 +18,6 @@ from typing import Any, Callable, Optional
+ import torch
+ import torch.nn as nn
+ import torch.nn.functional as F
+-
+ from protenix.metrics.rmsd import weighted_rigid_align
+ from protenix.model.modules.frames import (
+     expressCoordinatesInFrame,
+@@ -476,10 +475,10 @@ def compute_lddt_mask(
+     """
+     # Restrict to bespoke inclusion radius
+     is_nucleotide_mask = is_nucleotide.bool()
+-    c_lm = (true_distance < is_nucleotide_threshold) * is_nucleotide_mask[..., None] + (
++    c_lm = (true_distance < is_nucleotide_threshold) * is_nucleotide_mask.unsqueeze(-1) + (
+         true_distance < is_not_nucleotide_threshold
+     ) * (
+-        ~is_nucleotide_mask[..., None]
++        ~is_nucleotide_mask.unsqueeze(-1)
+     )  # [..., N_atom, N_atom]
+ 
+     # Zero-out diagonals of c_lm and cast to float
+@@ -586,7 +585,7 @@ class DistogramLoss(nn.Module):
+ 
+         # Mask
+         token_mask = coordinate_mask[..., rep_atom_mask]
+-        pair_mask = token_mask[..., None] * token_mask[..., None, :]
++        pair_mask = token_mask.unsqueeze(-1) * token_mask.unsqueeze(-2)
+ 
+         return F.one_hot(true_bins, self.no_bins), pair_mask
+ 
+@@ -720,7 +719,7 @@ class PDELoss(nn.Module):
+ 
+         # Mask
+         token_mask = coordinate_mask[..., rep_atom_mask]
+-        pair_mask = token_mask[..., None] * token_mask[..., None, :]
++        pair_mask = token_mask.unsqueeze(-1) * token_mask.unsqueeze(-2)
+ 
+         return F.one_hot(true_bins - 1, self.no_bins).detach(), pair_mask.detach()
+ 
+@@ -899,7 +898,7 @@ class PAELoss(nn.Module):
+         )  # [N_frame] whether all atoms in the frame has coordinates
+         token_mask = coordinate_mask[rep_atom_mask]  # [N_token]
+         frame_token_pair_mask = (
+-            true_frame_coord_mask[..., None] * token_mask[..., None, :]
++            true_frame_coord_mask.unsqueeze(-1) * token_mask.unsqueeze(-2)
+         )  # [N_frame, N_token]
+ 
+         squared_pae = (
+@@ -1050,10 +1049,10 @@ class ExperimentallyResolvedLoss(nn.Module):
+             loss = errors.mean(dim=-1)  # [..., N_sample]
+         else:
+             loss = torch.sum(
+-                errors * atom_mask[..., None, :], dim=-1
++                errors * atom_mask.unsqueeze(-2), dim=-1
+             )  # [..., N_sample]
+             loss = loss / (
+-                self.eps + torch.sum(atom_mask[..., None, :], dim=-1)
++                self.eps + torch.sum(atom_mask.unsqueeze(-2), dim=-1)
+             )  # [..., N_sample]
+ 
+         loss = loss.mean(dim=-1)  # [...]
+@@ -1120,7 +1119,7 @@ class MSELoss(nn.Module):
+         # Apply coordinate_mask
+         weight = weight * coordinate_mask  # [N_atom] or [..., N_atom]
+         true_coordinate = true_coordinate * coordinate_mask.unsqueeze(dim=-1)
+-        pred_coordinate = pred_coordinate * coordinate_mask[..., None, :, None]
++        pred_coordinate = pred_coordinate * coordinate_mask.unsqueeze(-2).unsqueeze(-1)
+ 
+         # Reshape to add "N_sample" dimension
+         true_coordinate = expand_at_dim(
+@@ -1504,8 +1503,8 @@ class ProtenixLoss(nn.Module):
+         """
+         # Distance mask
+         distance_mask = (
+-            label_dict["coordinate_mask"][..., None]
+-            * label_dict["coordinate_mask"][..., None, :]
++            label_dict["coordinate_mask"].unsqueeze(-1)
++            * label_dict["coordinate_mask"].unsqueeze(-2)
+         )
+         # Distances for all atom pairs
+         # Note: we convert to bf16 for saving cuda memory, if performance drops, do not convert it
+diff --git a/protenix/model/modules/confidence.py b/protenix/model/modules/confidence.py
+index 6f995ab..6a468f7 100644
+--- a/protenix/model/modules/confidence.py
++++ b/protenix/model/modules/confidence.py
+@@ -14,15 +14,21 @@
+ 
+ from typing import Optional, Union
+ 
++import os
++
+ import torch
+ import torch.nn as nn
+-
+ from protenix.model.modules.pairformer import PairformerStack
+ from protenix.model.modules.primitives import LinearNoBias
+ from protenix.model.triangular.layers import LayerNorm
+ from protenix.model.utils import broadcast_token_to_atom, one_hot
+ 
+ 
++def _maybe_release_cache() -> None:
++    if os.getenv("PROTENIX_KEEP_POOL", "1") != "1":
++        torch.cuda.empty_cache()
++
++
+ class ConfidenceHead(nn.Module):
+     """
+     Implements Algorithm 31 in AF3
+@@ -195,13 +201,13 @@ class ConfidenceHead(nn.Module):
+         N_sample = x_pred_rep_coords.size(-3)
+ 
+         z_init = (
+-            self.linear_no_bias_s1(s_inputs)[..., None, :, :]
+-            + self.linear_no_bias_s2(s_inputs)[..., None, :]
++            self.linear_no_bias_s1(s_inputs).unsqueeze(-3)
++            + self.linear_no_bias_s2(s_inputs).unsqueeze(-2)
+         )
+         z_trunk = z_init + z_trunk
+         if not self.training:
+             del z_init
+-            torch.cuda.empty_cache()
++            _maybe_release_cache()
+ 
+         plddt_preds, pae_preds, pde_preds, resolved_preds = (
+             [],
+@@ -230,7 +236,7 @@ class ConfidenceHead(nn.Module):
+                 # cpu offload pae_preds/pde_preds
+                 pae_pred = pae_pred.cpu()
+                 pde_pred = pde_pred.cpu()
+-                torch.cuda.empty_cache()
++                _maybe_release_cache()
+             plddt_preds.append(plddt_pred)
+             pae_preds.append(pae_pred)
+             pde_preds.append(pde_pred)
+@@ -344,5 +350,5 @@ class ConfidenceHead(nn.Module):
+                 self.resolved_weight[atom_to_tokatom_idx],
+             )
+         if not self.training and z_pair.shape[-2] > 2000:
+-            torch.cuda.empty_cache()
++            _maybe_release_cache()
+         return plddt_pred, pae_pred, pde_pred, resolved_pred
+diff --git a/protenix/model/modules/diffusion.py b/protenix/model/modules/diffusion.py
+index a4e5cf4..92cfad6 100644
+--- a/protenix/model/modules/diffusion.py
++++ b/protenix/model/modules/diffusion.py
+@@ -556,7 +556,7 @@ class DiffusionModule(nn.Module):
+         #     where c_in = 1 / sqrt(sigma_data^2 + sigma^2)
+         r_noisy = (
+             x_noisy
+-            / torch.sqrt(self.sigma_data**2 + t_hat_noise_level**2)[..., None, None]
++            / torch.sqrt(self.sigma_data**2 + t_hat_noise_level**2).unsqueeze(-1).unsqueeze(-1)
+         )
+ 
+         # Compute the update given r_noisy (the scaled x_noisy)
+@@ -587,12 +587,12 @@ class DiffusionModule(nn.Module):
+         #     c_skip = 1 / (1 + s_ratio^2)
+         #     c_out = sigma / sqrt(1 + s_ratio^2)
+ 
+-        s_ratio = (t_hat_noise_level / self.sigma_data)[..., None, None].to(
++        s_ratio = (t_hat_noise_level / self.sigma_data).unsqueeze(-1).unsqueeze(-1).to(
+             r_update.dtype
+         )
+         x_denoised = (
+             1 / (1 + s_ratio**2) * x_noisy
+-            + t_hat_noise_level[..., None, None]
++            + t_hat_noise_level.unsqueeze(-1).unsqueeze(-1)
+             / torch.sqrt(1 + s_ratio**2)
+             * r_update
+         ).to(r_update.dtype)
+diff --git a/protenix/model/modules/embedders.py b/protenix/model/modules/embedders.py
+index 6fe4542..b252fc2 100644
+--- a/protenix/model/modules/embedders.py
++++ b/protenix/model/modules/embedders.py
+@@ -157,17 +157,17 @@ class RelativePositionEncoding(nn.Module):
+             sym_id = input_feature_dict["sym_id"]
+ 
+             b_same_chain = (
+-                asym_id[..., :, None] == asym_id[..., None, :]
++                asym_id.unsqueeze(-1) == asym_id.unsqueeze(-2)
+             ).long()  # [..., N_token, N_token]
+             b_same_residue = (
+-                residue_index[..., :, None] == residue_index[..., None, :]
++                residue_index.unsqueeze(-1) == residue_index.unsqueeze(-2)
+             ).long()  # [..., N_token, N_token]
+             b_same_entity = (
+-                entity_id[..., :, None] == entity_id[..., None, :]
++                entity_id.unsqueeze(-1) == entity_id.unsqueeze(-2)
+             ).long()  # [..., N_token, N_token]
+             d_residue = torch.clip(
+-                input=residue_index[..., :, None]
+-                - residue_index[..., None, :]
++                input=residue_index.unsqueeze(-1)
++                - residue_index.unsqueeze(-2)
+                 + self.r_max,
+                 min=0,
+                 max=2 * self.r_max,
+@@ -176,8 +176,8 @@ class RelativePositionEncoding(nn.Module):
+             )  # [..., N_token, N_token]
+             a_rel_pos = F.one_hot(d_residue, 2 * (self.r_max + 1))
+             d_token = torch.clip(
+-                input=token_index[..., :, None]
+-                - token_index[..., None, :]
++                input=token_index.unsqueeze(-1)
++                - token_index.unsqueeze(-2)
+                 + self.r_max,
+                 min=0,
+                 max=2 * self.r_max,
+@@ -186,7 +186,7 @@ class RelativePositionEncoding(nn.Module):
+             )  # [..., N_token, N_token]
+             a_rel_token = F.one_hot(d_token, 2 * (self.r_max + 1))
+             d_chain = torch.clip(
+-                input=sym_id[..., :, None] - sym_id[..., None, :] + self.s_max,
++                input=sym_id.unsqueeze(-1) - sym_id.unsqueeze(-2) + self.s_max,
+                 min=0,
+                 max=2 * self.s_max,
+             ) * b_same_entity + (1 - b_same_entity) * (
+@@ -195,7 +195,7 @@ class RelativePositionEncoding(nn.Module):
+             a_rel_chain = F.one_hot(d_chain, 2 * (self.s_max + 1))
+ 
+             relp = torch.cat(
+-                [a_rel_pos, a_rel_token, b_same_entity[..., None], a_rel_chain],
++                [a_rel_pos, a_rel_token, b_same_entity.unsqueeze(-1), a_rel_chain],
+                 dim=-1,
+             ).float()
+             input_feature_dict["relp"] = relp
+diff --git a/protenix/model/modules/frames.py b/protenix/model/modules/frames.py
+index e390b8b..ad84ace 100644
+--- a/protenix/model/modules/frames.py
++++ b/protenix/model/modules/frames.py
+@@ -43,12 +43,12 @@ def expressCoordinatesInFrame(
+     e2 = F.normalize(w2 - w1, dim=-1, eps=eps)
+     e3 = torch.cross(e1, e2, dim=-1)  # [..., N_frame, 3]
+     # Project onto frame basis
+-    d = coordinate[..., None, :, :] - b[..., None, :]  # [..., N_frame, N_atom, 3]
++    d = coordinate.unsqueeze(-3) - b.unsqueeze(-2)  # [..., N_frame, N_atom, 3]
+     x_transformed = torch.cat(
+         [
+-            torch.sum(d * e1[..., None, :], dim=-1, keepdim=True),
+-            torch.sum(d * e2[..., None, :], dim=-1, keepdim=True),
+-            torch.sum(d * e3[..., None, :], dim=-1, keepdim=True),
++            torch.sum(d * e1.unsqueeze(-2), dim=-1, keepdim=True),
++            torch.sum(d * e2.unsqueeze(-2), dim=-1, keepdim=True),
++            torch.sum(d * e3.unsqueeze(-2), dim=-1, keepdim=True),
+         ],
+         dim=-1,
+     )  # [..., N_frame, N_atom, 3]
+diff --git a/protenix/model/modules/pairformer.py b/protenix/model/modules/pairformer.py
+index e348525..ea8bc8d 100644
+--- a/protenix/model/modules/pairformer.py
++++ b/protenix/model/modules/pairformer.py
+@@ -1010,7 +1010,7 @@ class TemplateEmbedder(nn.Module):
+             # Compatible with the Protenix 0.5.0 model series
+             return 0
+         asym_id = input_feature_dict["asym_id"]
+-        multichain_mask = (asym_id[:, None] == asym_id[None, :]).to(z.dtype)
++        multichain_mask = (asym_id.unsqueeze(1) == asym_id.unsqueeze(0)).to(z.dtype)
+ 
+         num_residues = z.shape[0]
+         # determine whether the number of templates is the configured maximum value, otherwise error out
+@@ -1022,23 +1022,62 @@ class TemplateEmbedder(nn.Module):
+ 
+         z = self.layernorm_z(z)
+         u = 0
++        result_cache = {}  # representative template_id -> single_template_forward output
++        rep_of = []  # template_id -> representative template_id
+         for template_id in range(num_templates):
+-            u = u + self.single_template_forward(
+-                template_id=template_id,
+-                input_feature_dict=input_feature_dict,
+-                z=z,
+-                pair_mask=pair_mask,
+-                multichain_mask=multichain_mask,
+-                triangle_attention=triangle_attention,
+-                triangle_multiplicative=triangle_multiplicative,
+-                inplace_safe=inplace_safe,
+-                chunk_size=chunk_size,
+-            )
++            rep = None
++            for seen in result_cache:
++                if self._template_features_equal(input_feature_dict, seen, template_id):
++                    rep = seen
++                    break
++            if rep is None:
++                rep = template_id
++                result_cache[rep] = None  # reserve key; computed below in order
++            rep_of.append(rep)
++        for template_id in range(num_templates):
++            rep = rep_of[template_id]
++            if result_cache[rep] is None:
++                result_cache[rep] = self.single_template_forward(
++                    template_id=rep,
++                    input_feature_dict=input_feature_dict,
++                    z=z,
++                    pair_mask=pair_mask,
++                    multichain_mask=multichain_mask,
++                    triangle_attention=triangle_attention,
++                    triangle_multiplicative=triangle_multiplicative,
++                    inplace_safe=inplace_safe,
++                    chunk_size=chunk_size,
++                )
++            u = u + result_cache[rep]
+         u = u / (1e-7 + num_templates)
+         u = self.linear_no_bias_u(self.relu(u))
+         assert u.shape == (num_residues, num_residues, query_num_channels)
+         return u
+ 
++    _TEMPLATE_FEATURE_KEYS = (
++        "template_aatype",
++        "template_distogram",
++        "template_pseudo_beta_mask",
++        "template_unit_vector",
++        "template_backbone_frame_mask",
++    )
++
++    @staticmethod
++    def _template_features_equal(
++        input_feature_dict: dict[str, Any], i: int, j: int
++    ) -> bool:
++        """Whether templates i and j have bitwise-equal per-template features.
++
++        Only the features read by single_template_forward participate; equal
++        features guarantee an equal (deterministic) template output.
++        """
++        for key in TemplateEmbedder._TEMPLATE_FEATURE_KEYS:
++            if not torch.equal(
++                input_feature_dict[key][i], input_feature_dict[key][j]
++            ):
++                return False
++        return True
++
+     def single_template_forward(
+         self,
+         template_id: int,
+@@ -1059,7 +1098,7 @@ class TemplateEmbedder(nn.Module):
+         pseudo_beta_mask_2d = input_feature_dict["template_pseudo_beta_mask"][
+             template_id
+         ]
+-        dgram = dgram * multichain_mask[..., None] * pair_mask[..., None]
++        dgram = dgram * multichain_mask.unsqueeze(-1) * pair_mask.unsqueeze(-1)
+         pseudo_beta_mask_2d = (
+             pseudo_beta_mask_2d * multichain_mask * pair_mask
+         )  # [N_token, N_token]
+@@ -1073,7 +1112,7 @@ class TemplateEmbedder(nn.Module):
+ 
+         unit_vector = input_feature_dict["template_unit_vector"][template_id]
+         unit_vector = (
+-            unit_vector * multichain_mask[..., None] * pair_mask[..., None]
++            unit_vector * multichain_mask.unsqueeze(-1) * pair_mask.unsqueeze(-1)
+         )  # [N_token, N_token, 3]
+         to_concat.append(unit_vector)
+ 
+diff --git a/protenix/model/modules/primitives.py b/protenix/model/modules/primitives.py
+index 1191280..0f4913d 100644
+--- a/protenix/model/modules/primitives.py
++++ b/protenix/model/modules/primitives.py
+@@ -270,10 +270,10 @@ def _attention(
+         return attn_output
+ 
+     with torch.amp.autocast("cuda", enabled=False):
+-        # [..., n_kv, d] -> [..., d, n_kv]
++        # # [..., n_kv, d] -> [..., d, n_kv]
+         k = k.transpose(-1, -2)
+ 
+-        # [..., n_q, d], [..., d, n_kv] -> [..., n_q, n_kv]
++        # # [..., n_q, d], [..., d, n_kv] -> [..., n_q, n_kv]
+         attn_weights = q @ k
+ 
+         if attn_bias is not None:
+diff --git a/protenix/model/modules/transformer.py b/protenix/model/modules/transformer.py
+index 3ce683b..b3bc033 100644
+--- a/protenix/model/modules/transformer.py
++++ b/protenix/model/modules/transformer.py
+@@ -921,14 +921,14 @@ class AtomAttentionEncoder(nn.Module):
+             compute_mask=False,
+         )
+         if inplace_safe:
+-            p_lm = p_lm + self.linear_no_bias_cl(F.relu(c_l_q[..., None, :]))
+-            p_lm += self.linear_no_bias_cm(F.relu(c_l_k[..., None, :, :]))
++            p_lm = p_lm + self.linear_no_bias_cl(F.relu(c_l_q.unsqueeze(-2)))
++            p_lm += self.linear_no_bias_cm(F.relu(c_l_k.unsqueeze(-3)))
+             p_lm += self.small_mlp(p_lm)
+         else:
+             p_lm = (
+                 p_lm
+-                + self.linear_no_bias_cl(F.relu(c_l_q[..., None, :]))
+-                + self.linear_no_bias_cm(F.relu(c_l_k[..., None, :, :]))
++                + self.linear_no_bias_cl(F.relu(c_l_q.unsqueeze(-2)))
++                + self.linear_no_bias_cm(F.relu(c_l_k.unsqueeze(-3)))
+             )  # [..., (N_sample), n_blocks, n_queries, n_keys, c_atompair]
+ 
+             # Run a small MLP on the pair activations
+diff --git a/protenix/model/protenix.py b/protenix/model/protenix.py
+index ed1b5d3..18ab920 100644
+--- a/protenix/model/protenix.py
++++ b/protenix/model/protenix.py
+@@ -75,7 +75,7 @@ def update_input_feature_dict(input_feature_dict: dict[str, Any]) -> dict[str, A
+         )
+         # Compute atom pair feature
+         d_lm = (
+-            q_trunked_list[0][..., None, :] - k_trunked_list[0][..., None, :, :]
++            q_trunked_list[0].unsqueeze(-2) - k_trunked_list[0].unsqueeze(-3)
+         )  # [..., n_blocks, n_queries, n_keys, 3]
+         v_lm = (
+             q_trunked_list[1][..., None].int() == k_trunked_list[1][..., None, :].int()
+@@ -207,8 +207,8 @@ class Protenix(nn.Module):
+ 
+         s_init = self.linear_no_bias_sinit(s_inputs)  # [..., N_token, c_s]
+         z_init = (
+-            self.linear_no_bias_zinit1(s_init)[..., None, :]
+-            + self.linear_no_bias_zinit2(s_init)[..., None, :, :]
++            self.linear_no_bias_zinit1(s_init).unsqueeze(-2)
++            + self.linear_no_bias_zinit2(s_init).unsqueeze(-3)
+         )  # [..., N_token, N_token, c_z]
+         if inplace_safe:
+             z_init += self.relative_position_encoding(input_feature_dict["relp"])
+@@ -340,7 +340,7 @@ class Protenix(nn.Module):
+         )
+         return autocasting_disable_decorator(self.configs.skip_amp.sample_diffusion)(
+             sample_diffusion
+-        )(**_configs, **kwargs)
++        )(**_configs, training=self.training, **kwargs)
+ 
+     def run_confidence_head(self, *args: Any, **kwargs: Any) -> Any:
+         """
+diff --git a/protenix/model/sample_confidence.py b/protenix/model/sample_confidence.py
+index a1c00ae..cdc861f 100644
+--- a/protenix/model/sample_confidence.py
++++ b/protenix/model/sample_confidence.py
+@@ -863,7 +863,7 @@ def calculate_iptm(
+ 
+     token_token_ptm = (pae_prob * per_bin_weight).sum(dim=-1)  # [..., N_d, N_d]
+ 
+-    is_diff_chain = asym_id[None, :] != asym_id[:, None]  # [N_d, N_d]
++    is_diff_chain = asym_id.unsqueeze(0) != asym_id.unsqueeze(1)  # [N_d, N_d]
+ 
+     iptm = (token_token_ptm * is_diff_chain).sum(dim=-1) / (
+         eps + is_diff_chain.sum(dim=-1)
+diff --git a/protenix/model/triangular/layers.py b/protenix/model/triangular/layers.py
+index d4ff17a..36147b3 100644
+--- a/protenix/model/triangular/layers.py
++++ b/protenix/model/triangular/layers.py
+@@ -21,6 +21,9 @@ from typing import Callable, List, Optional, Tuple, Union
+ import numpy as np
+ import torch
+ import torch.nn as nn
++
++from protenix.utils.platform import HAS_NPU, npu_fusion_attention
++
+ from scipy.stats import truncnorm
+ 
+ from protenix.model.utils import (
+@@ -174,6 +177,33 @@ class OpenfoldLinear(nn.Linear):
+ 
+         self.precision = precision
+ 
++    def _bf16_weights(self):
++        """Cached bf16 copies of (weight, bias) for inference.
++
++        Only used when grad is disabled. Keyed on ``weight._version`` so any
++        in-place weight update (optimizer step, ``load_state_dict``) invalidates
++        the cache. The cast result is identical to a per-call ``.to()``, so
++        outputs are bitwise unchanged.
++        """
++        cache = getattr(self, "_bf16_cache", None)
++        try:
++            ver = self.weight._version
++        except RuntimeError:
++            # Inference tensors (inference_mode) do not track version
++            # counters; parameters cannot be mutated there, so a static
++            # cache key is safe.
++            ver = None
++        if cache is None or cache[1] != ver:
++            w = self.weight.detach().to(dtype=torch.bfloat16)
++            b = (
++                self.bias.detach().to(dtype=torch.bfloat16)
++                if self.bias is not None
++                else None
++            )
++            self._bf16_cache = (w, ver, b)
++            return w, b
++        return cache[0], cache[2]
++
+     def forward(self, input: torch.Tensor) -> torch.Tensor:
+         d = input.dtype
+         if self.precision is not None:
+@@ -191,8 +221,15 @@ class OpenfoldLinear(nn.Linear):
+ 
+         if d is torch.bfloat16:
+             with torch.amp.autocast("cuda", enabled=False):
+-                bias = self.bias.to(dtype=d) if self.bias is not None else None
+-                return nn.functional.linear(input, self.weight.to(dtype=d), bias)
++                if torch.is_grad_enabled():
++                    bias = (
++                        self.bias.to(dtype=d) if self.bias is not None else None
++                    )
++                    return nn.functional.linear(
++                        input, self.weight.to(dtype=d), bias
++                    )
++                w, b = self._bf16_weights()
++                return nn.functional.linear(input, w, b)
+ 
+         return nn.functional.linear(input, self.weight, self.bias)
+ 
+@@ -296,6 +333,7 @@ def _attention(
+     return a
+ 
+ 
++
+ class Attention(nn.Module):
+     """
+     Standard multi-head attention using AlphaFold's default layer
+@@ -465,7 +503,10 @@ class Attention(nn.Module):
+             )[0]
+             o = o.transpose(-2, -3)
+         else:
+-            o = _attention(q, k, v, biases)
++            if HAS_NPU:
++                o = npu_fusion_attention(q, k, v, biases)
++            else:
++                o = _attention(q, k, v, biases)
+             o = o.transpose(-2, -3)
+ 
+         o = self._wrap_up(o, q_x)
+diff --git a/protenix/model/triangular/triangular.py b/protenix/model/triangular/triangular.py
+index 69dffd3..44eac0d 100644
+--- a/protenix/model/triangular/triangular.py
++++ b/protenix/model/triangular/triangular.py
+@@ -20,11 +20,9 @@ from typing import List, Optional
+ 
+ import torch
+ import torch.nn as nn
+-
+ from protenix.model.triangular.layers import Attention, LayerNorm, OpenfoldLinear
+ from protenix.model.utils import chunk_layer, is_fp16_enabled, permute_final_dims
+ 
+-
+ def kernel_triangular_mult(
+     x: torch.Tensor,
+     direction: str,
+@@ -669,29 +667,29 @@ class TriangleAttention(nn.Module):
+         Returns:
+             [*, I, J, C_in] output tensor
+         """
+-        if mask is None:
+-            # [*, I, J]
+-            mask = x.new_ones(
+-                x.shape[:-1],
+-            )
+-
+         if not self.starting:
+             x = x.transpose(-2, -3)
+-            mask = mask.transpose(-1, -2)
++            if mask is not None:
++                mask = mask.transpose(-1, -2)
+ 
+         # [*, I, J, C_in]
+         x = self.layer_norm(x)
+ 
+-        # [*, I, 1, 1, J]
+-        mask_bias = (self.inf * (mask - 1))[..., :, None, None, :]
+-
+         # [*, H, I, J]
+         triangle_bias = permute_final_dims(self.linear(x), (2, 0, 1))
+ 
+         # [*, 1, H, I, J]
+         triangle_bias = triangle_bias.unsqueeze(-4)
+ 
+-        biases = [mask_bias, triangle_bias]
++        if mask is not None:
++            # [*, I, 1, 1, J]
++            # A None mask means all-ones, for which mask_bias is exactly zero.
++            # Skipping it avoids a large broadcast-add against triangle_bias
++            # (and the zero-add is numerically a no-op).
++            mask_bias = (self.inf * (mask - 1)).unsqueeze(-2).unsqueeze(-2)
++            biases = [mask_bias, triangle_bias]
++        else:
++            biases = [triangle_bias]
+ 
+         if chunk_size is not None:
+             x = self._chunk(
+diff --git a/protenix/model/utils.py b/protenix/model/utils.py
+index 9a923d8..4e6d3c2 100644
+--- a/protenix/model/utils.py
++++ b/protenix/model/utils.py
+@@ -13,12 +13,14 @@
+ # limitations under the License.
+ 
+ 
++import os
+ from functools import partial
+ from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
+ 
+ import numpy as np
+ import optree
+ import torch
++from protenix.utils.platform import HAS_NPU
+ import torch.nn as nn
+ from scipy.spatial.transform import Rotation
+ 
+@@ -86,11 +88,11 @@ def centre_random_augmentation(
+         rot_vec_mul(
+             r=expand_at_dim(rot_matrix_random, dim=-3, n=N_atom), t=x_input_coords
+         )
+-        + trans_random[..., None, :]
++        + trans_random.unsqueeze(-2)
+     )  # [..., N_sample, N_atom, 3]
+ 
+     if mask is not None:
+-        x_augment_coords = x_augment_coords * mask[..., None, :, None]
++        x_augment_coords = x_augment_coords * mask.unsqueeze(-2).unsqueeze(-1)
+     return x_augment_coords
+ 
+ 
+@@ -189,7 +191,7 @@ def one_hot(
+         torch.Tensor: the one hot embedding of x from v_bins
+             [..., bins]
+     """
+-    dgram = (x[..., None] > lower_bins) * (x[..., None] < upper_bins).float()
++    dgram = (x.unsqueeze(-1) > lower_bins) * (x.unsqueeze(-1) < upper_bins).float()
+     return dgram
+ 
+ 
+@@ -279,6 +281,33 @@ def aggregate_atom_to_token(
+             [..., N_token, d]
+     """
+ 
++    if (
++        os.getenv("PROTENIX_DENOISE_GRAPH", "1" if HAS_NPU else "0") == "1"
++        and reduce == "mean"
++        and x_atom.device.type == "npu"
++    ):
++        # mx_driving.scatter_mean hides a host sync (LocalScalarDenseNpu) that breaks
++        # NPUGraph capture of the denoise step. index_add_-based mean is capture-safe.
++        # Drift vs mx version is fp32-rounding level (~3e-7). Only active when the
++        # denoise NPUGraph mode is explicitly enabled.
++        if n_token is None:
++            n_token = int(atom_to_token_idx.max()) + 1
++        lead_shape = x_atom.shape[:-2]
++        n_atom, d = x_atom.shape[-2:]
++        out = torch.zeros(
++            *lead_shape, n_token, d, dtype=x_atom.dtype, device=x_atom.device
++        )
++        out.index_add_(-2, atom_to_token_idx, x_atom)
++        count = torch.zeros(
++            *lead_shape, n_token, 1, dtype=x_atom.dtype, device=x_atom.device
++        )
++        count.index_add_(
++            -2,
++            atom_to_token_idx,
++            torch.ones(*lead_shape, n_atom, 1, dtype=x_atom.dtype, device=x_atom.device),
++        )
++        return out / count.clamp(min=1)
++
+     # Broadcasting in the given dim.
+     out = scatter(
+         src=x_atom, index=atom_to_token_idx, dim=-2, dim_size=n_token, reduce=reduce
+diff --git a/protenix/tfg/potentials.py b/protenix/tfg/potentials.py
+index 9b51ff7..73a785e 100644
+--- a/protenix/tfg/potentials.py
++++ b/protenix/tfg/potentials.py
+@@ -33,6 +33,7 @@ Internally we compute values and Jacobians for basic geometric primitives
+ import math
+ from typing import Any, Optional
+ 
++import numpy as np
+ import torch
+ 
+ from protenix.data.constants import rdkit_vdws
+@@ -1130,6 +1131,13 @@ class ExperimentalTorsionPotential(Potential):
+         return e_sum, grad_atom
+ 
+ 
++# Neighbor-list skin (Angstrom) for VinaStericPotential. Pairs are queried at
++# `max_thr + _NB_SKIN` when the table is built; the table is rebuilt once any
++# atom moves more than half the skin, so any pair that can become active is
++# always present in the table.
++_NB_SKIN = 1.0
++
++
+ @register
+ class VinaStericPotential(Potential):
+     """Vina-style steric term for inter-chain (complex) contacts.
+@@ -1154,6 +1162,11 @@ class VinaStericPotential(Potential):
+         # per sample across diffusion steps) and are expensive to rebuild.
+         self._cache_key = None
+         self._cache_val = None
++        # Cached per-sample chain metadata (CPU numpy) for neighbor-list building.
++        self._meta_key = None
++        self._meta_val = None
++        # Cached neighbor table: (feats_key, ref_coords, idx, eq, buf).
++        self._nb_cache = None
+ 
+     @staticmethod
+     def _cache_key_from_feats(feats: dict[str, Any]) -> tuple:
+@@ -1198,14 +1211,18 @@ class VinaStericPotential(Potential):
+         # to avoid constructing O(N^2) candidate pairs.
+         if n_atoms == 0:
+             return _cache_and_return(
+-                torch.empty((2, 0), device=device, dtype=torch.long),
+-                torch.empty((0,), device=device, dtype=torch.float32),
++                (
++                    torch.empty((2, 0), device=device, dtype=torch.long),
++                    torch.empty((0,), device=device, dtype=torch.float32),
++                )
+             )
+         # If all atoms map to the same chain id, there is no inter-chain pair.
+         if torch.all(c_map == c_map[..., :1]):
+             return _cache_and_return(
+-                torch.empty((2, 0), device=device, dtype=torch.long),
+-                torch.empty((0,), device=device, dtype=torch.float32),
++                (
++                    torch.empty((2, 0), device=device, dtype=torch.long),
++                    torch.empty((0,), device=device, dtype=torch.float32),
++                )
+             )
+ 
+         n_chains = int(c_map.max().item()) + 1
+@@ -1298,8 +1315,198 @@ class VinaStericPotential(Potential):
+         out = (sel_idx, r_eq)
+         return _cache_and_return(out)
+ 
++    def _get_chain_meta(self, feats: dict[str, Any]):
++        """Cached chain/radius metadata used to build the neighbor table.
++
++        Returns a dict of small CPU numpy arrays (plus the per-atom VDW radii
++        tensor on device), or None when this term cannot produce any pair
++        (single chain / no multi-atom chain).
++        """
++        key = self._cache_key_from_feats(feats)
++        if key == self._meta_key and self._meta_val is not None:
++            return self._meta_val
++
++        def _none():
++            self._meta_key, self._meta_val = key, None
++            return None
++
++        device = feats["asym_id"].device
++        c_map = feats["asym_id"][..., feats["atom_to_token_idx"]]
++        n_atoms = c_map.size(-1)
++        if n_atoms == 0 or bool(torch.all(c_map == c_map[..., :1])):
++            return _none()
++
++        n_chains = int(c_map.max().item()) + 1
++        vdw_lib = _get_vdw_radii_128(device)
++        r_atom = vdw_lib[feats["ref_element"].argmax(dim=-1)]
++
++        prohibited = torch.eye(n_chains, dtype=torch.bool, device=device)
++        b_idx = feats.get("interchain_bond_index")
++        if b_idx is not None and b_idx.numel() > 0:
++            ca, cb = c_map[b_idx[0]], c_map[b_idx[1]]
++            prohibited[ca, cb] = True
++            prohibited[cb, ca] = True
++
++        order = torch.argsort(c_map)
++        c_sorted = c_map.index_select(0, order)
++        chain_ids, counts = torch.unique_consecutive(c_sorted, return_counts=True)
++        if chain_ids.numel() <= 1:
++            return _none()
++        valid_chain = {
++            int(cid)
++            for cid, cnt in zip(
++                chain_ids.cpu().tolist(), counts.cpu().tolist()
++            )
++            if int(cnt) > 1
++        }
++        if len(valid_chain) <= 1:
++            return _none()
++
++        valid_np = np.zeros(n_chains, dtype=bool)
++        valid_np[list(valid_chain)] = True
++        meta = {
++            "r_atom": r_atom,  # [N] on device
++            "chain_np": c_map.cpu().numpy().astype(np.int64),
++            "valid_np": valid_np,
++            "prohibited_np": prohibited.cpu().numpy(),
++            "r_atom_np": r_atom.cpu().numpy(),
++        }
++        self._meta_key, self._meta_val = key, meta
++        return meta
++
++    def _get_neighbor_pairs(
++        self, coords_b: torch.Tensor, feats: dict[str, Any], buf: float
++    ):
++        """Compact cross-chain atom pairs via a CPU KD-tree neighbor table.
++
++        The table is built from the current coordinates with query radius
++        ``max_thr + _NB_SKIN`` and reused while no atom has moved more than
++        ``_NB_SKIN / 2``, so any pair that can become active is guaranteed to
++        be present in the table.
++
++        Returns:
++            (idx: `[2, P]` long, eq: `[P]` float) on `coords_b.device`, or
++            None when the term is not applicable (single chain, etc.).
++        """
++        meta = self._get_chain_meta(feats)
++        if meta is None:
++            return None
++        key = self._cache_key_from_feats(feats)
++        c_ref = coords_b[0].detach()
++        cache = self._nb_cache
++        if cache is not None and cache[0] == key and cache[4] == buf:
++            drift = (
++                torch.linalg.vector_norm(c_ref - cache[1], dim=-1).amax().item()
++            )
++            if drift <= 0.5 * _NB_SKIN:
++                return cache[2], cache[3]
++
++        from scipy.spatial import cKDTree
++
++        c_np = c_ref.cpu().numpy()
++        r_atom_np = meta["r_atom_np"]
++        max_thr = 2.0 * float(r_atom_np.max()) * (1.0 - buf)
++        tree = cKDTree(c_np)
++        pairs = tree.query_pairs(r=max_thr + _NB_SKIN, output_type="ndarray")
++        if pairs.size > 0:
++            ci = meta["chain_np"][pairs[:, 0]]
++            cj = meta["chain_np"][pairs[:, 1]]
++            keep = (
++                (ci != cj)
++                & meta["valid_np"][ci]
++                & meta["valid_np"][cj]
++                & ~meta["prohibited_np"][ci, cj]
++            )
++            pairs = pairs[keep]
++        device = coords_b.device
++        if pairs.size > 0:
++            idx = torch.from_numpy(
++                np.ascontiguousarray(pairs.T)
++            ).to(device).long()
++            r_atom = meta["r_atom"]
++            eq = r_atom[idx[0]] + r_atom[idx[1]]
++        else:
++            idx = torch.empty((2, 0), device=device, dtype=torch.long)
++            eq = torch.empty((0,), device=device, dtype=torch.float32)
++        self._nb_cache = (key, c_ref, idx, eq, buf)
++        return idx, eq
++
+     def _eval(self, coords, feats, params, need_grad: bool):
+         """Compute Vina-style steric energy (and optionally gradients)."""
++        buf = float(params["buffer"])
++        batch_shape = coords.shape[:-2]
++        b = math.prod(batch_shape) if len(batch_shape) > 0 else 1
++        if b != 1:
++            return self._eval_full(coords, feats, params, need_grad)
++
++        got = self._get_neighbor_pairs(
++            coords.reshape(1, coords.shape[-2], 3), feats, buf
++        )
++        if got is None:
++            return (
++                _zeros_energy_and_grad(coords) if need_grad else _zeros_energy(coords)
++            )
++        idx, eq = got
++        if idx.numel() == 0:
++            return (
++                _zeros_energy_and_grad(coords) if need_grad else _zeros_energy(coords)
++            )
++
++        device, dtype = coords.device, coords.dtype
++        n_atom = int(coords.shape[-2])
++        coords_b = coords.reshape(1, n_atom, 3)
++
++        # Pass 1: distances on the compact neighbor-pair set -> active mask.
++        value0, _ = _distance_value_and_grad(coords_b, idx, False)  # [1, P]
++        thr = eq.to(value0.dtype) * (1.0 - buf)  # [P]
++        active = value0[0] < thr  # [P]
++
++        # Energy on compact pairs. Inactive pairs contribute exactly zero, so
++        # evaluate the masked expression over all compact pairs (static
++        # shapes, no nonzero()/dynamic-shape sync).
++        v = value0[0].to(dtype)  # [P]
++        eq_d = eq.to(dtype)
++        dist_diff = v - eq_d
++        norm_d = dist_diff / 0.5
++        g1 = -0.0356 * torch.exp(-(norm_d**2))
++        g2 = -0.00516 * torch.exp(-(((dist_diff - 3.0) / 2.0) ** 2))
++        rep = 0.840 * torch.where(dist_diff < 0.0, dist_diff**2, 0.0)
++        e_pair = (g1 + g2 + rep) * active.to(dtype)  # [P]
++
++        e_out = e_pair.sum()
++        if not need_grad:
++            if len(batch_shape) == 0:
++                return e_out
++            return e_out.reshape(*batch_shape)
++
++        # Pass 2: gradient on compact pairs, masked to active pairs.
++        r = coords_b[0].index_select(-2, idx[0]) - coords_b[0].index_select(
++            -2, idx[1]
++        )
++        norm = torch.linalg.norm(r, dim=-1).clamp_min(1e-8)  # [P]
++        r_hat = r / norm.unsqueeze(-1)
++
++        dg1 = -2.0 * g1 * norm_d * (1.0 / 0.5)
++        dg2 = -0.5 * g2 * (dist_diff - 3.0)
++        drep = 0.840 * torch.where(dist_diff < 0.0, 2.0 * dist_diff, 0.0)
++        d_total = (dg1 + dg2 + drep) * active.to(dtype)  # [P]
++
++        gi = d_total.unsqueeze(-1) * r_hat  # [P, 3]
++        g_flat = torch.zeros((n_atom, 3), device=device, dtype=dtype)
++        g_flat.scatter_add_(0, idx[0].unsqueeze(-1).expand(-1, 3), gi)
++        g_flat.scatter_add_(0, idx[1].unsqueeze(-1).expand(-1, 3), -gi)
++        g_out = g_flat.reshape(1, n_atom, 3).reshape(*coords.shape)
++
++        if len(batch_shape) == 0:
++            return e_out, g_out
++        return e_out.reshape(*batch_shape), g_out
++
++    def _eval_full(self, coords, feats, params, need_grad: bool):
++        """Reference implementation over the full O(N^2) candidate set.
++
++        Used as fallback for batched coordinates (b > 1); the b == 1 path in
++        `_eval` uses the pruned neighbor table instead.
++        """
+         idx, eq = self._get_collision_candidates(feats)
+         if idx.numel() == 0:
+             return (
+diff --git a/protenix/utils/permutation/atom_permutation.py b/protenix/utils/permutation/atom_permutation.py
+index d5c6fa9..9383155 100644
+--- a/protenix/utils/permutation/atom_permutation.py
++++ b/protenix/utils/permutation/atom_permutation.py
+@@ -13,9 +13,8 @@
+ # limitations under the License.
+ 
+ import torch
+-
+ from protenix.metrics.rmsd import rmsd, self_aligned_rmsd
+-from protenix.model.utils import expand_at_dim, pad_at_dim
++from protenix.model.utils import expand_at_dim
+ from protenix.utils.logger import get_logger
+ from protenix.utils.permutation.utils import Checker, save_permutation_error
+ 
+@@ -130,143 +129,114 @@ def collect_residues_with_symmetric_atoms(
+             len(atom_perm_list) = N_atom.
+             len(atom_perm_list[i]) = N_perm for the residue of atom i.
+ 
++    Returns:
++        position_list (list[tuple[int, int]]): [start, end) atom index of each kept residue.
++        coord_list (list[torch.Tensor]): NPU views of per-residue coords [N_res_atom, 3].
++        coord_mask_list (list[torch.Tensor]): NPU views of per-residue bool masks [N_res_atom].
++        perm_list (list[torch.Tensor]): per-residue permutations [N_perm, N_res_atom] on device.
++        N_res (int): total number of residues.
++        no_permute_atom_mask (torch.Tensor): 1 for atoms that can not be permuted. [N_atom] on device.
+     """
+ 
+     device = coord_mask.device
+ 
+-    # Find start & end positions of each residue
+-    diff = torch.tensor([True] + (ref_space_uid[1:] != ref_space_uid[:-1]).tolist())
+-    start_positions = torch.cat(
+-        (torch.nonzero(diff, as_tuple=True)[0], torch.tensor([len(ref_space_uid)]))
+-    )
+-    res_start_end = list(
+-        zip(start_positions[:-1].tolist(), start_positions[1:].tolist())
+-    )  # [N_res, 2]
++    N_atom = coord_mask.size(0)
++    uid_list = ref_space_uid.detach().cpu().tolist()
++    mask_list = coord_mask.detach().cpu().tolist()
++    mask_bool_npu = coord_mask.bool()  # single kernel; slices below are views
++
++    # Find start & end positions of each residue (on CPU)
++    res_start_end = []
++    start = 0
++    for i in range(1, N_atom):
++        if uid_list[i] != uid_list[i - 1]:
++            res_start_end.append((start, i))
++            start = i
++    res_start_end.append((start, N_atom))
+     N_res = len(res_start_end)
+-    assert N_res == len(torch.unique(ref_space_uid))
+ 
+     position_list = []
+-    perm_list = []
++    perm_flat = []  # flat ints of all kept perms, residue by residue
++    perm_shapes = []  # (N_perm, N_res_atom) of each kept residue
+     coord_list = []
+     coord_mask_list = []
++    # 1 = can not be permuted (same dtype semantics as coord_mask)
++    no_permute_list = [1] * N_atom
+ 
+     # Traverse residues and store the corresponding data
+     for start, end in res_start_end:
+-
+-        assert len(torch.unique(ref_space_uid[start:end])) == 1
++        n = end - start
++        mask_slice = mask_list[start:end]
+ 
+         # Skip if this residue contains < 3 resolved atoms.
+         # Alignment requires at least 3 atoms to obtain a reasonable result.
+-        res_coord_mask = coord_mask[start:end].bool()  # [N_res_atom]
+-        if res_coord_mask.sum() < 3:
++        if sum(1 for m in mask_slice if m) < 3:
+             continue
+ 
+-        # Drop duplicated permutations
+-        perm = torch.tensor(atom_perm_list[start:end], device=device, dtype=torch.long)
+-        perm = torch.unique(perm, dim=-1)  # [N_res_atom, N_perm]
+-        N_res_atom, N_perm = perm.size()
++        # Drop duplicated permutations.
++        # atom_perm_list[start + i] holds the i-th column across all perms of
++        # this residue, so zip(*) recovers the perms as tuples. torch.unique
++        # (dim=-1) returns lexicographically sorted unique columns, which is
++        # exactly sorted(set(...)) on tuples.
++        cols = sorted(set(zip(*atom_perm_list[start:end])))
+ 
+-        # Basic checks
+-        assert perm.min().item() == 0
+-        assert perm.max().item() == N_res_atom - 1
++        # Basic checks (CPU: no host-device sync)
++        assert min(min(col) for col in cols) == 0
++        assert max(max(col) for col in cols) == n - 1
+ 
+         # Development checks
+         if run_checker:
+-            Checker.are_permutations(perm, dim=0)
+-            Checker.contains_identity(perm, dim=0)
++            perm_check = torch.tensor(cols, dtype=torch.long).t()  # [n, N_perm]
++            Checker.are_permutations(perm_check, dim=0)
++            Checker.contains_identity(perm_check, dim=0)
+ 
+         # If all symmetric atoms are unresolved, drop the permutation
+-        identity_perm = torch.arange(len(perm), device=device).unsqueeze(
+-            dim=-1
+-        )  # [N_res_atom, 1]
+-        is_sym_atom = perm != identity_perm  # [N_res_atom, N_perm]
+-        is_sym_atom_resolved = is_sym_atom * res_coord_mask.unsqueeze(dim=-1)
+-        is_valid_perm = is_sym_atom_resolved.any(dim=0)
+-        if not is_valid_perm.any():
++        valid_cols = [
++            col
++            for col in cols
++            if any(col[i] != i and mask_slice[i] for i in range(n))
++        ]
++        if not valid_cols:
+             # Skip if no valid permutation (other than identity) exists
+             continue
+-        perm = perm[..., is_valid_perm]
+-        perm = torch.cat([identity_perm, perm], dim=-1)  # Put identity to the first
+-        perm = perm.transpose(-1, -2)  # [N_perm, N_res_atom]
++
++        # Put identity to the first. Each entry of final_rows is one perm.
++        final_rows = [tuple(range(n))] + valid_cols
+ 
+         position_list.append((start, end))
+-        perm_list.append(perm)
+-        coord_mask_list.append(res_coord_mask)
++        for row in final_rows:
++            perm_flat.extend(row)
++        perm_shapes.append((len(final_rows), n))
++        coord_mask_list.append(mask_bool_npu[start:end])
+         coord_list.append(coord[start:end, :])
+ 
+-    return position_list, coord_list, coord_mask_list, perm_list, N_res
+-
+-
+-def collect_permuted_coords(
+-    coord_list: list[torch.Tensor],
+-    coord_mask_list: list[torch.Tensor],
+-    perm_list: list[torch.Tensor],
+-    run_checker: bool = False,
+-) -> tuple[torch.Tensor]:
+-    """Apply permutations to coordinates and coordinate masks
+-
+-    Args:
+-        coord_list (list[torch.Tensor]): A list of coordinates.
+-            Each element is a tensor of shape [N_res_atom, 3]. The value N_res_atom can
+-            vary across different residues.
+-        coord_mask_list (list[torch.Tensor]): A list of coordinate masks.
+-            Each element is a tensor of shape [N_res_atom].
+-        perm_list (list[torch.Tensor]): list of permutations.
+-            Each element is a long tensor of shape [N_perm, N_res_atom]. The value N_perm
+-            can vary across different residues.
+-
+-    Returns:
+-        torch.Tensor:
+-            [N_total_perm, MAX_N_res_atom, 3]
+-            [N_total_perm, MAX_N_res_atom]
+-    """
+-
+-    MAX_N_res_atom = max(perm.size(-1) for perm in perm_list)
+-    perm_coord = []  # [N_total_perm, N_res_atom, 3]
+-    perm_coord_mask = []  # [N_total_perm, N_res_atom]
+-
+-    N_total_perm = 0
+-    for perm, res_coord, res_coord_mask in zip(perm_list, coord_list, coord_mask_list):
+-
+-        # Basic shape checks
+-        N_perm, N_res_atom = perm.size()
+-        assert res_coord.size(-1) == 3
+-        assert res_coord.size(0) == res_coord_mask.size(0) == perm.size(-1)
+-
+-        # Permute coordinates & masks
+-        res_coord_permuted = res_coord[perm]  # [N_perm, N_res_atom, 3]
+-        res_coord_mask_permuted = res_coord_mask[perm]  # [N_perm, N_res_atom]
+-        assert res_coord_permuted.size() == (N_perm, N_res_atom, 3)
+-        assert res_coord_mask_permuted.size() == (N_perm, N_res_atom)
+-
+-        if run_checker:
+-            Checker.are_permutations(perm, dim=-1)
+-            Checker.batch_permute(perm, res_coord, res_coord_permuted)
+-            Checker.batch_permute(perm, res_coord_mask, res_coord_mask_permuted)
+-
+-        # Pad to MAX_N_res_atom
+-        N_res_atom = perm.size(dim=-1)
+-        if N_res_atom < MAX_N_res_atom:
+-            pad_length = (0, MAX_N_res_atom - N_res_atom)
+-            res_coord_permuted = pad_at_dim(
+-                res_coord_permuted, dim=-2, pad_length=pad_length
+-            )  # [N_perm, MAX_N_res_atom, 3]
+-            res_coord_mask_permuted = pad_at_dim(
+-                res_coord_mask_permuted, dim=-1, pad_length=pad_length
+-            )
+-
+-        N_total_perm += N_perm
+-        perm_coord.append(res_coord_permuted)
+-        perm_coord_mask.append(res_coord_mask_permuted)
+-
+-    perm_coord = torch.cat(perm_coord, dim=0)
+-    perm_coord_mask = torch.cat(perm_coord_mask, dim=0)
+-
+-    # Shape check
+-    assert perm_coord.size() == (N_total_perm, MAX_N_res_atom, 3)
+-    assert perm_coord_mask.size() == (N_total_perm, MAX_N_res_atom)
+-
+-    return perm_coord, perm_coord_mask
++        # Atom is "permutable" if it moves under any of the kept permutations
++        for i in range(n):
++            if not all(row[i] == i for row in final_rows):
++                no_permute_list[start + i] = 0
++
++    # Single H2D transfer for all permutations, then split back into views
++    if perm_flat:
++        flat = torch.tensor(perm_flat, dtype=torch.long).to(device)
++        perm_list = []
++        offset = 0
++        for n_row, n_col in perm_shapes:
++            perm_list.append(flat[offset : offset + n_row * n_col].view(n_row, n_col))
++            offset += n_row * n_col
++    else:
++        perm_list = []
++    no_permute_atom_mask = torch.tensor(
++        no_permute_list, dtype=coord_mask.dtype
++    ).to(device)
++
++    return (
++        position_list,
++        coord_list,
++        coord_mask_list,
++        perm_list,
++        N_res,
++        no_permute_atom_mask,
++    )
+ 
+ 
+ class AtomPermutation(object):
+@@ -394,65 +364,139 @@ class AtomPermutation(object):
+             run_checker (bool, optional): If True, run extensive checks.
+ 
+         Returns:
+-            best_permutation_list (list[torch.Tensor]): List of residues. Each element records the
+-                optimal permutation that should apply to true coordinates for one residue. Each element
+-                has shape
+-                [N_res_atom] or [Batch, N_res_atom]
+-            is_permuted_list (list[torch.Tensor]): List of residues. Each element records whether the
+-                atoms in this residue is permuted. Each element has shape
+-                [] or [Batch]
+-            optimized_rmsd_list (list[torch.Tensor]): List of residues. Each element records the optimized
+-                rmsd of the residue. Each element has shape
+-                [] or [Batch]
+-            original_rmsd_list (list[torch.Tensor]): List of residues. Each element records the original
+-                rmsd of the residue. Each element has shape
+-                [] or [Batch]
++            best_permutation (torch.Tensor): The optimal permutation that should apply to
++                true coordinates for each residue. Columns beyond the atom count of a
++                residue hold invalid (garbage) entries and must not be used.
++                [N_res, N_max_atom] or [Batch, N_res, N_max_atom]
++            is_permuted (torch.Tensor): Whether the atoms of each residue are permuted.
++                [N_res] or [Batch, N_res]
++            optimized_rmsd (torch.Tensor): The optimized rmsd of each residue.
++                [N_res] or [Batch, N_res]
++            original_rmsd (torch.Tensor): The original rmsd of each residue.
++                [N_res] or [Batch, N_res]
+         """
+ 
+-        # Find max number of per-residue atoms
++        # Find max number of per-residue atoms / permutations
+         per_residue_N_perm = [perm.size(0) for perm in per_residue_perm_list]
+         per_residue_N_atom = [perm.size(1) for perm in per_residue_perm_list]
+         N_max_atom = max(per_residue_N_atom)
++        N_max_perm = max(per_residue_N_perm)
++        N_res = len(per_residue_perm_list)
++        N_total_perm = sum(per_residue_N_perm)
++        device = per_residue_coord_list[0].device
++        batch_shape = per_residue_pred_coord_list[0].shape[:-2]
++        assert len(batch_shape) in [0, 1]
+ 
+-        # Permute true coordinates & masks according to the permutations in per_residue_perm_list
+-        permuted_coord, permuted_coord_mask = collect_permuted_coords(
+-            coord_list=per_residue_coord_list,
+-            coord_mask_list=per_residue_coord_mask_list,
+-            perm_list=per_residue_perm_list,
+-            run_checker=run_checker,
+-        )  # [N_total_perm, N_max_atom, 3], [N_total_perm, N_max_atom]
+-        assert permuted_coord.size(-2) == permuted_coord_mask.size(-1) == N_max_atom
+-        N_total_perm = permuted_coord.size(0)
+-
+-        # Pad 'pred_coord' to the same shape as 'permuted_coord'
+-        per_residue_pred_coord_list = [
+-            pad_at_dim(
+-                p_coord, dim=-2, pad_length=(0, N_max_atom - p_coord.size(dim=-2))
+-            )
+-            for p_coord in per_residue_pred_coord_list
+-        ]
+-        # Repeat N_perm times for each residue
+-        pred_coord = torch.stack(
+-            sum(
+-                [
+-                    [p_coord] * N_perm
+-                    for N_perm, p_coord in zip(
+-                        per_residue_N_perm, per_residue_pred_coord_list
++        # NPU note: the previous implementation looped over residues and launched
++        # several tiny kernels (permute-gather, pad, min, gather) per residue.
++        # Instead, pack all variable-length residues / permutations into padded
++        # [N_res, ...] tensors using index tables precomputed on CPU from shape
++        # ints only (no device sync), then run a handful of whole-batch ops.
++        # The permuted/padded tensors hold exactly the same values as before, so
++        # the rmsd reduction (and hence the selected permutations) is unchanged.
++
++        # ---------- CPU index tables (shape ints only: no device sync) ----------
++        atom_offsets = [0]
++        for n in per_residue_N_atom:
++            atom_offsets.append(atom_offsets[-1] + n)
++        perm_offsets = [0]
++        for p in per_residue_N_perm:
++            perm_offsets.append(perm_offsets[-1] + p)
++        # Base of each residue's block inside flat_perm: each of the p_k perms
++        # of residue k occupies n_k consecutive entries, so the base is the
++        # cumulative sum of p_i * n_i (NOT the perm-count offset above).
++        perm_base = [0]
++        for p, n in zip(per_residue_N_perm, per_residue_N_atom):
++            perm_base.append(perm_base[-1] + p * n)
++        coord_src = torch.full(
++            (N_res, N_max_atom), atom_offsets[-1], dtype=torch.long
++        )  # padded atoms point at the dummy row appended below
++        rmsd_sel = []  # valid (residue, perm) rows in the [N_res, N_max_perm] layout
++        perm_dst = []  # positions in the flat padded perm matrix
++        perm_src = []  # positions in the flat cat of all perms
++        for k, (n, p) in enumerate(zip(per_residue_N_atom, per_residue_N_perm)):
++            coord_src[k, :n] = torch.arange(atom_offsets[k], atom_offsets[k] + n)
++            for j in range(p):
++                rmsd_sel.append(k * N_max_perm + j)
++                perm_dst.extend(
++                    range(
++                        (k * N_max_perm + j) * N_max_atom,
++                        (k * N_max_perm + j) * N_max_atom + n,
+                     )
+-                ],
+-                [],
+-            ),
+-            dim=-3,
+-        )  # [N_total_perm, N_max_atom, 3] or [Batch, N_total_perm, N_max_atom, 3]
+-        assert pred_coord.shape[-3:] == (N_total_perm, N_max_atom, 3)
++                )
++                perm_src.extend(
++                    range(perm_base[k] + j * n, perm_base[k] + (j + 1) * n)
++                )
++        coord_src = coord_src.to(device)
++        valid_atom = coord_src.lt(atom_offsets[-1])  # [N_res, N_max_atom]
++        rmsd_sel = torch.tensor(rmsd_sel, dtype=torch.long, device=device)
++        perm_dst = torch.tensor(perm_dst, dtype=torch.long, device=device)
++        perm_src = torch.tensor(perm_src, dtype=torch.long, device=device)
++
++        # ---------- Pack true coords & masks: [N_res, N_max_atom] ----------
++        flat_coord = torch.cat(
++            per_residue_coord_list + [per_residue_coord_list[0].new_zeros(1, 3)],
++            dim=0,
++        )  # [N_all + 1, 3], the last (dummy) row fills padded atom positions
++        flat_mask = torch.cat(
++            per_residue_coord_mask_list
++            + [per_residue_coord_mask_list[0].new_zeros(1)],
++            dim=0,
++        )
++        res_coord_pad = flat_coord[coord_src]  # [N_res, N_max_atom, 3]
++        res_mask_pad = flat_mask[coord_src]  # [N_res, N_max_atom]
+ 
+-        batch_shape = pred_coord.shape[:-3]
+-        assert len(batch_shape) in [0, 1]
++        # ---------- Pack perms: [N_res, N_max_perm, N_max_atom] ----------
++        flat_perm = torch.cat(
++            [perm.reshape(-1) for perm in per_residue_perm_list], dim=0
++        )
++        perm_pad = torch.zeros(
++            N_res * N_max_perm * N_max_atom, dtype=torch.long, device=device
++        )
++        perm_pad[perm_dst] = flat_perm[perm_src]
++        perm_pad = perm_pad.view(N_res, N_max_perm, N_max_atom)
++
++        # ---------- Permute true coords & masks by all perms ----------
++        gather_idx = perm_pad + (
++            torch.arange(N_res, device=device) * N_max_atom
++        ).view(N_res, 1, 1)  # [N_res, N_max_perm, N_max_atom]
++        permuted_coord = res_coord_pad.reshape(N_res * N_max_atom, 3)[gather_idx]
++        # Mask out padded atom columns (their gathered entries are garbage
++        # but are zeroed by the mask inside rmsd, exactly like the old padding)
++        permuted_coord_mask = res_mask_pad.reshape(N_res * N_max_atom)[
++            gather_idx
++        ] & valid_atom.unsqueeze(1)
++        # Keep only valid (residue, perm) rows, in residue-major order
++        permuted_coord = permuted_coord.view(N_res * N_max_perm, N_max_atom, 3)[
++            rmsd_sel
++        ]  # [N_total_perm, N_max_atom, 3]
++        permuted_coord_mask = permuted_coord_mask.view(
++            N_res * N_max_perm, N_max_atom
++        )[
++            rmsd_sel
++        ]  # [N_total_perm, N_max_atom]
++        assert permuted_coord.size(-2) == permuted_coord_mask.size(-1) == N_max_atom
++        assert permuted_coord.size(0) == N_total_perm
++
++        # ---------- Padded pred coords, repeated N_perm times per residue ----------
++        flat_pred = torch.cat(
++            per_residue_pred_coord_list
++            + [per_residue_pred_coord_list[0].new_zeros(*batch_shape, 1, 3)],
++            dim=-2,
++        )  # [batch_shape, N_all + 1, 3]
++        row_sel = torch.div(rmsd_sel, N_max_perm, rounding_mode="floor")
+         if len(batch_shape) == 1:
++            pred_pad = flat_pred[:, coord_src, :]  # [Batch, N_res, N_max_atom, 3]
++            pred_coord = pred_pad[:, row_sel, :]  # [Batch, N_total_perm, N_max_atom, 3]
++
+             # expand true coord & mask to have the same batch size as pred coord
+             Batch = pred_coord.size(0)
+             permuted_coord = expand_at_dim(permuted_coord, dim=0, n=Batch)
+             permuted_coord_mask = expand_at_dim(permuted_coord_mask, dim=0, n=Batch)
++        else:
++            pred_pad = flat_pred[coord_src]  # [N_res, N_max_atom, 3]
++            pred_coord = pred_pad[row_sel]  # [N_total_perm, N_max_atom, 3]
++        assert pred_coord.shape[-3:] == (N_total_perm, N_max_atom, 3)
+ 
+         # Compute per-residue rmsd
+         with torch.amp.autocast("cuda", enabled=False):
+@@ -465,57 +509,42 @@ class AtomPermutation(object):
+             )  # [N_total_perm] or [Batch, N_total_perm]
+             assert per_res_rmsd.size() == batch_shape + (N_total_perm,)
+ 
+-        # Find the best permutation
+-        best_permutation_list = []
+-        is_permuted_list = []
+-        original_rmsd_list = []
+-        optimized_rmsd_list = []
+-        i = 0
++        # ---------- Find the best permutation of each residue in one shot ----------
++        # Scatter rmsd into a flat [batch_shape, N_res * N_max_perm] vector filled
++        # with +inf at invalid perm slots, then reshape to [.., N_res, N_max_perm]:
++        # a single min then reproduces the per-residue torch.min
++        # (first-minimal-index semantics included).
++        # Note: rmsd_sel holds *flat* positions k * N_max_perm + j, so the scatter
++        # must target the flattened layout (indexing the padded 2-D layout with
++        # [..., rmsd_sel] would apply the indices to the last dim instead).
++        rmsd_pad = per_res_rmsd.new_full(
++            batch_shape + (N_res * N_max_perm,), float("inf")
++        )
++        rmsd_pad[..., rmsd_sel] = per_res_rmsd
++        optimized_rmsd, best_j = rmsd_pad.view(
++            batch_shape + (N_res, N_max_perm)
++        ).min(dim=-1)  # [batch_shape, N_res]
++
++        # Original rmsd: the identity perm is always the first of each residue
++        original_rmsd = per_res_rmsd[
++            ..., torch.tensor(perm_offsets[:-1], dtype=torch.long, device=device)
++        ]  # [batch_shape, N_res]
++
++        # Gather the best perm of each residue from the padded perm matrix
++        row = best_j + (
++            torch.arange(N_res, device=device) * N_max_perm
++        )  # [batch_shape, N_res]
++        best_permutation = perm_pad.view(N_res * N_max_perm, N_max_atom)[
++            row
++        ]  # [batch_shape, N_res, N_max_atom]
++        is_permuted = best_j > 0  # The first of the perm lists is the identity
+ 
+-        # Enumerate over all residues (could be improved by scatter)
+-        for N_perm, N_res_atom, perm in zip(
+-            per_residue_N_perm, per_residue_N_atom, per_residue_perm_list
+-        ):
+-            cur_res_rmsd = per_res_rmsd[..., i : i + N_perm]  # [batch_shape, N_perm]
+-            best_rmsd, best_j = torch.min(cur_res_rmsd, dim=-1)  # [batch_shape]
+-            best_perm = perm[best_j]  # [batch_shape, N_res_atom]
+-            best_permutation_list.append(best_perm)
+-
+-            is_permuted_list.append(
+-                best_j > 0
+-            )  # The first of the perm lists is the identity
+-
+-            optimized_rmsd_list.append(best_rmsd)
+-            original_rmsd_list.append(cur_res_rmsd[..., 0])
+-
+-            i += N_perm
+-
+-            if run_checker:
+-                assert perm.size() == (N_perm, N_res_atom)
+-                assert cur_res_rmsd.size() == batch_shape + (N_perm,)
+-                assert best_rmsd.size() == batch_shape
+-                assert best_j.size() == batch_shape
+-                assert best_perm.size() == batch_shape + (N_res_atom,)
+-                Checker.are_permutations(best_perm, dim=-1)
+-
+-                def _check_identity(j_value, perm):
+-                    if j_value > 0:
+-                        Checker.not_contain_identity(perm)
+-                    else:
+-                        Checker.contains_identity(perm)
+-
+-                if best_j.dim() == 0:
+-                    _check_identity(best_j, best_perm)
+-                else:
+-                    for j_value, perm_j in zip(best_j, best_perm):
+-                        _check_identity(j_value, perm_j)
++        if run_checker:
++            assert best_permutation.shape == batch_shape + (N_res, N_max_atom)
++            assert optimized_rmsd.shape == original_rmsd.shape == is_permuted.shape
++            assert optimized_rmsd.shape[: -1] == batch_shape
+ 
+-        return (
+-            best_permutation_list,
+-            is_permuted_list,
+-            optimized_rmsd_list,
+-            original_rmsd_list,
+-        )
++        return best_permutation, is_permuted, optimized_rmsd, original_rmsd
+ 
+     def __call__(
+         self,
+@@ -579,6 +608,7 @@ class AtomPermutation(object):
+             per_residue_coord_mask_list,
+             per_residue_perm_list,
+             N_res,
++            no_permute_atom_mask,
+         ) = collect_residues_with_symmetric_atoms(
+             coord=true_coord,
+             coord_mask=true_coord_mask,
+@@ -596,15 +626,6 @@ class AtomPermutation(object):
+             print("No atom permutation is needed. Return the identity permutation.")
+             return (permutation, log_dict)
+ 
+-        # no_permute_atom_mask: 1 represent this atom can not be permuted
+-        no_permute_atom_mask = torch.ones_like(true_coord_mask)
+-        for (start, end), per_residue_perm in zip(
+-            per_residue_position_list, per_residue_perm_list
+-        ):
+-            no_permute_atom_mask[start:end] = 1 - (
+-                (per_residue_perm != per_residue_perm[0]).sum(dim=0) > 0
+-            ).to(torch.int32)
+-
+         # Perform a global alignment of predictions to true coordinates
+         if alignment_mask is None:
+             alignment_mask = true_coord_mask
+@@ -650,11 +671,11 @@ class AtomPermutation(object):
+             per_residue_perm_list
+         )
+ 
+-        residue_position_list = []
+-        residue_best_permutation_list = []
+-        residue_is_permuted_list = []
+-        residue_optimized_rmsd_list = []
+-        residue_original_rmsd_list = []
++        group_pos_lists = []  # per-group [start, end) atom positions (CPU ints)
++        residue_best_permutation_list = []  # per group: [batch, N_res, N_max_atom]
++        residue_is_permuted_list = []  # per group: [batch, N_res]
++        residue_optimized_rmsd_list = []  # per group: [batch, N_res]
++        residue_original_rmsd_list = []  # per group: [batch, N_res]
+         for atom_cutoff, residue_group in grouped_indices.items():
+ 
+             if verbose:
+@@ -682,29 +703,46 @@ class AtomPermutation(object):
+                 eps=self.eps,
+                 run_checker=self.run_checker,
+             )
+-            residue_position_list.extend(per_res_pos_list)
+-            residue_best_permutation_list.extend(per_res_best_permutation)
+-            residue_is_permuted_list.extend(per_res_is_permuted)
+-            residue_optimized_rmsd_list.extend(per_res_optimized_rmsd)
+-            residue_original_rmsd_list.extend(per_res_ori_rmsd)
++            group_pos_lists.append(per_res_pos_list)
++            residue_best_permutation_list.append(per_res_best_permutation)
++            residue_is_permuted_list.append(per_res_is_permuted)
++            residue_optimized_rmsd_list.append(per_res_optimized_rmsd)
++            residue_original_rmsd_list.append(per_res_ori_rmsd)
+ 
+         # Aggregate per_residue results
+-        # 1. Best permutation
+-        indices_list = [
+-            torch.arange(pos[0], pos[1], device=device) for pos in residue_position_list
+-        ]
+-        residue_atom_indices = torch.cat(indices_list, dim=-1)  # [N_perm_atom]
+-        residue_best_permutation = torch.cat(
+-            [
+-                ind[perm]
+-                for ind, perm in zip(indices_list, residue_best_permutation_list)
+-            ],
+-            dim=-1,
+-        )  # [Batch, N_perm_atom] or [N_perm_atom]
+-        permutation[..., residue_atom_indices] = residue_best_permutation
++        # 1. Best permutation: one whole-batch scatter write per residue group
++        #    (global atom index = residue start + local perm index)
++        for per_res_pos_list, best_permutation_pad in zip(
++            group_pos_lists, residue_best_permutation_list
++        ):
++            N_max_atom = best_permutation_pad.size(-1)
++            starts = torch.tensor(
++                [pos[0] for pos in per_res_pos_list], dtype=torch.long, device=device
++            )
++            if best_permutation_pad.dim() == 2:
++                global_perm = best_permutation_pad + starts.unsqueeze(-1)
++                global_perm = global_perm.reshape(-1)  # [N_res * N_max_atom]
++            else:
++                global_perm = best_permutation_pad + starts.view(1, -1, 1)
++                global_perm = global_perm.reshape(
++                    best_permutation_pad.size(0), -1
++                )  # [Batch, N_res * N_max_atom]
++            # Valid positions: residue k, atom a < N_res_atom(k)
++            src = torch.cat(
++                [
++                    torch.arange(
++                        k * N_max_atom, k * N_max_atom + (pos[1] - pos[0])
++                    )
++                    for k, pos in enumerate(per_res_pos_list)
++                ]
++            ).to(device)
++            dst = torch.cat(
++                [torch.arange(pos[0], pos[1]) for pos in per_res_pos_list]
++            ).to(device)
++            permutation[..., dst] = global_perm[..., src]
+ 
+         # 2. Other statistics
+-        is_res_permuted = torch.stack(residue_is_permuted_list, dim=-1).float()
++        is_res_permuted = torch.cat(residue_is_permuted_list, dim=-1).float()
+         log_dict["N_res_permuted"] = is_res_permuted.sum(dim=-1).mean().item()
+         log_dict["has_res_permuted"] = (
+             (is_res_permuted.sum(dim=-1) > 0).float().mean().item()
+diff --git a/protenix/utils/permutation/chain_permutation/heuristic.py b/protenix/utils/permutation/chain_permutation/heuristic.py
+index fe9e044..bd4e9cc 100644
+--- a/protenix/utils/permutation/chain_permutation/heuristic.py
++++ b/protenix/utils/permutation/chain_permutation/heuristic.py
+@@ -15,7 +15,6 @@
+ import random
+ 
+ import torch
+-
+ from protenix.metrics.rmsd import rmsd, self_aligned_rmsd
+ from protenix.utils.logger import get_logger
+ from protenix.utils.permutation.chain_permutation.utils import (
+diff --git a/protenix/utils/permutation/chain_permutation/utils.py b/protenix/utils/permutation/chain_permutation/utils.py
+index 9b806fa..9347a48 100644
+--- a/protenix/utils/permutation/chain_permutation/utils.py
++++ b/protenix/utils/permutation/chain_permutation/utils.py
+@@ -56,7 +56,7 @@ def get_optimal_transform(
+ 
+ 
+ def apply_transform(pose, rot, trans):
+-    return torch.matmul(pose, rot.transpose(-1, -2)) + trans
++    return torch.matmul(pose, rot) + trans
+ 
+ 
+ def num_unique_matches(match_list: list[dict]):
+diff --git a/protenix/utils/permutation/permutation.py b/protenix/utils/permutation/permutation.py
+index e658043..6c5ac05 100644
+--- a/protenix/utils/permutation/permutation.py
++++ b/protenix/utils/permutation/permutation.py
+@@ -216,12 +216,19 @@ class SymmetricPermutation(object):
+         if permute_pred_indices:
+             # Update `permute_pred_indices' according to the results of atom permutation
+             updated_permute_pred_indices = []
++            if atom_perm_pred_indices is None:
++                # The symmetric-atom solving step produced no per-chain atom
++                # indices (solver failed / nothing to permute atomically): keep
++                # the chain-level permutation unchanged.
++                atom_perm_pred_indices = [None] * len(permute_pred_indices)
+             assert len(permute_pred_indices) == len(atom_perm_pred_indices)
+             for chain_perm_indices, atom_perm_indices in zip(
+                 permute_pred_indices, atom_perm_pred_indices
+             ):
+                 updated_permute_pred_indices.append(
+-                    chain_perm_indices[atom_perm_indices]
++                    chain_perm_indices
++                    if atom_perm_indices is None
++                    else chain_perm_indices[atom_perm_indices]
+                 )
+             permute_pred_indices = updated_permute_pred_indices
+         elif atom_perm_pred_indices is not None:
+diff --git a/protenix/utils/platform.py b/protenix/utils/platform.py
+new file mode 100644
+index 0000000..f280c21
+--- /dev/null
++++ b/protenix/utils/platform.py
+@@ -0,0 +1,107 @@
++# Copyright 2024 ByteDance and/or its affiliates.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#      http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++"""
++Backend abstraction for Protenix.
++
++This module is the only place that imports ``torch_npu``.  On GPU/CPU the
++``torch_npu`` package is absent or unused, so vanilla torch behavior is kept
++(``HAS_NPU == False`` and all helpers become no-ops / raise).
++"""
++
++from __future__ import annotations
++
++import torch
++
++try:
++    import torch_npu  # noqa: F401
++
++    _TORCH_NPU_IMPORTED = True
++except Exception:  # pragma: no cover - non-Ascend host
++    _TORCH_NPU_IMPORTED = False
++
++HAS_NPU = bool(
++    _TORCH_NPU_IMPORTED
++    and getattr(torch, "npu", None) is not None
++    and torch.npu.is_available()
++)
++
++
++def is_npu_tensor(t: torch.Tensor) -> bool:
++    """True only when running on Ascend with a tensor on the NPU device."""
++    return HAS_NPU and t.device.type == "npu"
++
++
++def npu_manual_seed(seed: int) -> None:
++    """Seed the NPU device RNG; no-op elsewhere."""
++    if HAS_NPU:
++        torch_npu.npu.manual_seed(seed)
++
++
++def npu_manual_seed_all(seed: int) -> None:
++    """Seed all NPU devices' RNG; no-op elsewhere."""
++    if HAS_NPU:
++        torch_npu.npu.manual_seed_all(seed)
++
++
++def npu_format_cast(t: torch.Tensor, fmt: int) -> torch.Tensor:
++    """ACL_FORMAT_ND cast on NPU; identity elsewhere."""
++    if HAS_NPU:
++        return torch_npu.npu_format_cast(t, fmt)
++    return t
++
++
++def npu_fusion_attention(
++    query: torch.Tensor,
++    key: torch.Tensor,
++    value: torch.Tensor,
++    biases: list[torch.Tensor],
++) -> torch.Tensor:
++    """Ascend fused attention kernel (BNSD, PSE bias support).
++
++    Only valid on NPU; guarded by ``HAS_NPU`` at call sites.
++    """
++    if not HAS_NPU:
++        raise RuntimeError("npu_fusion_attention is only available on Ascend NPU")
++    if len(biases) == 0:
++        return torch_npu.npu_fusion_attention(
++            query, key, value, head_num=query.shape[1], input_layout="BNSD"
++        )[0]
++
++    # TriangleAttention supplies [mask_bias, triangle_bias]. Keep the mask
++    # separate so it does not have to be materialized into the BNSS PSE tensor.
++    if len(biases) == 2:
++        mask_bias, triangle_bias = biases
++        atten_mask = (mask_bias != 0).expand(-1, 1, query.shape[-2], -1)
++        return torch_npu.npu_fusion_attention(
++            query,
++            key,
++            value,
++            head_num=query.shape[1],
++            input_layout="BNSD",
++            pse=triangle_bias,
++            atten_mask=atten_mask,
++        )[0]
++
++    sum_bias = biases[0]
++    for bias in biases[1:]:
++        sum_bias = sum_bias + bias
++    expanded_biases = sum_bias.expand(-1, query.shape[1], query.shape[2], -1)
++    return torch_npu.npu_fusion_attention(
++        query,
++        key,
++        value,
++        head_num=query.shape[1],
++        input_layout="BNSD",
++        pse=expanded_biases,
++    )[0]
+diff --git a/protenix/utils/scatter_utils.py b/protenix/utils/scatter_utils.py
+index 71d5692..8e9074e 100644
+--- a/protenix/utils/scatter_utils.py
++++ b/protenix/utils/scatter_utils.py
+@@ -18,6 +18,11 @@ from typing import Optional
+ 
+ import torch
+ 
++try:
++    import mx_driving
++except ImportError:
++    mx_driving = None
++
+ 
+ def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int) -> torch.Tensor:
+     if dim < 0:
+@@ -31,6 +36,98 @@ def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int) -> torch.Tensor:
+     return src
+ 
+ 
++def _is_npu_tensor(tensor: Optional[torch.Tensor]) -> bool:
++    return tensor is not None and tensor.device.type == "npu"
++
++
++def _normalize_dim(dim: int, ndim: int) -> int:
++    if dim < 0:
++        dim += ndim
++    if dim < 0 or dim >= ndim:
++        raise IndexError(f"Dimension out of range (expected 0 <= dim < {ndim}, got {dim})")
++    return dim
++
++
++def _mx_ready_index(index: torch.Tensor, src: torch.Tensor, dim: int) -> torch.Tensor:
++    return broadcast(index, src, dim).to(device=src.device, dtype=torch.int32)
++
++
++def _mx_cast_out(out: Optional[torch.Tensor], dtype: torch.dtype) -> Optional[torch.Tensor]:
++    if out is None or out.dtype == torch.float32:
++        return out
++    return out.float()
++
++
++
++def _mx_scatter_add(
++    src: torch.Tensor,
++    index: torch.Tensor,
++    dim: int,
++    out: Optional[torch.Tensor],
++    dim_size: Optional[int],
++) -> torch.Tensor:
++    src_dtype = src.dtype
++    dim = _normalize_dim(dim, src.dim())
++    result = mx_driving.scatter_add(
++        src.float(), _mx_ready_index(index, src, dim), _mx_cast_out(out, src_dtype), dim, dim_size
++    )
++    return result.to(src_dtype)
++
++
++def _mx_scatter_mean(
++    src: torch.Tensor,
++    index: torch.Tensor,
++    dim: int,
++    out: Optional[torch.Tensor],
++    dim_size: Optional[int],
++) -> torch.Tensor:
++    src_dtype = src.dtype
++    dim = _normalize_dim(dim, src.dim())
++    result = mx_driving.scatter_mean(
++        src.float(), _mx_ready_index(index, src, dim), _mx_cast_out(out, src_dtype), dim, dim_size
++    )
++    return result.to(src_dtype)
++
++
++def _mx_scatter_max_dim0(
++    src: torch.Tensor,
++    index: torch.Tensor,
++    out: Optional[torch.Tensor],
++    dim_size: Optional[int],
++) -> torch.Tensor:
++    src_dtype = src.dtype
++    index = _mx_ready_index(index, src, 0)
++    if out is None and dim_size is not None:
++        size = list(src.size())
++        size[0] = dim_size
++        out = torch.full(size, -float("inf"), dtype=torch.float32, device=src.device)
++    result, _ = mx_driving.scatter_max(src.float(), index, _mx_cast_out(out, src_dtype))
++    return result.to(src_dtype)
++
++
++def _scatter_cpu(
++    src: torch.Tensor,
++    index: torch.Tensor,
++    dim: int,
++    out: Optional[torch.Tensor],
++    dim_size: Optional[int],
++    reduce: str,
++) -> torch.Tensor:
++    device = src.device
++    cpu_out = out.cpu() if out is not None else None
++    if reduce == "sum" or reduce == "add":
++        return scatter_sum(src.cpu(), index.cpu(), dim, cpu_out, dim_size).to(device)
++    if reduce == "mul":
++        return scatter_mul(src.cpu(), index.cpu(), dim, cpu_out, dim_size).to(device)
++    if reduce == "mean":
++        return scatter_mean(src.cpu(), index.cpu(), dim, cpu_out, dim_size).to(device)
++    if reduce == "min":
++        return scatter_min(src.cpu(), index.cpu(), dim, cpu_out, dim_size)[0].to(device)
++    if reduce == "max":
++        return scatter_max(src.cpu(), index.cpu(), dim, cpu_out, dim_size)[0].to(device)
++    raise ValueError
++
++
+ def scatter_sum(
+     src: torch.Tensor,
+     index: torch.Tensor,
+@@ -201,15 +298,25 @@ def scatter(
+ 
+         torch.Size([10, 3, 64])
+     """
+-    if reduce == "sum" or reduce == "add":
+-        return scatter_sum(src, index, dim, out, dim_size)
+-    if reduce == "mul":
+-        return scatter_mul(src, index, dim, out, dim_size)
+-    elif reduce == "mean":
+-        return scatter_mean(src, index, dim, out, dim_size)
+-    elif reduce == "min":
+-        return scatter_min(src, index, dim, out, dim_size)[0]
+-    elif reduce == "max":
+-        return scatter_max(src, index, dim, out, dim_size)[0]
+-    else:
++    if not _is_npu_tensor(src) or mx_driving is None:
++        if reduce == "sum" or reduce == "add":
++            return scatter_sum(src, index, dim, out, dim_size)
++        if reduce == "mul":
++            return scatter_mul(src, index, dim, out, dim_size)
++        if reduce == "mean":
++            return scatter_mean(src, index, dim, out, dim_size)
++        if reduce == "min":
++            return scatter_min(src, index, dim, out, dim_size)[0]
++        if reduce == "max":
++            return scatter_max(src, index, dim, out, dim_size)[0]
+         raise ValueError
++
++    if reduce == "sum" or reduce == "add":
++        return _mx_scatter_add(src, index, dim, out, dim_size)
++    if reduce == "mean":
++        return _mx_scatter_mean(src, index, dim, out, dim_size)
++    if reduce == "max" and _normalize_dim(dim, src.dim()) == 0:
++        return _mx_scatter_max_dim0(src, index, out, dim_size)
++    if reduce == "min" and out is None and _normalize_dim(dim, src.dim()) == 0:
++        return -_mx_scatter_max_dim0(-src, index, None, dim_size)
++    return _scatter_cpu(src, index, dim, out, dim_size, reduce)
+diff --git a/protenix/utils/seed.py b/protenix/utils/seed.py
+index 319c29b..ff5939d 100644
+--- a/protenix/utils/seed.py
++++ b/protenix/utils/seed.py
+@@ -18,12 +18,16 @@ import random
+ import numpy as np
+ import torch
+ 
++from protenix.utils.platform import npu_manual_seed, npu_manual_seed_all, HAS_NPU
+ 
+ def seed_everything(seed, deterministic):
+     random.seed(seed)
+     np.random.seed(seed)
+     torch.random.manual_seed(seed)
+     torch.cuda.manual_seed_all(seed)
++    if HAS_NPU:
++        npu_manual_seed_all(seed)
++        npu_manual_seed(seed)
+     if deterministic:
+         torch.backends.cudnn.benchmark = False
+         # torch.backends.cudnn.deterministic=True applies to CUDA convolution operations, and nothing else.
+diff --git a/runner/inference.py b/runner/inference.py
+index 8edd329..aca36ac 100644
+--- a/runner/inference.py
++++ b/runner/inference.py
+@@ -18,16 +18,25 @@ import time
+ import traceback
+ import urllib.request
+ from argparse import Namespace
+-from contextlib import nullcontext
++from contextlib import contextmanager, nullcontext
+ from os.path import exists as opexists, join as opjoin
+ from typing import Any, Mapping
+ 
+ import numpy as np
++
++from rdkit import Chem as _rdkit_chem  # noqa: F401
++from rdkit.Chem import AllChem as _rdkit_all_chem  # noqa: F401
++
+ import torch
+ import torch.distributed as dist
+ from biotite.structure import AtomArray
+ 
+ 
++from protenix.utils.platform import HAS_NPU
++
++if HAS_NPU:
++    from torch_npu.contrib import transfer_to_npu  # noqa: F401  (patches torch.cuda -> torch.npu)
++
+ from configs.configs_base import configs as configs_base
+ from configs.configs_data import data_configs
+ from configs.configs_inference import inference_configs
+@@ -43,6 +52,128 @@ from protenix.web_service.dependency_url import URL
+ from runner.dumper import DataDumper
+ 
+ logger = logging.getLogger(__name__)
++
++
++@contextmanager
++def _skip_random_init():
++    """[lazy_init] No-op the random parameter initializers during model
++    construction. The checkpoint is loaded right afterwards with
++    load_state_dict(strict=True), which overwrites every parameter and
++    persistent buffer, so the random values are never observed.
++    """
++    import torch.nn.init as tinit
++
++    import protenix.model.modules.primitives as tprim
++    import protenix.model.triangular.layers as tlay
++
++    def _noop(t, *args, **kwargs):
++        return t
++
++    saved = []
++    for mod, names in [
++        (
++            tinit,
++            [
++                "kaiming_uniform_",
++                "kaiming_normal_",
++                "xavier_uniform_",
++                "xavier_normal_",
++                "uniform_",
++                "normal_",
++            ],
++        ),
++        (tlay, ["trunc_normal_init_"]),
++        (tprim, ["trunc_normal_init_"]),
++    ]:
++        for name in names:
++            saved.append((mod, name, getattr(mod, name)))
++            setattr(mod, name, _noop)
++    try:
++        yield
++    finally:
++        for mod, name, fn in saved:
++            setattr(mod, name, fn)
++
++
++def _apply_dead_module_skip(model: torch.nn.Module, threshold: float = 1e-30) -> dict:
++    """
++    [deadskip] Skip modules whose checkpoint weights are all ~0.
++    """
++    from protenix.model.modules.primitives import Transition
++    from protenix.model.modules.transformer import AttentionPairBias, AtomAttentionEncoder
++    from protenix.model.triangular.triangular import (
++        TriangleAttention,
++        TriangleMultiplicativeUpdate,
++    )
++
++    def _is_dead(module: torch.nn.Module) -> bool:
++        params = [p for p in module.parameters() if p.numel() > 0]
++        if not params:
++            return False
++        return all(float(p.abs().max()) < threshold for p in params)
++
++    def _zero_linear_forward(out_features: int):
++        def fwd(input=None, *args, **kwargs):
++            return input.new_zeros(input.shape[:-1] + (out_features,))
++
++        return fwd
++
++    stats = {}
++    for name, mod in model.named_modules():
++        if isinstance(mod, Transition):
++            if _is_dead(mod):
++                mod.forward = lambda x, *a, **k: torch.zeros_like(x)
++                stats["transition"] = stats.get("transition", 0) + 1
++        elif isinstance(mod, AttentionPairBias):
++            if _is_dead(mod):
++                mod.forward = lambda a, *args, **kwargs: torch.zeros_like(a)
++                stats["attention_pair_bias"] = stats.get("attention_pair_bias", 0) + 1
++            else:
++                # Partially-alive APB: a dead pair-bias producer yields a bias
++                # of exactly 0 (softmax(scores + 0) == softmax(scores)).
++                if _is_dead(mod.linear_nobias_z):
++                    mod.linear_nobias_z.forward = _zero_linear_forward(
++                        mod.linear_nobias_z.out_features
++                    )
++                    stats["apb_bias_linear"] = stats.get("apb_bias_linear", 0) + 1
++                if _is_dead(mod.layernorm_z):
++                    # Only consumed by the (now zero) bias linear above.
++                    mod.layernorm_z.forward = lambda x, *a, **k: x
++                    stats["apb_bias_layernorm"] = stats.get("apb_bias_layernorm", 0) + 1
++        elif isinstance(mod, TriangleAttention):
++            if _is_dead(mod):
++                mod.forward = lambda x, *a, **k: torch.zeros_like(x)
++                stats["triangle_attention"] = stats.get("triangle_attention", 0) + 1
++        elif isinstance(mod, TriangleMultiplicativeUpdate):
++            if _is_dead(mod):
++
++                def _tmul_fwd(z, *a, _add_with_inplace=False, **k):
++                    # With _add_with_inplace the caller expects the module to
++                    # return z + update; update == 0, so return z as-is.
++                    return z if _add_with_inplace else torch.zeros_like(z)
++
++                mod.forward = _tmul_fwd
++                stats["triangle_multiplicative"] = stats.get("triangle_multiplicative", 0) + 1
++        elif isinstance(mod, AtomAttentionEncoder):
++            # Dead linears feeding p_lm (d/invd/v) and the additive pair
++            # updates (cl/cm); small_mlp is applied additively. All outputs
++            # are exactly 0 in stock arithmetic.
++            for lin_name in (
++                "linear_no_bias_d",
++                "linear_no_bias_invd",
++                "linear_no_bias_v",
++                "linear_no_bias_cl",
++                "linear_no_bias_cm",
++            ):
++                lin = getattr(mod, lin_name, None)
++                if lin is not None and _is_dead(lin):
++                    lin.forward = _zero_linear_forward(lin.out_features)
++                    stats["atom_encoder_linear"] = stats.get("atom_encoder_linear", 0) + 1
++            mlp = getattr(mod, "small_mlp", None)
++            if mlp is not None and _is_dead(mlp):
++                mlp.forward = lambda input, *a, **k: torch.zeros_like(input)
++                stats["atom_encoder_small_mlp"] = stats.get("atom_encoder_small_mlp", 0) + 1
++    return stats
+ """
+ Due to the fair-esm repository being archived,
+ it can no longer be updated to support newer versions of PyTorch.
+@@ -142,7 +273,18 @@ class InferenceRunner(object):
+         """
+         Initialize the Protenix model and move it to the appropriate device.
+         """
+-        self.model = Protenix(self.configs).to(self.device)
++        use_lazy_init = (
++            os.getenv("PROTENIX_LAZY_INIT", "1") == "1"
++            and self.configs.load_strict
++        )
++        if use_lazy_init:
++            self.print(
++                "[lazy_init] skipping random init during construction "
++                "(checkpoint will be loaded with strict=True)"
++            )
++        with _skip_random_init() if use_lazy_init else nullcontext():
++            self.model = Protenix(self.configs)
++        self.model.to(self.device)
+ 
+     def load_checkpoint(self) -> None:
+         """
+@@ -177,6 +319,12 @@ class InferenceRunner(object):
+             strict=self.configs.load_strict,
+         )
+         self.model.eval()
++        if os.getenv("PROTENIX_DEAD_SKIP", "1") == "1":
++            stats = _apply_dead_module_skip(self.model)
++            if stats:
++                self.print(f"[deadskip] skipped dead modules: {stats}")
++            else:
++                self.print("[deadskip] no dead modules found in this checkpoint")
+         self.print("Finish loading checkpoint.")
+ 
+         def count_parameters(model: torch.nn.Module) -> float:
+@@ -562,6 +710,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
+ 
+     num_data = len(dataloader.dataset)
+     t0_start = time.time()
++
+     for seed in seeds:
+         seed_everything(seed=seed, deterministic=configs.deterministic)
+         t1_start = time.time()
+@@ -613,13 +762,19 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
+                         if v != "non-polymer"
+                     },
+                 )
++                del prediction, data, atom_array, batch
+                 t2_end = time.time()
+                 logger.info(
+                     f"[Rank {DIST_WRAPPER.rank}] {sample_name} [seed:{seed}] succeeded. "
+                     f"Model forward time: {t2_end - t2_start:.2f}s. "
+                     f"Results saved to {configs.dump_dir}"
+                 )
+-                torch.cuda.empty_cache()
++                # [keep_pool] skip empty_cache on the success path so the
++                # caching allocator pool is reused by the next sample instead
++                # of being handed back to the driver (no effect on outputs;
++                # PROTENIX_KEEP_POOL=0 restores stock behaviour).
++                if os.getenv("PROTENIX_KEEP_POOL", "1") != "1":
++                    torch.cuda.empty_cache()
+             except Exception as e:
+                 error_message = (
+                     f"[Rank {DIST_WRAPPER.rank}] {sample_name} failed: {e}\n"
+@@ -765,7 +920,7 @@ def run() -> None:
+         f"with_feature: {model_feature.replace('-', ', ')}, "
+         f"model_version: {model_version}, dtype: {configs.dtype}"
+     )
+-    configs = update_gpu_compatible_configs(configs)
++    # configs = update_gpu_compatible_configs(configs)
+     logger.info(
+         f"Triangle kernels: multiplicative={configs.triangle_multiplicative}, "
+         f"attention={configs.triangle_attention}"
+diff --git a/runner/train.py b/runner/train.py
+index 9f53e5b..1a2e5e7 100644
+--- a/runner/train.py
++++ b/runner/train.py
+@@ -21,10 +21,18 @@ from argparse import Namespace
+ from contextlib import nullcontext
+ from typing import Any, Dict, Mapping, Tuple
+ 
++from rdkit import Chem as _rdkit_chem  # noqa: F401
++from rdkit.Chem import AllChem as _rdkit_all_chem  # noqa: F401
++
+ import torch
+ import torch.distributed as dist
+ import wandb
+ 
++from protenix.utils.platform import HAS_NPU
++
++if HAS_NPU:
++    from torch_npu.contrib import transfer_to_npu  # noqa: F401  (patches torch.cuda -> torch.npu)
++
+ from configs.configs_base import configs as configs_base
+ from configs.configs_data import data_configs
+ from configs.configs_model_type import model_configs
+@@ -45,6 +53,9 @@ from tqdm import tqdm
+ 
+ from runner.ema import EMAWrapper
+ 
++import random
++import numpy as np
++
+ # Disable WANDB's console output capture to reduce unnecessary logging
+ os.environ["WANDB_CONSOLE"] = "off"
+ 
+@@ -540,6 +551,14 @@ class AF3Trainer(object):
+                     batch, _ = self.model_forward(batch, mode=mode)
+                     # Loss forward
+                     _, loss_dict, batch = self.get_loss(batch, mode="eval")
++                    # bf16 rollouts can overflow on large structures: skip
++                    # metric aggregation for NaN/Inf predictions instead of
++                    # crashing downstream (lddt/rankers).
++                    pred_coord_eval = batch.get("pred_dict", {}).get("coordinate")
++                    if pred_coord_eval is not None and not torch.isfinite(pred_coord_eval).all():
++                        self.print(f"Skipping {pid}: pred coordinates contain NaN/Inf")
++                        evaluated_pids.append(pid)
++                        continue
+                     # lDDT metrics
+                     lddt_dict = self.get_metrics(batch)
+                     lddt_metrics = self.aggregate_metrics(lddt_dict, batch)
+diff --git a/tests/test_weighted_rigid_align.py b/tests/test_weighted_rigid_align.py
+index 5af13b8..90de9e5 100644
+--- a/tests/test_weighted_rigid_align.py
++++ b/tests/test_weighted_rigid_align.py
+@@ -59,26 +59,28 @@ class TestWeightedRigidAlign(unittest.TestCase):
+         )
+         self.assertTrue(
+             torch.allclose(
+-                x * (mask + mask2).float()[..., None],
+-                x_x_aligned * (mask + mask2).float()[..., None],
++                x * (mask + mask2).float().unsqueeze(-1),
++                x_x_aligned * (mask + mask2).float().unsqueeze(-1),
+                 atol=1e-6,
+             )
+         )
+ 
++
+         # check batch order
+         out_batch = weighted_rigid_align(
+             x=x, x_target=x_target, atom_weight=weight * mask
+         )
+         out1 = weighted_rigid_align(
+-            x=x[1][None, ...],
+-            x_target=x_target[1][None, ...],
+-            atom_weight=weight[1][None, ...] * mask[1][None, ...],
++            x=x[1].unsqueeze(0),
++            x_target=x_target[1].unsqueeze(0),
++            atom_weight=weight[1].unsqueeze(0) * mask[1].unsqueeze(0),
+         )
+         out2 = weighted_rigid_align(
+-            x=x[2][None, ...],
+-            x_target=x_target[2][None, ...],
+-            atom_weight=weight[2][None, ...] * mask[2][None, ...],
++            x=x[2].unsqueeze(0),
++            x_target=x_target[2].unsqueeze(0),
++            atom_weight=weight[2].unsqueeze(0) * mask[2].unsqueeze(0),
+         )
++
+         self.assertTrue(torch.allclose(out_batch[1], out1[0]))
+         self.assertTrue(torch.allclose(out_batch[2], out2[0]))
+ 
+@@ -103,16 +105,17 @@ class TestWeightedRigidAlign(unittest.TestCase):
+             atom_weight=weight,  # * mask
+         )
+         out11 = weighted_rigid_align(
+-            x=x[1, 1][None, ...],
+-            x_target=x_target[1, 1][None, ...],
+-            atom_weight=weight[1, 1][None, ...],  # * mask[1, 1][None, ...],
++            x=x[1, 1].unsqueeze(0),
++            x_target=x_target[1, 1].unsqueeze(0),
++            atom_weight=weight[1, 1].unsqueeze(0),  # * mask[1, 1][None, ...],
+         )
+         out03 = weighted_rigid_align(
+-            x=x[0, 3][None, ...],
+-            x_target=x_target[0, 3][None, ...],
+-            atom_weight=weight[0, 3][None, ...],  # * mask[0, 3][None, ...],
++            x=x[0, 3].unsqueeze(0),
++            x_target=x_target[0, 3].unsqueeze(0),
++            atom_weight=weight[0, 3].unsqueeze(0),  # * mask[0, 3][None, ...],
+         )
+ 
++
+         self.assertTrue(torch.allclose(out_batch[1, 1], out11[0]))
+         self.assertTrue(torch.allclose(out_batch[0, 3], out03[0]))
+ 
