@@ -78,39 +78,40 @@ def run_mmseqs2_service(
             "No user agent specified. Please set a user agent (e.g., 'toolname/version contact@email') to help us debug in case of problems. This warning will become an error in the future."
         )
 
+    def request_with_retries(method, url, **kwargs):
+        """Allow five transport retries after the initial request."""
+        max_retries = 5
+        for retry in range(max_retries + 1):
+            try:
+                # https://requests.readthedocs.io/en/latest/user/advanced/#advanced
+                # "good practice to set connect timeouts to slightly larger than a multiple of 3"
+                return method(
+                    url,
+                    timeout=6.02,
+                    headers=headers,
+                    auth=HTTPBasicAuth(username, password),
+                    **kwargs,
+                )
+            except requests.exceptions.RequestException as error:
+                if retry == max_retries:
+                    raise
+                logger.warning(
+                    f"MSA server request failed. Retrying... ({retry + 1}/{max_retries})"
+                )
+                logger.warning(f"Error: {error}")
+                time.sleep(5)
+
     def submit(seqs, mode, N=101):
         n, query = N, ""
         for seq in seqs:
             query += f"{seq}\n"
             n += 1
 
-        while True:
-            error_count = 0
-            try:
-                # https://requests.readthedocs.io/en/latest/user/advanced/#advanced
-                # "good practice to set connect timeouts to slightly larger than a multiple of 3"
-                res = requests.post(
-                    f"{host_url}/{submission_endpoint}",
-                    data={"q": query, "mode": mode, "email": email},
-                    timeout=6.02,
-                    headers=headers,
-                    auth=HTTPBasicAuth(username, password),
-                )
-            except requests.exceptions.Timeout:
-                logger.warning("Timeout while submitting to MSA server. Retrying...")
-                continue
-            except Exception as e:
-                error_count += 1
-                logger.warning(
-                    f"Error while fetching result from MSA server. Retrying... ({error_count}/5)"
-                )
-                logger.warning(f"Error: {e}")
-                time.sleep(5)
-                if error_count > 5:
-                    raise
-                continue
-            break
-
+        res = request_with_retries(
+            requests.post,
+            f"{host_url}/{submission_endpoint}",
+            data={"q": query, "mode": mode, "email": email},
+        )
         try:
             out = res.json()
         except ValueError:
@@ -119,31 +120,7 @@ def run_mmseqs2_service(
         return out
 
     def status(ID):
-        while True:
-            error_count = 0
-            try:
-                res = requests.get(
-                    f"{host_url}/ticket/{ID}",
-                    timeout=6.02,
-                    headers=headers,
-                    auth=HTTPBasicAuth(username, password),
-                )
-            except requests.exceptions.Timeout:
-                logger.warning(
-                    "Timeout while fetching status from MSA server. Retrying..."
-                )
-                continue
-            except Exception as e:
-                error_count += 1
-                logger.warning(
-                    f"Error while fetching result from MSA server. Retrying... ({error_count}/5)"
-                )
-                logger.warning(f"Error: {e}")
-                time.sleep(5)
-                if error_count > 5:
-                    raise
-                continue
-            break
+        res = request_with_retries(requests.get, f"{host_url}/ticket/{ID}")
         try:
             out = res.json()
         except ValueError:
@@ -152,31 +129,7 @@ def run_mmseqs2_service(
         return out
 
     def download(ID, path):
-        error_count = 0
-        while True:
-            try:
-                res = requests.get(
-                    f"{host_url}/result/download/{ID}",
-                    timeout=6.02,
-                    headers=headers,
-                    auth=HTTPBasicAuth(username, password),
-                )
-            except requests.exceptions.Timeout:
-                logger.warning(
-                    "Timeout while fetching result from MSA server. Retrying..."
-                )
-                continue
-            except Exception as e:
-                error_count += 1
-                logger.warning(
-                    f"Error while fetching result from MSA server. Retrying... ({error_count}/5)"
-                )
-                logger.warning(f"Error: {e}")
-                time.sleep(5)
-                if error_count > 5:
-                    raise
-                continue
-            break
+        res = request_with_retries(requests.get, f"{host_url}/result/download/{ID}")
         with open(path, "wb") as out:
             out.write(res.content)
 

@@ -270,6 +270,35 @@ class TestColabFoldHandoff(unittest.TestCase):
             ):
                 self.search_directories(3, Path(directory) / "msa")
 
+    def test_retry_exhaustion_propagates_before_json_is_written(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_path = self.write_input(root, 3)
+            server = ColabFoldServer()
+            paired_attempts = 0
+
+            def post(url, **kwargs):
+                nonlocal paired_attempts
+                if url.endswith("/ticket/pair"):
+                    paired_attempts += 1
+                    if paired_attempts <= 6:
+                        raise writer.requests.exceptions.ConnectionError(
+                            "synthetic paired connection error"
+                        )
+                return server.post(url, **kwargs)
+
+            with server.activate(), patch.object(
+                writer.requests, "post", side_effect=post
+            ), patch.object(writer.time, "sleep"), self.assertRaisesRegex(
+                writer.requests.exceptions.ConnectionError,
+                "synthetic paired connection error",
+            ):
+                self.search.update_infer_json(
+                    str(input_path), str(root / "output"), mode="colabfold"
+                )
+            self.assertEqual(paired_attempts, 6)
+            self.assertFalse((root / "input-update-msa.json").exists())
+
     def test_missing_later_pair_does_not_replace_earlier_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "msa"
