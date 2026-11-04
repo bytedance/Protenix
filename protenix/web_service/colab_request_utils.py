@@ -29,6 +29,18 @@ username = "example_user"
 password = "example_password"
 
 
+def validate_msa_query(msa_path: str, query_sequence: str) -> None:
+    """Check the two-line query record written by the ColabFold converter."""
+    with open(msa_path, "r") as f:
+        header = f.readline().strip()
+        sequence = f.readline().strip()
+    if header != ">query" or sequence != query_sequence:
+        raise ValueError(
+            f"Unexpected query in ColabFold MSA: {msa_path}. "
+            "Use a new result directory."
+        )
+
+
 def parse_fasta_string(fasta_string: str) -> Dict:
     fasta_dict = {}
     lines = fasta_string.strip().split("\n")
@@ -42,7 +54,7 @@ def parse_fasta_string(fasta_string: str) -> Dict:
 
 
 def run_mmseqs2_service(
-    x,
+    x: str | List[str] | Tuple[str, ...],
     prefix,
     use_env=True,
     use_filter=True,
@@ -54,7 +66,7 @@ def run_mmseqs2_service(
     user_agent: str = "",
     email: str = "",
     server_mode: str = "protenix",
-) -> Tuple[List[str], List[str]]:
+) -> str | None:
     if server_mode == "protenix":
         assert host_url == "https://protenix-server.com/api/msa"
     submission_endpoint = "ticket/pair" if use_pairing else "ticket/msa"
@@ -66,39 +78,40 @@ def run_mmseqs2_service(
             "No user agent specified. Please set a user agent (e.g., 'toolname/version contact@email') to help us debug in case of problems. This warning will become an error in the future."
         )
 
+    def request_with_retries(method, url, **kwargs):
+        """Allow five transport retries after the initial request."""
+        max_retries = 5
+        for retry in range(max_retries + 1):
+            try:
+                # https://requests.readthedocs.io/en/latest/user/advanced/#advanced
+                # "good practice to set connect timeouts to slightly larger than a multiple of 3"
+                return method(
+                    url,
+                    timeout=6.02,
+                    headers=headers,
+                    auth=HTTPBasicAuth(username, password),
+                    **kwargs,
+                )
+            except requests.exceptions.RequestException as error:
+                if retry == max_retries:
+                    raise
+                logger.warning(
+                    f"MSA server request failed. Retrying... ({retry + 1}/{max_retries})"
+                )
+                logger.warning(f"Error: {error}")
+                time.sleep(5)
+
     def submit(seqs, mode, N=101):
         n, query = N, ""
         for seq in seqs:
             query += f"{seq}\n"
             n += 1
 
-        while True:
-            error_count = 0
-            try:
-                # https://requests.readthedocs.io/en/latest/user/advanced/#advanced
-                # "good practice to set connect timeouts to slightly larger than a multiple of 3"
-                res = requests.post(
-                    f"{host_url}/{submission_endpoint}",
-                    data={"q": query, "mode": mode, "email": email},
-                    timeout=6.02,
-                    headers=headers,
-                    auth=HTTPBasicAuth(username, password),
-                )
-            except requests.exceptions.Timeout:
-                logger.warning("Timeout while submitting to MSA server. Retrying...")
-                continue
-            except Exception as e:
-                error_count += 1
-                logger.warning(
-                    f"Error while fetching result from MSA server. Retrying... ({error_count}/5)"
-                )
-                logger.warning(f"Error: {e}")
-                time.sleep(5)
-                if error_count > 5:
-                    raise
-                continue
-            break
-
+        res = request_with_retries(
+            requests.post,
+            f"{host_url}/{submission_endpoint}",
+            data={"q": query, "mode": mode, "email": email},
+        )
         try:
             out = res.json()
         except ValueError:
@@ -107,31 +120,7 @@ def run_mmseqs2_service(
         return out
 
     def status(ID):
-        while True:
-            error_count = 0
-            try:
-                res = requests.get(
-                    f"{host_url}/ticket/{ID}",
-                    timeout=6.02,
-                    headers=headers,
-                    auth=HTTPBasicAuth(username, password),
-                )
-            except requests.exceptions.Timeout:
-                logger.warning(
-                    "Timeout while fetching status from MSA server. Retrying..."
-                )
-                continue
-            except Exception as e:
-                error_count += 1
-                logger.warning(
-                    f"Error while fetching result from MSA server. Retrying... ({error_count}/5)"
-                )
-                logger.warning(f"Error: {e}")
-                time.sleep(5)
-                if error_count > 5:
-                    raise
-                continue
-            break
+        res = request_with_retries(requests.get, f"{host_url}/ticket/{ID}")
         try:
             out = res.json()
         except ValueError:
@@ -140,31 +129,7 @@ def run_mmseqs2_service(
         return out
 
     def download(ID, path):
-        error_count = 0
-        while True:
-            try:
-                res = requests.get(
-                    f"{host_url}/result/download/{ID}",
-                    timeout=6.02,
-                    headers=headers,
-                    auth=HTTPBasicAuth(username, password),
-                )
-            except requests.exceptions.Timeout:
-                logger.warning(
-                    "Timeout while fetching result from MSA server. Retrying..."
-                )
-                continue
-            except Exception as e:
-                error_count += 1
-                logger.warning(
-                    f"Error while fetching result from MSA server. Retrying... ({error_count}/5)"
-                )
-                logger.warning(f"Error: {e}")
-                time.sleep(5)
-                if error_count > 5:
-                    raise
-                continue
-            break
+        res = request_with_retries(requests.get, f"{host_url}/result/download/{ID}")
         with open(path, "wb") as out:
             out.write(res.content)
 
@@ -198,6 +163,10 @@ def run_mmseqs2_service(
 
     # call mmseqs2 api
     tar_gz_file = f"{path}/out.tar.gz"
+    if server_mode == "colabfold" and not use_pairing:
+        query_id = str(int(x.split("\n")[0].split("_")[-1]))
+        query_seq = x.split("\n")[1]
+        real_non_pairing_fpath = os.path.join(prefix, query_id, "non_pairing.a3m")
     N, REDO = 101, True
 
     # deduplicate and keep track of order
@@ -279,21 +248,12 @@ def run_mmseqs2_service(
                         prefix, "bfd.mgnify30.metaeuk30.smag30.a3m"
                     )
                     with open(env_a3m_fpath, "r") as f:
-                        env_a3m_dict = parse_fasta_string(
-                            f.read().replace("\x00", "")
-                        )
+                        env_a3m_dict = parse_fasta_string(f.read().replace("\x00", ""))
                     uniref_a3m_fpath = os.path.join(prefix, "uniref.a3m")
                     with open(uniref_a3m_fpath, "r") as f:
                         uniref_a3m_dict = parse_fasta_string(
                             f.read().replace("\x00", "")
                         )
-                    query_id = str(int(x.split("\n")[0].split("_")[-1]))
-                    query_seq = x.split("\n")[1]
-                    real_non_pairing_fpath = os.path.join(
-                        prefix,
-                        query_id,
-                        "non_pairing.a3m",
-                    )
                     output_dir = os.path.dirname(real_non_pairing_fpath)
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
@@ -309,7 +269,6 @@ def run_mmseqs2_service(
                                 continue
                             else:
                                 f.write(f">{k}\n{v}\n")
-                    return os.path.abspath(os.path.dirname(real_non_pairing_fpath))
                 else:
                     # pairing mode
                     pair_a3m = os.path.join(prefix, "pair.a3m")
@@ -334,3 +293,7 @@ def run_mmseqs2_service(
                                     ks[0] = f"{ks[0]}_{i}/"
                                     k = "\t".join(ks)
                                     f.write(f">{k}_{i}\n{v}\n")
+
+    if server_mode == "colabfold" and not use_pairing:
+        validate_msa_query(real_non_pairing_fpath, query_seq)
+        return os.path.abspath(os.path.dirname(real_non_pairing_fpath))
