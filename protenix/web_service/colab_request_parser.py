@@ -15,6 +15,7 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import traceback
 from collections import defaultdict
@@ -32,6 +33,7 @@ from protenix.data.inference.json_to_feature import SampleDictToFeatures
 from protenix.web_service.colab_request_utils import (
     parse_fasta_string,
     run_mmseqs2_service,
+    validate_msa_query,
 )
 from protenix.web_service.dependency_url import URL
 
@@ -247,7 +249,8 @@ class RequestParser(object):
         msa_res_dir: str,
         email: str = "",
         mode: str = "protenix",
-    ) -> None:
+    ) -> List[str] | None:
+        """Search MSAs, returning per-query result directories in ColabFold mode."""
         lines = []
         for idx, seq in enumerate(seqs_pending_msa):
             lines.append(f">query_{idx}\n")
@@ -281,51 +284,60 @@ class RequestParser(object):
             fasta_dict = parse_fasta_string(query_seqs)
             for i, (seq_name, seq) in enumerate(fasta_dict.items()):
                 print(f"Searching MSA for {seq_name} with the sequence itself.")
-                try:
-                    res_dir = run_mmseqs2_service(
-                        f">{seq_name}\n{seq}",
-                        os.path.join(msa_res_dir, str(i)),
-                        use_env=True,
-                        use_filter=True,
-                        use_templates=False,
-                        filter=None,
-                        use_pairing=False,
-                        pairing_strategy="greedy",
-                        host_url=MMSEQS_SERVICE_HOST_URL,
-                        user_agent="colabfold/1.5.5",
-                        email=email,
-                        server_mode=mode,
-                    )
-                    res_dirs.append(res_dir)
-                except Exception as e:
-                    error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
-                    print(error_message)
+                res_dir = run_mmseqs2_service(
+                    f">{seq_name}\n{seq}",
+                    os.path.join(msa_res_dir, str(i)),
+                    use_env=True,
+                    use_filter=True,
+                    use_templates=False,
+                    filter=None,
+                    use_pairing=False,
+                    pairing_strategy="greedy",
+                    host_url=MMSEQS_SERVICE_HOST_URL,
+                    user_agent="colabfold/1.5.5",
+                    email=email,
+                    server_mode=mode,
+                )
+                res_dirs.append(res_dir)
             if len(fasta_dict) > 1:
                 # search paired MSA
-                try:
-                    run_mmseqs2_service(
-                        query_seqs,
-                        os.path.join(msa_res_dir, "complex"),
-                        use_env=True,
-                        use_filter=True,
-                        use_templates=False,
-                        filter=None,
-                        use_pairing=True,
-                        pairing_strategy="greedy",
-                        host_url=MMSEQS_SERVICE_HOST_URL,
-                        user_agent="colabfold/1.5.5",
-                        email=email,
-                        server_mode=mode,
-                    )
-                except Exception as e:
-                    error_message = f"MMSEQS2 failed with the following error message:\n{traceback.format_exc()}"
-                    print(error_message)
-            else:
-                pairing_msa_fpath = os.path.join(
-                    msa_res_dir,
-                    "0",
-                    "pairing.a3m",
+                complex_res_dir = os.path.join(msa_res_dir, "complex")
+                run_mmseqs2_service(
+                    query_seqs,
+                    complex_res_dir,
+                    use_env=True,
+                    use_filter=True,
+                    use_templates=False,
+                    filter=None,
+                    use_pairing=True,
+                    pairing_strategy="greedy",
+                    host_url=MMSEQS_SERVICE_HOST_URL,
+                    user_agent="colabfold/1.5.5",
+                    email=email,
+                    server_mode=mode,
                 )
+                paired_paths = [
+                    os.path.join(complex_res_dir, str(i), "pairing.a3m")
+                    for i in range(len(res_dirs))
+                ]
+                # Validate all sources before replacing any returned paired file.
+                for paired_path, seq in zip(paired_paths, fasta_dict.values()):
+                    validate_msa_query(paired_path, seq)
+                if set(Path(complex_res_dir).glob("*/pairing.a3m")) != {
+                    Path(path) for path in paired_paths
+                }:
+                    raise ValueError(
+                        "ColabFold paired MSA query set does not match the request. "
+                        "Use a new result directory."
+                    )
+                # Each returned directory supplies both MSA paths to callers.
+                for paired_path, res_dir in zip(paired_paths, res_dirs):
+                    shutil.copyfile(
+                        paired_path,
+                        os.path.join(res_dir, "pairing.a3m"),
+                    )
+            else:
+                pairing_msa_fpath = os.path.join(res_dirs[0], "pairing.a3m")
                 with open(pairing_msa_fpath, "w") as f:
                     f.write(">query\n" + query_seqs.split("\n")[-1])
             return res_dirs
