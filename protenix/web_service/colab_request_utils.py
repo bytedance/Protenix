@@ -22,6 +22,8 @@ import requests
 from requests.auth import HTTPBasicAuth
 from tqdm import tqdm
 
+from protenix.data.tools.common import parse_fasta
+
 TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [elapsed: {elapsed} estimate remaining: {remaining}]"
 logger = logging.getLogger(__name__)
 
@@ -30,15 +32,25 @@ password = "example_password"
 
 
 def parse_fasta_string(fasta_string: str) -> Dict:
-    fasta_dict = {}
-    lines = fasta_string.strip().split("\n")
-    for line in lines:
-        if line.startswith(">"):
-            header = line[1:].strip()
-            fasta_dict[header] = ""
-        else:
-            fasta_dict[header] += line.strip()
-    return fasta_dict
+    """Return a query-header mapping, keeping the last record for each key.
+
+    MSA conversion uses parse_fasta_records() to retain repeated headers.
+    """
+    return dict(parse_fasta_records(fasta_string))
+
+
+def parse_fasta_records(fasta_string: str) -> List[Tuple[str, str]]:
+    """Parse ordered FASTA records, preserving repeated headers and gap rows.
+
+    Args:
+        fasta_string (str): FASTA text, optionally with multiline sequences.
+
+    Returns:
+        List[Tuple[str, str]]: Headers and sequences in their original order.
+
+    """
+    sequences, headers = parse_fasta(fasta_string)
+    return [(header.strip(), sequence) for header, sequence in zip(headers, sequences)]
 
 
 def run_mmseqs2_service(
@@ -279,12 +291,12 @@ def run_mmseqs2_service(
                         prefix, "bfd.mgnify30.metaeuk30.smag30.a3m"
                     )
                     with open(env_a3m_fpath, "r") as f:
-                        env_a3m_dict = parse_fasta_string(
+                        env_a3m_records = parse_fasta_records(
                             f.read().replace("\x00", "")
                         )
                     uniref_a3m_fpath = os.path.join(prefix, "uniref.a3m")
                     with open(uniref_a3m_fpath, "r") as f:
-                        uniref_a3m_dict = parse_fasta_string(
+                        uniref_a3m_records = parse_fasta_records(
                             f.read().replace("\x00", "")
                         )
                     query_id = str(int(x.split("\n")[0].split("_")[-1]))
@@ -299,12 +311,12 @@ def run_mmseqs2_service(
                         os.makedirs(output_dir)
                     with open(real_non_pairing_fpath, "w") as f:
                         f.write(f">query\n{query_seq}\n")
-                        for k, v in env_a3m_dict.items():
+                        for k, v in env_a3m_records:
                             if k.startswith("query_"):
                                 continue
                             else:
                                 f.write(f">{k}\n{v}\n")
-                        for k, v in uniref_a3m_dict.items():
+                        for k, v in uniref_a3m_records:
                             if k.startswith("query_"):
                                 continue
                             else:
@@ -324,9 +336,10 @@ def run_mmseqs2_service(
                         output_dir = os.path.dirname(real_pairing_fpath)
                         if not os.path.exists(output_dir):
                             os.makedirs(output_dir)
-                        chunk_fasta = parse_fasta_string(chunk)
+                        # Shared row positions define the cross-chain pairing.
+                        chunk_records = parse_fasta_records(chunk)
                         with open(real_pairing_fpath, "w") as f:
-                            for i, (k, v) in enumerate(chunk_fasta.items()):
+                            for i, (k, v) in enumerate(chunk_records):
                                 if k.startswith("query_"):
                                     f.write(f">query\n{v}\n")
                                 else:
